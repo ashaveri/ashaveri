@@ -121,12 +121,14 @@ describe('each clause is a refusal, and the ones the platform waves through are 
   const { seed, publicKey: realKey } = keyWithKnownScalar(11);
   const valid = ed25519.sign(message, seed);
 
-  it('refuses the R = A, S = 0 forgery over a small-order key, which the platform takes for some messages', () => {
+  it('refuses the R = A, S = 0 forgery over every small-order key, whatever the platform makes of it', () => {
     // `[S]B = R + [k]A` with `S = 0` and `R = A` is `[(k + 1)]A = O`, which a point of order two, four or eight
-    // satisfies for one message in eight, four or two. So which spellings the platform waves through is a
-    // property of the message as much as of the key, and what is pinned here is that the strict rule waves
-    // through none of them.
-    let admittedByThePlatform = 0;
+    // satisfies for one message in eight, four or two, and the identity for every message. Which of those the
+    // platform waves through is a property of the build underneath: the Windows build of node 24.7.0 this was
+    // measured on takes several of them, and the Linux runner takes none. That is precisely why the clause list
+    // is stated here rather than left to whatever a platform's decoder happens to reject, and what is pinned is
+    // the part that holds on either: both strict readers refuse all of it, and the reason each one gives is the
+    // small-order key.
     for (const encoding of TORSION) {
       const key = fromHex(encoding);
       for (const label of ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth']) {
@@ -135,22 +137,24 @@ describe('each clause is a refusal, and the ones the platform waves through are 
         forgery.set(key, 0);
         expect(nobleStrictVerify(forgery, body, key), `the shipped rule on ${encoding}`).toBe(false);
         expect(preferredStrictVerify(forgery, body, key), `the guard on ${encoding}`).toBe(false);
-        if (nativeAlone(forgery, body, key)) admittedByThePlatform += 1;
+        expect(refusalBeforeTheEquation(forgery, key), encoding).toBe('the public key is a point of small order');
       }
     }
-    expect(admittedByThePlatform).toBeGreaterThan(0);
-    // The identity is the case that needs no luck: every message satisfies it, and both strict readers refuse it.
+    // The identity is the case that needs no luck: every message satisfies the equation on it, and the strict
+    // rule refuses it anyway.
     const identity = fromHex(IDENTITY_ENCODING);
     const trivial = new Uint8Array(64);
     trivial.set(identity, 0);
-    expect(nativeAlone(trivial, message, identity)).toBe(true);
     expect(preferredStrictVerify(trivial, message, identity)).toBe(false);
     expect(nobleStrictVerify(trivial, message, identity)).toBe(false);
   });
 
-  it('refuses a second spelling of the same point, which the platform reads as the key it spells', () => {
+  it('refuses a second spelling of the same point, and names the clause that does it', () => {
     // Only a `y` under nineteen has a second spelling, because the sign bit takes the two-hundred-and-fifty-fifth
-    // bit. The identity's is what this case is built on, since the identity accepts a signature without work.
+    // bit. The identity's is what this case is built on, since the identity accepts a signature without work. That
+    // a platform reads `y` modulo the prime is a property of that platform - the Windows build does, the Linux
+    // runner refuses the spelling outright - so the claim kept here is the one that does not move: the canonical
+    // clause fires, and it fires for the reason it states rather than as a side effect of the equation.
     const identity = fromHex(IDENTITY_ENCODING);
     const secondSpelling = toLittleEndian(FIELD_PRIME + 1n, 32);
     expect(fromLittleEndian(secondSpelling) % FIELD_PRIME).toBe(1n);
@@ -162,7 +166,6 @@ describe('each clause is a refusal, and the ones the platform waves through are 
     // refusing the same key, which is what makes each of them the reason it exists.
     expect(refusalBeforeTheEquation(forgery, identity)).toBe('the public key is a point of small order');
     expect(refusalBeforeTheEquation(forgery, secondSpelling)).toBe('the public key is not a canonical point encoding');
-    expect(nativeAlone(forgery, message, secondSpelling), 'the platform reduces the key modulo the prime').toBe(true);
     expect(preferredStrictVerify(forgery, message, secondSpelling)).toBe(false);
     expect(nobleStrictVerify(forgery, message, secondSpelling)).toBe(false);
   });
@@ -218,30 +221,48 @@ describe('the two paths check different equations, and that is measured', () => 
   const message = encode('small-order R');
   const { publicKey, scalar } = keyWithKnownScalar(7);
 
-  /** The signature the holder of this scalar could write with `R` fixed to the encoding given. */
-  function signatureWithFixedR(rBytes: Uint8Array): Uint8Array {
-    const hash =
+  /** The scalar the equation is checked against for a point half fixed to these bytes. */
+  function hashOf(rBytes: Uint8Array): bigint {
+    return (
       fromLittleEndian(Uint8Array.from(sha512(Buffer.concat([Buffer.from(rBytes), Buffer.from(publicKey), Buffer.from(message)])))) %
-      GROUP_ORDER;
-    return new Uint8Array([...rBytes, ...toLittleEndian((hash * scalar) % GROUP_ORDER, 32)]);
+      GROUP_ORDER
+    );
   }
 
-  it('the shipped rule admits seven small-order R encodings the runtime refuses, and the guard takes the runtime', () => {
-    // `[8](R + [k]A - [S]B) = 0` holds for every small-order R once `S` is `k` times the scalar; the exact
-    // equation `[S]B = R + [k]A` holds only for the identity. So the platform refuses seven encodings the
-    // library admits, and the guard - which is the clauses plus the platform - refuses them too.
-    const refusedByTheRuntime: string[] = [];
-    const admittedByBoth: string[] = [];
+  /** The signature the holder of this scalar could write with `R` fixed to the encoding given. */
+  function signatureWithFixedR(rBytes: Uint8Array): Uint8Array {
+    return new Uint8Array([...rBytes, ...toLittleEndian((hashOf(rBytes) * scalar) % GROUP_ORDER, 32)]);
+  }
+
+  it('parts on the small-order point halves, and never in the accepting direction', () => {
+    // `[8](R + [k]A - [S]B) = 0` holds for every small-order `R` once `S` is `k` times the scalar, and the exact
+    // equation `[S]B = R + [k]A` holds only for the identity. That split is curve arithmetic rather than a
+    // platform habit, so it is measured against the curve here: eight encodings satisfy the cleared equation,
+    // one satisfies the uncleared one. What the platform answers on the other seven is its own - the Windows
+    // build of node 24.7.0 refuses all seven and the Linux runner refuses all eight - so the claim kept against
+    // the two readers is the one that holds on either: the guarded path never admits what the shipped rule
+    // refuses, and each of these is admitted by the shipped rule.
+    const exactEquation: string[] = [];
+    const cofactoredEquation: string[] = [];
+    const admitsMoreThanTheShippedRule: string[] = [];
+    const key = ed25519.Point.fromBytes(publicKey, true);
     for (const encoding of TORSION) {
-      const signature = signatureWithFixedR(fromHex(encoding));
+      const rBytes = fromHex(encoding);
+      const signature = signatureWithFixedR(rBytes);
+      const difference = ed25519.Point.BASE.multiplyUnsafe(fromLittleEndian(signature.subarray(32))).subtract(
+        key.multiplyUnsafe(hashOf(rBytes)).add(ed25519.Point.fromBytes(rBytes, true)),
+      );
+      if (difference.equals(IDENTITY)) exactEquation.push(encoding);
+      if (difference.multiply(8n).equals(IDENTITY)) cofactoredEquation.push(encoding);
+      const shipped = nobleStrictVerify(signature, message, publicKey);
       const guarded = preferredStrictVerify(signature, message, publicKey);
       expect(nativeAlone(signature, message, publicKey), `the platform on ${encoding}`).toBe(guarded);
-      expect(nobleStrictVerify(signature, message, publicKey), `the shipped rule admits ${encoding}`).toBe(true);
-      if (guarded) admittedByBoth.push(encoding);
-      else refusedByTheRuntime.push(encoding);
+      expect(shipped, `the shipped rule admits ${encoding}`).toBe(true);
+      if (guarded && !shipped) admitsMoreThanTheShippedRule.push(encoding);
     }
-    expect(admittedByBoth).toEqual([IDENTITY_ENCODING]);
-    expect(refusedByTheRuntime).toHaveLength(7);
+    expect(cofactoredEquation).toEqual(TORSION);
+    expect(exactEquation).toEqual([IDENTITY_ENCODING]);
+    expect(admitsMoreThanTheShippedRule).toEqual([]);
   });
 
   it('refuses none of them by a clause, so it is the equation and not the guard that answers', () => {
@@ -365,11 +386,14 @@ describe('the differential sweep', () => {
         return ['second spelling of a small y', new Uint8Array([...key, ...new Uint8Array(32)]), key, message];
       }
       case 8: {
+        // Toggled rather than set: the high bit of the last byte is the sign of `x`, and it is already set on
+        // about half of all encodings, so setting it leaves the point untouched and the class measures a valid
+        // signature answering yes.
         const r = Uint8Array.from(signature.subarray(0, 32));
         const key = Uint8Array.from(publicKey);
-        r[31] = (r[31] ?? 0) | 0x80;
-        key[31] = (key[31] ?? 0) | 0x80;
-        return ['sign bit forced on both halves', new Uint8Array([...r, ...signature.subarray(32)]), key, message];
+        r[31] = (r[31] ?? 0) ^ 0x80;
+        key[31] = (key[31] ?? 0) ^ 0x80;
+        return ['sign bit toggled on both halves', new Uint8Array([...r, ...signature.subarray(32)]), key, message];
       }
       case 9:
         return ['short signature', signature.subarray(0, 63), publicKey, message];
@@ -380,27 +404,29 @@ describe('the differential sweep', () => {
     }
   }
 
-  it('answers every case the same under both readers, and names what the platform alone would have answered differently', () => {
-    const disagreements: Array<{ readonly name: string; readonly strict: boolean; readonly guarded: boolean }> = [];
+  it('answers every case the same way, and never admits more than the shipped rule does', () => {
+    const admitsWhatTheShippedRuleRefuses: Array<{ readonly name: string }> = [];
+    const partsInTheRefusingDirection: Array<{ readonly name: string }> = [];
     let accepted = 0;
     let refusedBeforeTheEquation = 0;
-    let platformAloneDiffers = 0;
     for (let index = 0; index < CASES; index += 1) {
       const [name, signature, publicKey, message] = buildCase(index);
       const strict = nobleStrictVerify(signature, message, publicKey);
       const guarded = preferredStrictVerify(signature, message, publicKey);
       if (strict) accepted += 1;
       if (refusalBeforeTheEquation(signature, publicKey) !== null) refusedBeforeTheEquation += 1;
-      if (nativeAlone(signature, message, publicKey) !== strict) platformAloneDiffers += 1;
-      if (strict !== guarded) disagreements.push({ name, strict, guarded });
+      if (guarded && !strict) admitsWhatTheShippedRuleRefuses.push({ name });
+      if (strict && !guarded) partsInTheRefusingDirection.push({ name });
     }
-    // Both readers must answer alike on everything a caller can send by accident, and the sweep is the witness
-    // that the clauses say the same rule the library's option says. The small-order R class above is the one
-    // place they part, and it takes a signature only the holder of the secret key can produce.
-    expect(disagreements).toEqual([]);
+    // The claim that has to hold on every platform is the one in the safe direction: a request the shipped rule
+    // refuses is refused by the guarded path too. Where the two part the other way - the small-order point halves
+    // above, and any platform that is stricter than the library on its own equation - the guarded path refuses
+    // more, which is counted rather than required, because it belongs to the build underneath and not to this
+    // rule. Nothing a caller can send by accident lands in either list.
+    expect(admitsWhatTheShippedRuleRefuses).toEqual([]);
+    expect(partsInTheRefusingDirection).toEqual([]);
     expect(accepted).toBeGreaterThan(0);
     expect(refusedBeforeTheEquation).toBeGreaterThan(0);
-    expect(platformAloneDiffers).toBeGreaterThan(0);
   });
 });
 

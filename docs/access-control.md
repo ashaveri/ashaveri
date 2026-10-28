@@ -218,12 +218,16 @@ reader the verifying package exposes, so which of the two answers a gateway's ad
 about them.
 On what a caller can send, the clauses and the library's option are one rule, and the tests beside
 `packages/receipt/src/strict-ed25519.ts` are the witness: they answer the cases each path produces and
-require the two to agree, over a seeded sweep and over the signing inputs the published vectors carry.
-They part on one class, which is named rather than smoothed: the library clears the cofactor before
-comparing and the primitive does not, so seven encodings of a small-order point in the signature survive
-the library's equation and not the primitive's. Writing one needs the scalar behind the public key, so
-the stricter answer admits no forgery, and it refuses no signature a client signs, since a signer's point
-half is a multiple of the base point and the identity is that subgroup's only point of small order.
+require that neither path admits what the other refuses, over a seeded sweep and over the signing inputs
+the published vectors carry. They part on one class, which is named rather than smoothed: the library
+clears the cofactor before comparing and the platform does not, so the eight encodings of a small-order
+point in the signature's first half all satisfy the library's equation and only the identity satisfies
+the platform's. Which of the other seven a given platform then refuses is the platform's own business -
+one build of node 24 takes the identity and refuses the rest, another refuses all eight - so the tests
+pin the curve arithmetic and the direction of the difference, not the count. Writing such a signature
+needs the scalar behind the public key, so the stricter path admits no forgery, and it refuses no
+signature a client signs, since a signer's point half is a multiple of the base point and the identity is
+that subgroup's only point of small order.
 
 Two things this arrangement does not claim, and a port must not upgrade it into either. It does not
 make the two paths equal in time: a name the file holds and a name it does not each perform one

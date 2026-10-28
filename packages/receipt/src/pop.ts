@@ -164,7 +164,8 @@ export function parsePopAuthorization(header: string): PopAuthorization {
  * that says nothing is checked exactly as it was before. `strict-ed25519.ts` holds the other path: the same
  * refusals stated as clauses, then the runtime's own primitive doing the group equation. A gateway
  * passes that one, because verification is the largest cost it pays per admitted request, and the tests
- * beside `strict-ed25519.ts` answer the cases each path produces and require the two to agree.
+ * beside `strict-ed25519.ts` answer the cases each path produces and require that neither path admits what
+ * the other refuses.
  */
 export function verifyPopSignature(
   fields: PopFields,
