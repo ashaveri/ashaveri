@@ -5,6 +5,7 @@ import {
   MEASUREMENT_BYTES,
   POP_TIMESTAMP_TOLERANCE_SECONDS,
   isMarkingScheme,
+  strictVerifySource,
   type MarkingScheme,
   type TeeKind,
 } from '@ashaveri/receipt';
@@ -232,10 +233,13 @@ Options:
                                    this bucket, so behind a reverse proxy it is the whole deployment
                                    sharing one allowance. Default:
                                    perMinute=6000,burst=2000, which is a hundred requests a second from
-                                   one address. A signature check costs 184 to 245 microseconds when the
-                                   signature is a guess and 1,595 when it is real, so a guessing loop
-                                   spends under three per cent of one core at that rate while signed
-                                   traffic from one address spends about a sixth of it. A bound
+                                   one address. A signature check costs 105 to 107 microseconds on this
+                                   runtime's own Ed25519 primitive, whether the bytes carry a real
+                                   signature or a guess built to reach the arithmetic, and 1,522 to
+                                   1,549 where the JavaScript reader answers instead; a guess of random
+                                   bytes is refused in 8 microseconds on either road. A guessing loop
+                                   therefore spends about a hundredth of one core at that rate on the
+                                   primitive and about a seventh of it on the reader. A bound
                                    below the traffic one address legitimately carries refuses signed
                                    requests instead of guesses: fifteen credentials at their own default
                                    of 60 a minute are 900 a minute down one proxy. No flag takes the
@@ -1005,6 +1009,14 @@ const manifestLabel =
   deployment.manifestKey === undefined
     ? 'manifest: served as plain JSON, unsigned, so a client can only report it as unauthenticated, or refuse it outright if it designated a key to sign this document'
     : `manifest: served sealed, COSE_Sign1 over the same JSON under key ${toHex(deployment.manifestKey.kid).slice(0, 16)}..., which a client authenticates only against a key it designates for the purpose`;
+// Which Ed25519 implementation answers is a fact about the process rather than about a request, and the two
+// paths are one rule: the refusals this build states, then the group equation. The sentence is printed because
+// an operator comparing two deployments should be able to see that the arithmetic underneath a refusal differs
+// even when the answer does not.
+const verifierLabel =
+  strictVerifySource === 'runtime'
+    ? 'the runtime Ed25519 primitive, under the strict refusals this build applies ahead of it'
+    : '@noble/curves in strict mode, this runtime exposing no Ed25519 primitive';
 const lines: string[] = [
   `signerd (${label}) listening on http://${host}:${boundPort}`,
   `  issuer ${deployment.issuer} instance ${deployment.instance}`,
@@ -1014,8 +1026,8 @@ const lines: string[] = [
   `  ${markingLabel}`,
   `  ${timeLabel}`,
   allowBearer
-    ? '  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief'
-    : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused`,
+    ? `  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief; proof-of-possession signatures checked with ${verifierLabel}`
+    : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused; signatures checked with ${verifierLabel}`,
   `  ${rateLabel}`,
   `  ${completionBoundLabel}`,
   `  ${credentialsLabel}`,

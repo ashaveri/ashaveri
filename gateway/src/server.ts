@@ -419,7 +419,15 @@ function sourcePhrase(figures: IntakeGuardFigures): string {
  * once so the figure is this software's own cost rather than a model's, buffered and streamed completions
  * both, the store's shipped durability bound, and the caller counts named above. It is a completion path
  * measured end to end, which is why it sits under the store's own append rate: an append is only one of the
- * costs a request pays, and the largest is the signature check that happens before one.
+ * costs a request pays, and the largest was the signature check that happens before one.
+ *
+ * That check answers from the runtime's own primitive under the refusals `strict-ed25519.ts` states, and
+ * the same harness re-run on the same host with 2,000 requests at each caller count put the ceiling of the
+ * JavaScript reader at 432 completions a second, 32 callers in flight, where the same run of this build
+ * reaches 1,168, with the process's own cost per completion down from 2.62 to 1.45 milliseconds. The shipped
+ * number is the slower of the ceilings rather than this build's, so a deployment bigger than 19,320 a minute
+ * is refusing traffic this process could in fact carry: `--completion-rate` is set against a measurement of
+ * the box it runs on, and the start-up line prints the number the process holds.
  */
 export const DEFAULT_COMPLETION_RATE: CredentialRate = { perMinute: 19_320, burst: 322 };
 

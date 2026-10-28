@@ -999,8 +999,11 @@ describe('the flags that make the access floor real', () => {
     expect(banner[0], `no listening line; stdout held ${JSON.stringify(printed)}`).toMatch(
       /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:[1-9]\d*$/u,
     );
-    expect(banner, printed).toContain(
-      '  auth: proof of possession, timestamps trusted within 120 seconds; bearer credentials refused',
+    // Which of the two implementations the line names is this runtime's fact, so what the banner owes the reader
+    // is that it names exactly one of them, in the auth line, rather than a particular sentence.
+    expect(banner.filter((line) => line.includes('signatures checked with'))).toHaveLength(1);
+    expect(printed).toMatch(
+      /^  auth: proof of possession, timestamps trusted within 120 seconds; bearer credentials refused; signatures checked with (?:the runtime Ed25519 primitive, under the strict refusals this build applies ahead of it|@noble\/curves in strict mode, this runtime exposing no Ed25519 primitive)$/mu,
     );
     expect(banner, printed).toContain('  credentials: 1 record held in this process only');
     expect(banner, printed).toContain(

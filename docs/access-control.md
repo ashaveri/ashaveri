@@ -199,11 +199,28 @@ credential file and is made once when the process starts, and then throwing `AUT
 reading what that verification answered. The verification is the same function, called the same way,
 that every other proof-of-possession request is checked with, and the throw is unconditional. A port
 that branches on the dummy verification's result, or that reaches past `verifyPopSignature` for the
-Ed25519 library directly, rebuilds the oracle: the library this gateway verifies with,
-`@noble/curves`, accepts a 64-byte zero signature against a 32-byte constant key under its own
-defaults, because such a key is a point of small order, and what refuses it is that function's width
-checks and its strict verification options. An accepted signature for a name the file does not hold
-discloses more than the refusal this path exists to make indistinguishable.
+Ed25519 implementation directly, rebuilds the oracle: a tolerant Ed25519 reader accepts a 64-byte zero
+signature against a 32-byte constant key under its own defaults, because such a key is a point of
+small order, and what refuses it is that function's width checks and the strict rule it applies. An
+accepted signature for a name the file does not hold discloses more than the refusal this path exists
+to make indistinguishable.
+
+Which implementation answers the strict rule is a property of the runtime rather than of the rule, and
+the start-up report names the one the process is using. Where the runtime exposes an Ed25519 primitive,
+the refusals stated in `packages/receipt/src/strict-ed25519.ts` run first - the two widths, the scalar
+inside the group order, a canonical point encoding for the key and for the signature's point half, and
+the eight small-order encodings as keys - and the primitive answers the group equation. Where it does
+not, one JavaScript reader answers both halves. Receipts and the documents beside them are checked by the
+reader the verifying package exposes, so which of the two answers a gateway's admission changes nothing
+about them.
+On what a caller can send, the clauses and the library's option are one rule, and the tests beside
+`packages/receipt/src/strict-ed25519.ts` are the witness: they answer the cases each path produces and
+require the two to agree, over a seeded sweep and over the signing inputs the published vectors carry.
+They part on one class, which is named rather than smoothed: the library clears the cofactor before
+comparing and the primitive does not, so seven encodings of a small-order point in the signature survive
+the library's equation and not the primitive's. Writing one needs the scalar behind the public key, so
+the stricter answer admits no forgery, and it refuses no signature a client signs, since a signer's point
+half is a multiple of the base point and the identity is that subgroup's only point of small order.
 
 Two things this arrangement does not claim, and a port must not upgrade it into either. It does not
 make the two paths equal in time: a name the file holds and a name it does not each perform one

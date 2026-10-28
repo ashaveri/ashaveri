@@ -6,6 +6,7 @@ import {
   parsePopAuthorization,
   POP_NONCE_BYTES,
   POP_TIMESTAMP_TOLERANCE_SECONDS,
+  preferredStrictVerify,
   ReceiptError,
   sha256Hex,
   signingKeyFromSeed,
@@ -732,12 +733,15 @@ export const DEFAULT_RATE: CredentialRate = { perMinute: 60, burst: 120 };
 
 /**
  * What a connection address is held to ahead of every credential, so that an unauthenticated guess
- * costs something other than the asking. Measured on this workspace's `@noble/curves` 1.9.7 under node 24,
- * over the 140-byte signing string a proof of possession carries and read with the strict rule every
- * reader keeps: a `verifyPopSignature` over a forged signature costs 184 to 245 microseconds, because the
- * scalar or the point is refused before the arithmetic runs, and over a real signature it costs 1,595,
- * because all of it runs. A guess and a customer are two prices, and this pair has to be read against
- * both of them.
+ * costs something other than the asking. Measured under node 24.7.0 with `@noble/curves` 1.9.7, over the
+ * 140-byte signing string a proof of possession carries and read with the strict rule every reader
+ * keeps: a `verifyPopSignature` costs 105.4 microseconds over a real signature and 106.9 over a guess
+ * built to reach the arithmetic, so on this path a customer and a guesser are charged the same price.
+ * A guess of random bytes is answered in 7.8 microseconds, because the scalar or the point is refused
+ * before the equation runs, and an out-of-range key and a small-order one in 1.6 and 3.0. The
+ * JavaScript reader this build falls back to where a runtime exposes no Ed25519 primitive costs 1,522
+ * on a real signature, 1,549 on a guess built to reach the arithmetic and 217 on random bytes. Both
+ * readings are in these sentences because the bound has to mean one thing on either of them.
  *
  * The size comes from what a deployment carries, not from what a guesser fails to do, and it has to be
  * read against the traffic shape this repository ships: `server.ts` takes the address off the socket and
@@ -747,19 +751,20 @@ export const DEFAULT_RATE: CredentialRate = { perMinute: 60, burst: 120 };
  * deployment's correctly signed aggregate on the same arithmetic that empties a guessing loop. The floor
  * has to sit above the traffic and below the cost, and this is where both hold.
  *
- * Six thousand a minute is a hundred requests a second from one address. Signed, those are 159.5
- * milliseconds of crypto in every second, about a sixth of one core, which is what one address is
+ * Six thousand a minute is a hundred requests a second from one address, which is what one address is
  * permitted to ask of a deployment; this bound says what one connection may demand, not what all of them
- * may, and the aggregate is what a deployment measures against its own capacity. Guessed, a hundred a
- * second is 24.5 milliseconds of every second and the two thousand burst is 490 milliseconds, the most a
- * peer with nothing to spend can demand of a core in the instant a bucket opens; the same two thousand
- * carrying real signatures would be 3.19 seconds. An address asking past the burst is refused for the
- * cost its next request would have spent rather than the cost it saves, a map lookup. Reaching either
- * half means asking a hundred requests a second of one address, or two thousand in the instant the bucket
- * opened, and neither is what the credentials above do, while a loop that wants four thousand guesses a
- * second is answered `RATE_LIMITED` from the two thousand and first in a row. What this bounds is what
- * one connection can demand: see `MAX_TRACKED_PEERS`. An operator whose deployment is bigger than this
- * sets both halves with `--peer-rate`.
+ * may, and the aggregate is what a deployment measures against its own capacity. On the primitive, a
+ * hundred a second - real signatures or well-formed guesses, the two are one price - is 10.5 milliseconds
+ * of crypto in every second, a hundredth of one core, and the two thousand burst is 213.7 milliseconds,
+ * the most one peer can demand of a core in the instant a bucket opens. On the JavaScript reader the same
+ * hundred a second is 152.2 milliseconds of every second, about a seventh of one core, and the same two
+ * thousand are 3.10 seconds. An address asking past the burst is refused for the cost its next request
+ * would have spent rather than the cost it saves, a map lookup. Reaching either half means asking a
+ * hundred requests a second of one address, or two thousand in the instant the bucket opened, and neither
+ * is what the credentials above do, while a loop that wants four thousand guesses a second is answered
+ * `RATE_LIMITED` from the two thousand and first in a row. What this bounds is what one connection can
+ * demand: see `MAX_TRACKED_PEERS`. An operator whose deployment is bigger than this sets both halves with
+ * `--peer-rate`.
  */
 export const DEFAULT_PEER_RATE: CredentialRate = { perMinute: 6000, burst: 2000 };
 
@@ -1127,10 +1132,11 @@ function bearerSecretHashOf(record: CredentialRecord): Uint8Array | undefined {
  *
  * The verification's own verdict is never read. A zero signature against a constant 32-byte key
  * verifies under the signing library's own defaults, because such a key is a point of small order,
- * and what refuses it is `verifyPopSignature`'s width checks and its strict option. Reading a
- * `true` from this path as permission to carry on, or reaching past that function for the library,
- * would hand a caller who named nothing an accepted signature and re-open the question this path
- * exists to close.
+ * and what refuses it is `verifyPopSignature`'s width checks and the strict rule it applies - the
+ * library's own option, or the clauses in `strict-ed25519.ts` when the runtime's primitive answers the
+ * equation. Reaching past that function for the library, or reading a `true` from this path as
+ * permission to carry on, would hand a caller who named nothing an accepted signature and re-open the
+ * question this path exists to close.
  */
 const DUMMY_VERIFICATION_KEY = signingKeyFromSeed(randomBytes(ED25519_PUBLIC_KEY_BYTES)).publicKey;
 
@@ -1373,10 +1379,15 @@ export class CredentialStore {
    * against its own key, a name it does not against the dummy one - which is where the two become one.
    * The counter is told only that a verification happened: it sees no verdict and can change none, so a
    * measuring seam cannot become the branch the paragraph above refuses.
+   *
+   * `preferredStrictVerify` is the runtime's own primitive under the strict refusals where a runtime has one, and
+   * the JavaScript reader where it does not: the choice `docs/access-control.md` states and the start-up banner
+   * reports. The two answer every case alike, and what they differ in is what one admission pays for the
+   * equation.
    */
   private verify(fields: PopFields, signature: Uint8Array, key: Uint8Array): boolean {
     this.countVerification?.();
-    return verifyPopSignature(fields, signature, key);
+    return verifyPopSignature(fields, signature, key, preferredStrictVerify);
   }
 
   /**
