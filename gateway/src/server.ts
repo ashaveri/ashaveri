@@ -14,7 +14,14 @@ import {
   type TeeKind,
 } from '@ashaveri/receipt';
 import type { AccessLog, AccessRecord } from './aclog.js';
-import { AccessError, ReceiptNamespace, requireRouteScope, type CredentialStore } from './access.js';
+import {
+  AccessError,
+  ReceiptNamespace,
+  TokenBucket,
+  requireRouteScope,
+  type CredentialRate,
+  type CredentialStore,
+} from './access.js';
 import { anchorFrom, readFailedAnchor, type AppraisalReader } from './appraisal-cache.js';
 import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
@@ -66,6 +73,14 @@ export interface GatewayOptions {
    * count it did not have to state twice.
    */
   readonly receiptIntakeGuard?: ReceiptIntakeGuard;
+  /**
+   * The deployment-wide bound on the completions this process admits, read at admission ahead of the
+   * upstream call and refused with `DEPLOYMENT_RATE_LIMITED`. Absent means `DEFAULT_COMPLETION_RATE`, the
+   * ceiling this build measures on its own completion path, so a deployment that configures nothing
+   * is held to what it can actually serve rather than to a number nobody chose. `gateway/src/cli.ts` hands
+   * this the rate its `--completion-rate` flag names.
+   */
+  readonly completionBound?: DeploymentCompletionBound;
   /**
    * The pipeline every route runs through. Required: there is no gateway without it,
    * and a default that admits everything would be a floor that opts out.
@@ -387,6 +402,68 @@ function sourcePhrase(figures: IntakeGuardFigures): string {
   return sourceSentence({ name: figures.source, uncertaintySeconds: figures.uncertaintySeconds });
 }
 
+/**
+ * The completion bound, stated in the two fields a credential's own `rate` and `--peer-rate` carry, so an
+ * operator can set it against the per-address bound it has to sit under. It is worked from one measured
+ * number rather than from two costs added together: this gateway, driven over HTTP with a file store behind
+ * it, turned over 322 to 376 completions a second once four or more callers were in flight, and past that
+ * point the throughput is flat and only the wait grows. The slowest of those runs is the ceiling, so 322 a
+ * second becomes 19,320 a minute and the burst is one second of the same figure. Against the 6,000 a minute
+ * one connection address is held to, that is 3.2 busy addresses filling one process, which is why the bound
+ * is refused rather than documented. No value here removes the bound: a number no deployment reaches is the
+ * off switch, and the start-up report prints whichever number the process is holding. A bound an operator
+ * declares above what every credential in front of this process could spend is refused at start, because a
+ * number that can never fire is not a bound; the rule sits in `cli.ts` beside the flag.
+ *
+ * The harness is part of the number: one Windows host, one Node 24 process, a mock upstream that answers at
+ * once so the figure is this software's own cost rather than a model's, buffered and streamed completions
+ * both, the store's shipped durability bound, and the caller counts named above. It is a completion path
+ * measured end to end, which is why it sits under the store's own append rate: an append is only one of the
+ * costs a request pays, and the largest is the signature check that happens before one.
+ */
+export const DEFAULT_COMPLETION_RATE: CredentialRate = { perMinute: 19_320, burst: 322 };
+
+/**
+ * The one key the deployment's bucket is held under. A counter with no key would be a counter per caller,
+ * and the whole of this bound is that everyone shares one.
+ */
+const COMPLETION_BOUND_KEY = 'deployment';
+
+/**
+ * The deployment-wide bound on the completions one process admits.
+ */
+export interface DeploymentCompletionBound {
+  /**
+   * What this process admits, per minute and at once, in `DEFAULT_COMPLETION_RATE`'s two fields. Absent
+   * means that constant, the ceiling this build measures on its own completion path rather than a round
+   * number chosen for a banner, and there is no spelling here that turns the bound off.
+   */
+  readonly rate?: CredentialRate;
+  /**
+   * Milliseconds since the epoch, the one clock this bucket refills against. Absent means the host's own,
+   * because a source reading whole seconds would price every request inside one second at no elapsed time
+   * and refuse a burst the bound does not state. Injectable for the same reason the store's is: a case about
+   * a refill cannot wait for real seconds to pass.
+   */
+  readonly nowMillis?: () => number;
+}
+
+/**
+ * The detail carried by `DEPLOYMENT_RATE_LIMITED`: the quantity, the value it is configured at, and the
+ * wait to the next token, because a refusal that named none of the three would read as a wall rather than
+ * as a number an operator moves.
+ */
+function completionBoundDetail(rate: CredentialRate, retryAfterSeconds: number): string {
+  return (
+    `this gateway admits ${String(rate.perMinute)} completions a minute across the whole deployment and ` +
+    `${String(rate.burst)} of them at once, and this completion is the one past that bound, so it is refused ` +
+    `before any inference is run and no receipt is issued for it. The bound is a fact about this process and ` +
+    `not about a credential, so no other credential and no different address clears it, a token appears in ` +
+    `${String(retryAfterSeconds)} seconds, and an operator raises it with --completion-rate. Reads, ` +
+    `verification and handover keep serving, because none of them issues a receipt`
+  );
+}
+
 export function buildGateway(options: GatewayOptions): GatewayInstance {
   const { access, accessLog } = options;
   // The record stamp of this process: whole Unix seconds off the one source it was given, or off the
@@ -428,6 +505,13 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // The durability policy this deployment configured, read once like every other switch on this
   // process. An absent guard is no guard: see `ReceiptIntakeGuard`.
   const intakeGuard = options.receiptIntakeGuard ?? {};
+  // The deployment's own admission bound, read once the same way, and one counter behind it for the whole
+  // process: the bound is what one gateway can write, so it is held on nothing narrower than the process
+  // that writes it and on nothing wider than the counter a process can keep.
+  const completionBound = options.completionBound ?? {};
+  const completionRate = completionBound.rate ?? DEFAULT_COMPLETION_RATE;
+  const completionTokens = new TokenBucket();
+  const completionMillis = completionBound.nowMillis ?? (() => Date.now());
   // The cache an issuance reads its anchor from, read once like every other switch on this process.
   // Absent is a state with its own answer rather than a default to fill in: an unwired gateway signs the
   // anchor of a collector that took nothing in, and says so in the words that name the collector.
@@ -582,6 +666,22 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         if (refusal !== null) {
           throw new AccessError('RECEIPT_WINDOW_UNHOLDABLE', {
             detail: intakeGuardDetail(refusal),
+            credentialId: admitted.credentialId ?? undefined,
+          });
+        }
+        // The deployment-wide bound, and the seventh check on a completion. It sits behind the guard for
+        // the same arithmetic's reason: a token spent on a completion the store could not have kept is a
+        // token spent on a receipt nothing was filed for, and this bound states what this process issues,
+        // so it counts only what reaches it. One counter, keyed on the process rather than on a caller, so
+        // it names no credential and varies with nothing in the file, which is what makes a place behind
+        // the five lawful for it on the rule section 1 of `docs/access-control.md` states. It is ahead of
+        // every route body, and so of `backend.respond`, because what it declines is the writing of a
+        // receipt: past this line an inference is paid for and no bytes arrive for it.
+        const taken = completionTokens.take(COMPLETION_BOUND_KEY, completionRate, completionMillis());
+        if (!taken.allowed) {
+          throw new AccessError('DEPLOYMENT_RATE_LIMITED', {
+            detail: completionBoundDetail(completionRate, taken.retryAfterSeconds),
+            retryAfterSeconds: taken.retryAfterSeconds,
             credentialId: admitted.credentialId ?? undefined,
           });
         }

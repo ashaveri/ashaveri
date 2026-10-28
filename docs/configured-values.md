@@ -2,7 +2,7 @@
 
 Every value a deployment can point this gateway at, and every value the code holds when the
 deployment named nothing. Three tables sort them by class, and the counts below are the counts the
-tables carry: 33 flag rows, 16 shipped defaults, and 8 environment variables, of which 7 are
+tables carry: 34 flag rows, 17 shipped defaults, and 8 environment variables, of which 7 are
 settings and 1 carries credential material. 3 flags name their default in the block that declares
 them. Coverage is the gateway's operator surface only: the values a client verifies against, pinned
 in `packages/sdk/src/policy.ts`, and the record constants in `packages/cli/src/records.ts` are out
@@ -27,7 +27,7 @@ files, so a row that stops being true fails a run rather than aging quietly.
 
 ## 1. Flags this gateway accepts
 
-Class: the operator's to declare. All 33 are declared together in `gateway/src/cli.ts`, in the block
+Class: the operator's to declare. All 34 are declared together in `gateway/src/cli.ts`, in the block
 `parseArgs` is handed, and are spelled here as an operator types them, with the leading dashes. The
 Bound column is what the code refuses outside; where a period or a duty is the deployment's own, the
 row says so rather than inventing a number for it.
@@ -67,6 +67,7 @@ row says so rather than inventing a number for it.
 | `--allow-bearer` | Whether bearer credentials are accepted beside proof of possession | boolean, and never per credential | none: off, which is the posture that keeps a stolen credential detectable | the operator's to declare | `gateway/src/cli.ts` |
 | `--pop-tolerance` | The clock slack accepted for a proof-of-possession timestamp | a positive whole number of seconds | `POP_TIMESTAMP_TOLERANCE_SECONDS` | the operator's to declare | `gateway/src/cli.ts` |
 | `--peer-rate` | What one connection address may ask for, ahead of every credential check | `perMinute` and `burst`, both positive whole numbers, both required, and no spelling turns the bound off | `DEFAULT_PEER_RATE` | the operator's to declare | `gateway/src/cli.ts` |
+| `--completion-rate` | What one process may admit completions, ahead of any inference and behind every credential check | `perMinute` and `burst`, both positive whole numbers, both required, and no spelling turns the bound off. The same two fields as `--peer-rate`, in the same unit, so an operator reads one against the other: this is what a process can write, that is what one address can ask | `DEFAULT_COMPLETION_RATE` | the operator's to declare | `gateway/src/cli.ts` |
 
 The two receipt bounds are counts, and each has a measured cost beside it on this store's compiled output. The
 baseline is part of every number below: one Windows host, one Node 24 process, calls issued serially, nothing
@@ -93,6 +94,7 @@ change to it is a change here too.
 | `DEFAULT_INTAKE_GUARD_FRACTION` | `1` | The share of the durability bound a completion is refused at when the run named no percentage | shipped default | `gateway/src/server.ts` |
 | `POP_TIMESTAMP_TOLERANCE_SECONDS` | `120` | The clock slack a proof-of-possession timestamp is trusted within | shipped default | `packages/receipt/src/pop.ts` |
 | `DEFAULT_PEER_RATE` | `{ perMinute: 6000, burst: 2000 }` | What one connection address is held to before its header is read | shipped default | `gateway/src/access.ts` |
+| `DEFAULT_COMPLETION_RATE` | `{ perMinute: 19_320, burst: 322 }` | What one process is held to on the completions it admits, taken ahead of the upstream call and behind every credential check: one throughput this build measures on its own completion path, 322 to 376 completions a second with four or more callers in flight and the slowest of those runs taken, so 19,320 a minute with 322 at once, stated as a rate so it reads against `DEFAULT_PEER_RATE` above it. A bound and not a sentinel: a deployment that names nothing is refused at the ceiling rather than serving past it | shipped default | `gateway/src/server.ts` |
 | `DEFAULT_RATE` | `{ perMinute: 60, burst: 120 }` | What a credential record carrying no rate of its own is held to | shipped default | `gateway/src/access.ts` |
 | `REPLAY_WINDOW_SECONDS` | `900` | How long a credential and nonce pair is remembered as spent | shipped default | `gateway/src/access.ts` |
 | `REPLAY_MAX_ENTRIES` | `65_536` | How many spent pairs are remembered at once | shipped default | `gateway/src/access.ts` |

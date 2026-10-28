@@ -1469,6 +1469,184 @@ describe('the bound one connection address is held to', () => {
 });
 
 /**
+ * `--completion-rate` is the only knob on the bound this process holds itself to, and it is the pair of
+ * `--peer-rate` in the same two fields, so it is checked the same way: a value the bucket cannot hold stops
+ * the boot, and a value it can hold is the number the banner reports and the number a request is refused by.
+ */
+describe('the bound one process admits completions at', () => {
+  it('refuses a completion rate with one of its two fields missing', { timeout: spawnBudget(2) }, () => {
+    const noBurst = run('--mock', '--completion-rate', 'perMinute=6000');
+    expect(noBurst.status).toBe(2);
+    expect(noBurst.stderr).toContain(
+      "--completion-rate wants perMinute=<n>,burst=<n>, got 'perMinute=6000': burst is missing",
+    );
+    const noRate = run('--mock', '--completion-rate', 'burst=300');
+    expect(noRate.status).toBe(2);
+    expect(noRate.stderr).toContain(
+      "--completion-rate wants perMinute=<n>,burst=<n>, got 'burst=300': perMinute is missing",
+    );
+  });
+
+  it(
+    'refuses a completion rate whose numbers are not counts of completions',
+    () => {
+      for (const bad of ['perMinute=0,burst=300', 'perMinute=6000,burst=0', 'perMinute=12.5,burst=300']) {
+        const result = run('--mock', '--completion-rate', bad);
+        expect(result.status, bad).toBe(2);
+        expect(result.stderr, bad).toContain('must be a positive whole number');
+        expect(result.stdout, bad).not.toContain('listening on');
+      }
+      // The unit the refusal names is the unit the flag counts in, which is what tells an operator reading
+      // a usage error which of the two rate flags they have just set.
+      const fractional = run('--mock', '--completion-rate', 'perMinute=12.5,burst=300');
+      expect(fractional.stderr).toContain(
+        "--completion-rate perMinute must be a positive whole number of completions a minute, got '12.5'",
+      );
+      for (const value of ['off', 'none', 'perMinute=0,burst=0']) {
+        const result = run('--mock', '--completion-rate', value);
+        expect(result.status, value).toBe(2);
+        expect(result.stderr, value).toContain('--completion-rate');
+      }
+    },
+    // Seven refusals, each its own exit-path spawn: three counts a bucket cannot hold, the same fraction
+    // read again for the unit its message names, and three spellings that would take the bound off.
+    spawnBudget(7),
+  );
+
+  it('documents the flag and the ceiling it ships with', () => {
+    const help = run('--help');
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain('--completion-rate perMinute=<n>,burst=<n>');
+    // Read with the folds closed, as the other usage claims in this file are.
+    const folded = help.stdout.replace(/\s+/gu, ' ');
+    expect(folded).toContain('Default: perMinute=19320,burst=322');
+    expect(folded).toContain(
+      'the slowest rate this build measured on its own completion path: driven over HTTP with a file store behind it, one process turned over 322 to 376 completions a second',
+    );
+    // The comparison an operator is meant to be able to make, stated where the number is stated.
+    expect(folded).toContain('3.2 busy addresses');
+  });
+
+  it('prints the bound it was given, and says that it was given', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--completion-rate', 'perMinute=900,burst=30');
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  completion bound: '));
+    expect(line, `no completion bound line; stdout held ${JSON.stringify(printed)}`).toContain(
+      '900 completions a minute across this process and 30 at once',
+    );
+    expect(line, printed).toContain('from --completion-rate');
+    expect(line, printed).toContain('DEPLOYMENT_RATE_LIMITED before any inference is run');
+  });
+
+  it('prints the derived ceiling it boots into when the flag named nothing', async () => {
+    const banner = await readBanner('--mock', '--port', '0');
+    const printed = banner.join('\n');
+    const line = banner.find((each) => each.startsWith('  completion bound: '));
+    expect(line, `no completion bound line; stdout held ${JSON.stringify(printed)}`).toContain(
+      '19320 completions a minute across this process and 322 at once',
+    );
+    expect(line, printed).toContain('the ceiling this build measures on its own completion path');
+    // One counter per process is the fact a reader of a multi-process deployment has to have, or the
+    // banner reads as a limit on the deployment rather than on the one process printing it.
+    expect(line, printed).toContain('one process holds one counter');
+  });
+
+  it(
+    'refuses a completion past the bound it was started with, over the wire',
+    async () => {
+      // The flag, the number, and one request that meets it. A burst of one is far below the 322 this
+      // process would have booted with, so the only way the second signed completion is refused is that the
+      // rate reached the gateway the requests are served by, and the minute behind it is sixty because these
+      // two requests are milliseconds apart on a wall clock.
+      const pop = newPopCredential({ id: 'completion-rate-pop', scopes: ['read', 'complete'] });
+      const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+      const served = await bootServing(['--credentials-path', path, '--completion-rate', 'perMinute=60,burst=1']);
+      try {
+        const first = await complete(served, pop);
+        expect(first.status, first.text).toBe(200);
+        expect(first.receiptId, 'the served completion was filed').not.toBeNull();
+        const second = await complete(served, pop);
+        expect(second.status, second.text).toBe(429);
+        expect(second.code).toBe('DEPLOYMENT_RATE_LIMITED');
+        expect(second.receiptId, 'a refusal issued no receipt').toBeNull();
+        expect(second.text).toContain('admits 60 completions a minute across the whole deployment');
+        expect(Number(second.text.match(/a token appears in (\d+) seconds/u)?.[1]), second.text).toBeGreaterThanOrEqual(1);
+      } finally {
+        await served.kill();
+      }
+    },
+    20_000,
+  );
+});
+
+/**
+ * The bound an operator declares is weighed against the credentials that file declares, because a number
+ * above what every credential in front of the process could spend together can never be met, and a start
+ * that accepted one would print a ceiling the deployment cannot reach. The weighing is arithmetic over two
+ * files the operator wrote, so it names no hardware.
+ */
+describe('the bound a declared flag is weighed against the roster for', () => {
+  it('refuses a declared perMinute above what the file could spend', () => {
+    // One record naming no `rate` is held to 60 a minute, so a bound of 500 is a number this roster has no
+    // way to reach, and the refusal has to say both numbers rather than that the value is bad.
+    const pop = newPopCredential({ id: 'roster-one', scopes: ['read', 'complete'] });
+    const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+    const result = run('--mock', '--credentials-path', path, '--completion-rate', 'perMinute=500,burst=10');
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('perMinute=500 is above the 60 a minute');
+    expect(result.stderr).toContain('could never be met');
+    expect(result.stderr).toContain('a second process');
+  });
+
+  it(
+    'boots the same bound once the roster could spend it',
+    async () => {
+      // The pair to the case above: the only thing that moved is the record's own `rate`, so a refusal here
+      // would be about the file rather than about the flag.
+      const pop = newPopCredential({ id: 'roster-wide', scopes: ['read', 'complete'] });
+      const record = { ...pop.record, rate: { perMinute: 600, burst: 120 } };
+      const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [record] }));
+      const banner = await readBanner('--mock', '--credentials-path', path, '--completion-rate', 'perMinute=500,burst=10');
+      expect(banner.join('\n')).toContain('500 completions a minute across this process and 10 at once');
+    },
+    20_000,
+  );
+
+  it(
+    'leaves the shipped default unweighed, because it is a measurement and not a declaration',
+    async () => {
+      // A roster of one record at 60 a minute sits far under the 19,320 this build ships with, and the run
+      // that names no flag still boots: the exemption is the difference between a ceiling this software
+      // measured and a number an operator typed.
+      const pop = newPopCredential({ id: 'roster-default', scopes: ['read', 'complete'] });
+      const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+      const banner = await readBanner('--mock', '--credentials-path', path);
+      expect(banner.join('\n')).toContain('19320 completions a minute across this process and 322 at once');
+    },
+    20_000,
+  );
+
+  it('counts no revoked record toward what the roster could spend', () => {
+    // The wide rate belongs to a record admission refuses, so it lifts nothing: the same 600 the case above
+    // accepted is refused here, which is the witness that the sum reads the installed roster rather than
+    // the file's line count.
+    const live = newPopCredential({ id: 'roster-live', scopes: ['read', 'complete'] });
+    const revoked = newPopCredential({ id: 'roster-revoked', scopes: ['read', 'complete'] });
+    const file = JSON.parse(
+      serializeCredentialFile({
+        version: 1,
+        credentials: [live.record, { ...revoked.record, revokedAt: Math.floor(Date.now() / 1000) }],
+      }),
+    );
+    file.credentials[1].rate = { perMinute: 5000, burst: 5000 };
+    const path = credentialFile(JSON.stringify(file));
+    const result = run('--mock', '--credentials-path', path, '--completion-rate', 'perMinute=600,burst=10');
+    expect(result.status, result.stderr).toBe(2);
+    expect(result.stderr).toContain('perMinute=600 is above the 60 a minute');
+  });
+});
+
+/**
  * Which of the two shapes of the deployment manifest this process serves is a fact an operator has to be
  * able to read off the banner: a sealed document and a plain one mean different things to whoever stands
  * at the other end of the deployment, and the difference comes from one flag handed to one process.

@@ -14,12 +14,14 @@ plainly where the choice is ours rather than the law's. Two neighbours hold what
 ## 1. The pipeline
 
 `CredentialStore.admit` runs five checks in a fixed order, one bound on the connection ahead of all
-five, and one guard on the deployment behind them. The order is the contract rather than an
+five, and two held on the deployment behind them. The order is the contract rather than an
 optimization. It sorts by what an answer discloses, not by what a check costs, and it keeps the
 property that makes the difference knowable: a request that fails two of them reports the earlier one.
 Each check is listed below with what it proves and, in parentheses, the refusal it raises when it
-fails; the bound is described with them, because it answers with one of their codes, and the guard is
-described after them, because it is the one check that reads the store rather than the credential.
+fails; the bound is described with them, because it answers with one of their codes, the guard is
+described after them, because it is the check that reads the store rather than the credential, and the
+completion bound is described with the guard, because it is the check that reads a counter this process
+holds and nothing else at all.
 
 **One route is answered before the five, and it is the weights manifest fetch named in section 2.** A
 receipt carries `wts`, the digest of a manifest, and a client holding that receipt has to be able to
@@ -129,6 +131,45 @@ it, and it is discovered inside a write rather than at a refusal, which is why i
 start-up report prints whichever posture the process is running, and why no percentage of the bound
 switches this off instead.
 
+**Behind the guard sits one bound, and it is held on the process rather than on a caller.** The guard
+above asks whether a receipt can be kept for the period configured; this one asks how many completions
+this process can serve at all. A completion is the request that issues a receipt, so a completion past
+this bound is refused at admission, ahead of the upstream call, with `DEPLOYMENT_RATE_LIMITED`, and no
+receipt is issued for it. Reads, verification of a receipt already filed, and a handover assembled
+from the retained set are never refused this way, because none of them adds a record to the store.
+Section 6 names the flag that sets it, and `docs/error-codes.md` gives the refusal its row.
+
+The bound is a count of completions per minute, with a burst, in the same two fields `--peer-rate` and a
+credential's own `rate` carry: the two numbers an operator sets are meant to be read against each other
+rather than against two units. Its shipped value is one measured throughput stated as a rate rather than
+as a sentence. Driven over HTTP with a file store behind it, one process turned over 322 to 376
+completions a second once four or more callers were in flight, with buffered and streamed bodies both,
+and past that point the throughput is flat while only the wait grows. The slowest of those runs is the
+ceiling the constant takes: 322 a second is 19,320 a minute, and the burst is one second of the same
+figure. Against the 6,000 requests a minute one connection address is held to, 3.2 addresses running at
+their own sustained allowance are what one process can serve for, which is why this bound is refused
+rather than only documented. The harness is part of the number: an upstream that answers at once, so the
+figure is the cost this software adds to a completion rather than the cost a model of inference takes,
+and one host's CPU and volume, which a slower box moves. The flag below is the operator's answer to a
+deployment bigger than one number.
+
+It sits behind the five checks for the same reason the guard does, and behind the guard for a reason of
+its own: a token spent on a completion the store could not have kept is a token spent on a receipt
+nothing was filed for, and this bound states what this process issues, so it counts only what reaches
+it. It reads one counter keyed on the process, names no credential, distinguishes no id, and varies with
+nothing in the file, so it answers one admitted caller as it answers the next. It spends the
+credential's token on the way, the guard having been read before it: a refusal here is a request
+this deployment answered, and the line it writes names the credential it refused in `deny` as
+`DEPLOYMENT_RATE_LIMITED`. Unlike the guard's 429 this one carries a `retry-after`, because a bucket
+knows when its next token appears; the wait it states is the wait to that token at the rate the operator
+configured, and nothing else a caller holds changes it.
+
+One counter, one process: a deployment running several of these processes admits the bound on each of
+them, and the start-up report says so on the line that prints the number. No value of the flag removes
+the bound, the same way no value of `--peer-rate` removes that one, because a number large enough never
+to be reached is that switch and prints itself. The counter is memory only, is never written down, and
+does not outlive the process, so it is not the record section 7 declines to keep an address in.
+
 `BAD_CREDENTIAL_RECORD` is not a refusal the pipeline answers a request with, as of 19 September
 2026. A `pop` record carrying no key its kind can be verified against never reaches a request: it is
 refused where records enter the store, so a credential file with such a record in it stops the boot,
@@ -207,6 +248,7 @@ definition.
 | `SCOPE_DENIED` | 403 | The route needs a scope the credential does not hold, or the target has no row | Use a credential that holds it, or ask the operator to scope the route. This answer takes no token from the credential's own bucket, though the connection's bound was charged before it was decided |
 | `RATE_LIMITED` | 429 | Either the credential's bucket is empty or the connection has spent the request bound held ahead of the five checks. The refusal's own sentence says which, and it names no credential on the connection's answer. The two are separated in the access log and nowhere a caller looks: the connection's bound writes `PEER_RATE_LIMITED` to `deny` and the credential's bucket writes `RATE_LIMITED`, so the volume tells the incidents apart while this answer stays the one answer | Wait `retryAfterSeconds`, then send a new request. One answer is fixed by the rate the operator set for the credential; the other by how much this one address is asking at once |
 | `RECEIPT_WINDOW_UNHOLDABLE` | 429 | This deployment cannot issue a receipt it can keep for the period it configured: the store's retained set has reached the configured point of its durability bound, and the rate that set's own stamps measure says the period takes more receipts than the bound holds. Refused ahead of the upstream call and behind the five checks, on the one route that issues a receipt, and it carries no `retry-after` because no refill is known | Wait, and expect a deployment at its bound to still be at it: this is not a bucket refilling, and nothing a caller holds changes it. The condition clears when this deployment's issuance falls below the rate its bound cannot hold, or when its operator raises the bound to the count the message states or shortens the period beside it. A caller that needs the receipt takes it from a deployment able to keep it, and a caller that needs an answer can take this one, which says plainly that no receipt is coming |
+| `DEPLOYMENT_RATE_LIMITED` | 429 | This process has admitted as many completions as it configures itself to take: one counter, held on the deployment rather than on a caller, shared by every credential and every address it serves. Refused ahead of the upstream call and behind the five checks and the durability guard, on the one route that issues a receipt, and it carries the seconds to its next token because this condition is a bucket that refills. The shipped bound is a measured throughput stated as a rate: one process served 322 to 376 completions a second with four or more callers in flight, and the slowest of those runs is the ceiling taken, so 19,320 completions a minute with 322 at once, which is 3.2 addresses running at the allowance `--peer-rate` gives one of them | Wait `retryAfterSeconds`, then send a new request. Nothing else a caller holds changes the outcome: another credential spends from the same counter, and so does another address. The fix is the operator's, and it is a capacity decision: `--completion-rate` raises the bound, up to what the credentials this process holds could collectively spend, or the traffic is served from a process that has room |
 | `BAD_CREDENTIAL_FILE`, `BAD_CREDENTIAL_RECORD`, `DUPLICATE_CREDENTIAL_ID` | 500 | The operator's file is unusable. None of the three is a refusal the pipeline gives a request: they answer where records enter the store, at start-up and on reload | Not a client fix. A file that will not parse, or that holds a record with no key its kind can be verified against, stops the boot; a reload that fails keeps the records already loaded answering later requests while the file is repaired |
 
 ## 2. Routes and scopes
@@ -459,7 +501,8 @@ deployer's, and the log is where its use shows.
 | `--access-log-path <dir>` | required in a live start | Where the per-request log is written. The value must name an existing directory, so a volume that was not mounted is a refusal rather than a log written onto the root filesystem |
 | `--access-log-days <n>` | 184 | How long log files are kept, in days. 184 is the default and the floor the code names, and it is not enforced as a ceiling on the operator's choice: a shorter value starts, and the start-up report says out loud that the run is below the floor (section 8.2) |
 | `--pop-tolerance <seconds>` | 120 | Clock slack accepted for a proof-of-possession timestamp, in both directions |
-| `--peer-rate perMinute=<n>,burst=<n>` | `perMinute=6000,burst=2000` | The request bound one connection address is held to ahead of every credential check, which section 1 explains: behind one proxy this is the whole deployment sharing one bucket. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. No value removes the bound, and a large number is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag. How often this bound refuses is legible on the access log as lines whose `deny` reads `PEER_RATE_LIMITED`, and the count is the whole of what the volume says about it: a line records no address, and the bucket itself is never written down |
+| `--peer-rate perMinute=<n>,burst=<n>` | `perMinute=6000,burst=2000` | The request bound one connection address is held to ahead of every credential check, which section 1 explains: behind one proxy this is the whole deployment sharing one bucket. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. A declared `perMinute`, in a run that reads a credential file, above what every credential in that file could spend together, each record at its own `rate` or at the 60 a minute a record naming none falls to, is refused at start: such a bound could never fire, and the answer is a wider roster or a second process rather than a bigger number. The shipped default is exempt from that check because it is a measured throughput and not a declaration. No value removes the bound, and a large number within the roster is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag. How often this bound refuses is legible on the access log as lines whose `deny` reads `PEER_RATE_LIMITED`, and the count is the whole of what the volume says about it: a line records no address, and the bucket itself is never written down |
+| `--completion-rate perMinute=<n>,burst=<n>` | `perMinute=19320,burst=322` | The bound one process admits completions at, ahead of any inference and behind every credential check, held on the process rather than on a caller: every credential and every address it serves spends from this one bucket. It carries the same two fields as `--peer-rate`, in the same unit, so the two are read against each other rather than converted. The default is one measured throughput stated as a rate: this build served 322 to 376 completions a second over HTTP with a file store behind it once four or more callers were in flight, and the slowest of those runs is taken, so 19,320 a minute and 322 at once, and 3.2 addresses running at the allowance above. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. A declared `perMinute`, in a run that reads a credential file, above what every credential in that file could spend together, each record at its own `rate` or at the 60 a minute a record naming none falls to, is refused at start: such a bound could never fire, and the answer is a wider roster or a second process rather than a bigger number. The shipped default is exempt from that check because it is a measured throughput and not a declaration. No value removes the bound, and a large number within the roster is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag. How often this bound refuses is legible on the access log as lines whose `deny` reads `DEPLOYMENT_RATE_LIMITED`. One process holds one counter, so a deployment running several admits this much on each of them, and the counter is memory only: it is never written down and does not outlive the process |
 | `--receipts-guard-at <percent>` | 100 | The point of the durability bound from which the guard described in section 1 is read while serving rather than only at an opening. Once the store holds this percentage of `--receipts-keep` receipts, a completion is refused `RECEIPT_WINDOW_UNHOLDABLE` ahead of the upstream call if the period configured beside the bound cannot be held at the rate the store's own retained stamps measure. A whole percentage from 1 to 100, and a value that is not one stops the start rather than falling back. 100 is the bound itself, which is the state a store already refuses to open at, so the default changes nothing for a deployment that sets neither flag; a lower number refuses while there is still room, and no number switches the guard off, because nothing sits above the bound for a threshold to reach. The start-up report prints the percentage this process is holding |
 | `--receipts-grow-past-guard` | off | The named decision to keep issuing past the guard instead of refusing, and the only spelling that turns the check off. With it the volume grows and the durability bound keeps retiring the oldest prefix, so the window served is the shorter one that bound reaches rather than the period configured beside it, and the shortfall is met at the next restart by the store refusing to open rather than by an answer a caller reads. It overrides `--receipts-guard-at`, and the start-up report says which of the two this process is running |
 | `--allow-bearer` | off | Accepts bearer credentials deployment-wide, says so at start-up, and writes `auth=bearer` on every record a bearer secret admitted |
