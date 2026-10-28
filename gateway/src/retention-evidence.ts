@@ -126,6 +126,16 @@ export type EvidenceReaderBound =
 export interface RetentionEvidence {
   readonly scope: EvidenceScope;
   readonly coverage: EvidenceCoverage;
+  /**
+   * What the store reports it holds right now, in the store's own inclusive framing.
+   *
+   * The coverage states the same set as evidence about continuity, which is a different question and a
+   * different unit: the checkpoint arm answers in intake sequences and carries one stamp, so a caller that
+   * measures anything in seconds could not read it out of the coverage. This member is the store's own report
+   * carried across unchanged, which also means an empty store states the zero window here rather than leaving
+   * the member out: the first is what the file answers, and the second would be a door that did not ask.
+   */
+  readonly retained: { readonly from: number; readonly to: number; readonly count: number };
   /** Which bound, if any, the caller gave the reader that read this store. */
   readonly readerBound: EvidenceReaderBound;
 }
@@ -289,7 +299,9 @@ function readerBoundOf(retention: ReceiptRetention | undefined): EvidenceReaderB
  * there is no honest assessment of a store that cannot tell what it holds. Beside the two shapes the caller
  * declared and the store answered, the result states which bound this reader was given, or that it was given
  * neither, so that a caller composing a document from it cannot hand a span the deployment never bounded out
- * as the deployment's own keeping.
+ * as the deployment's own keeping. It carries the store's own window report beside all of that, because the
+ * coverage states the same set in whichever unit its arm chose and a caller measuring reach in seconds needs
+ * the stamps the store named rather than a sequence range standing in for them.
  */
 export async function readRetentionEvidence(request: ReadRetentionEvidenceRequest): Promise<RetentionEvidence> {
   const receiptKind = request.receiptKind ?? DEFAULT_RECEIPT_RECORD_KIND;
@@ -306,5 +318,5 @@ export async function readRetentionEvidence(request: ReadRetentionEvidenceReques
     timeBasis: { source: reading.source, uncertaintySeconds: reading.uncertaintySeconds },
     excludes: request.excludes ?? [],
   };
-  return { scope, coverage, readerBound: readerBoundOf(request.retention) };
+  return { scope, coverage, retained: { ...reading.window }, readerBound: readerBoundOf(request.retention) };
 }

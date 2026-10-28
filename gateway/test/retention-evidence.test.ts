@@ -23,7 +23,8 @@ import { fixedClock } from './helpers.js';
  * one checkpoint, and the head the store closed on. A store that declines its index states no checkpoint, and
  * the evidence offers only a span between the oldest and newest survivors and no observed head, which the
  * reader over a document built from it reads as indeterminate. A store that holds nothing offers no coverage at
- * all.
+ * all. The last block holds the store's own window report to that same standard in every arm, including the arm
+ * whose coverage names sequences rather than stamps.
  *
  * Each case compares the evidence against the store's own answers, read straight off `openFileReceiptStore`:
  * the head the checkpoint names is the head the store reports, and the span's two ends are the window and the
@@ -285,5 +286,46 @@ describe('what the evidence states about the bound it was given', () => {
       ...DECLARATION,
     });
     expect(evidence.readerBound).toEqual({ stated: 'given', maxAgeSeconds: 600, maxCount: 10_000 });
+  });
+});
+
+describe('what the evidence states about the window the store reported', () => {
+  it('carries the window the store reported even where the coverage states a checkpoint', async () => {
+    // The checkpoint arm answers in intake sequences, so this is the only place the stamps the store holds
+    // survive the reading. A caller that needed them had nothing to read them from until now, and a figure
+    // measured in stamps cannot be derived from a sequence range.
+    const dir = await emptyDir();
+    await fileWith(dir, IDS, false);
+
+    const evidence = await readRetentionEvidence({ dir, ...DECLARATION });
+    expect(evidence.coverage.span, 'the sidecar stated a checkpoint, so no span was built').toBeNull();
+    expect(evidence.retained).toEqual({ from: STAMP, to: STAMP + 120, count: IDS.length });
+  });
+
+  it('carries the same window over a declined index, where the coverage states it as a span', async () => {
+    // The two arms have to agree on the stamps, because the coverage states them as evidence about continuity
+    // and the window states them as the store's own report. One reading that disagreed with the other would
+    // tell a caller which arm the door took rather than what the volume holds.
+    const dir = await emptyDir();
+    await fileWith(dir, IDS, true);
+
+    const evidence = await readRetentionEvidence({ dir, ...DECLARATION });
+    const span = evidence.coverage.span;
+    expect(span).not.toBeNull();
+    expect(evidence.retained).toEqual({ from: STAMP, to: STAMP + 120, count: IDS.length });
+    expect([evidence.retained.from, evidence.retained.to], 'the span and the window state one pair of stamps')
+      .toEqual([span?.from, span?.to]);
+  });
+
+  it('states the zero window of a store that holds nothing rather than leaving the member out', async () => {
+    // An empty store answers the zero window, and the fold that measures how far back evidence reaches has to
+    // be able to tell "nothing" from "not stated": the first is this report, and a missing member would be the
+    // second, which no store's answer can be.
+    const dir = await emptyDir();
+    await fileWith(dir, [], false);
+
+    const evidence = await readRetentionEvidence({ dir, ...DECLARATION });
+    expect(evidence.retained).toEqual({ from: 0, to: 0, count: 0 });
+    expect(evidence.coverage.span, 'nothing survives, so no span is stated either').toBeNull();
   });
 });
