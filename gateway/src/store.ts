@@ -610,6 +610,14 @@ function windowClaim(source: TimeSource, iat: number, from: number, to: number):
  * could not read as a holder at all, which is neither safe to serve beside nor safe to overwrite on a
  * guess, because a takeover of a claim that was not stale is the same fork wearing the words recovery.
  * Both refusals are raised before the log is opened, so neither has read a record or moved a byte.
+ * `STORE_COMPACTION_HELD_BY_READER` is about a reader rather than a writer, and it is raised after the
+ * wait that a reader can be sat out rather than instead of it. A compaction puts down every handle this
+ * store holds before it moves the compacted bytes over the live file, so a volume that still refuses the
+ * move is refusing somebody else's open handle: another store over the same directory in this process,
+ * or a process reading the file to audit or back it up. A Windows volume answers that with a refusal and
+ * a POSIX one completes the move underneath the handle, which is why the wait is the whole of the fix on
+ * one platform and untestable on the other. The refusal is the limit of the wait stated as a code rather
+ * than left as whatever the volume's own error string happens to say.
  */
 export type StoreErrorCode =
   | 'STORE_CHAIN_BROKEN'
@@ -620,7 +628,8 @@ export type StoreErrorCode =
   | 'RECORD_BOUND_REDUNDANT'
   | 'RETENTION_BOUND_OUT_OF_RANGE'
   | 'STORE_DIRECTORY_OWNED'
-  | 'STORE_OWNER_UNCLEAR';
+  | 'STORE_OWNER_UNCLEAR'
+  | 'STORE_COMPACTION_HELD_BY_READER';
 
 export class StoreError extends Error {
   readonly code: StoreErrorCode;
@@ -1746,7 +1755,7 @@ async function compact(
   // that handle answering from the bytes that used to be there while the index below had already moved
   // to the new offsets.
   await releaseHeld();
-  await rename(temp, path);
+  await renameWhenVolumeAllows(temp, path);
   const recovered = await scan(path, sidecar, receiptKind);
   state.records = recovered.records;
   state.head = recovered.head;
@@ -2067,6 +2076,70 @@ const READ_CHUNK_BYTES = 4 * 1024 * 1024;
  * renames.
  */
 const READER_IDLE_MILLISECONDS = 250;
+
+/** How long a compaction waits for a volume to let its move through: four idle intervals of a reader. */
+export const COMPACTION_RENAME_WAIT_MILLISECONDS = 4 * READER_IDLE_MILLISECONDS;
+
+/** How often that wait asks the volume again. */
+const COMPACTION_RENAME_PAUSE_MILLISECONDS = 25;
+
+/** The two numbers a caller can shorten in a test; the shipped pair is the one a deployment gets. */
+export interface RenameBudget {
+  readonly waitMilliseconds: number;
+  readonly pauseMilliseconds: number;
+}
+
+/**
+ * Moves the compacted file over the live one, waiting out a reader that has not let go of it yet.
+ *
+ * A compaction puts down every handle the store itself holds before it moves, so what can still refuse the
+ * move is a handle belonging to somebody else: a second store opened over the same directory in this process,
+ * or another process auditing the same volume, holds its read handle for `READER_IDLE_MILLISECONDS` after its
+ * last read. A Windows volume answers a move over that handle with `EPERM` and a POSIX one completes the move
+ * under it, which is why the wait is the whole of the fix on one platform and untestable on the other: the
+ * bound and the codes it waits on are stated here rather than left to whatever the volume happens to raise.
+ *
+ * Only the two codes a held reader produces are waited on. `ENOENT` is the temporary file missing, `ENOSPC`
+ * the volume full and `EROFS` a read-only mount, and none of them becomes true by waiting, so a compaction
+ * that meets one fails on the spot rather than after a second of silence.
+ */
+export async function renameWhenVolumeAllows(
+  from: string,
+  to: string,
+  move: (source: string, target: string) => Promise<void> = async (source, target) => {
+    await rename(source, target);
+  },
+  budget: RenameBudget = {
+    waitMilliseconds: COMPACTION_RENAME_WAIT_MILLISECONDS,
+    pauseMilliseconds: COMPACTION_RENAME_PAUSE_MILLISECONDS,
+  },
+): Promise<void> {
+  const waitsUntil = Date.now() + budget.waitMilliseconds;
+  let asks = 0;
+  for (;;) {
+    asks += 1;
+    try {
+      await move(from, to);
+      return;
+    } catch (error) {
+      const code = (error as { readonly code?: unknown }).code;
+      const held = code === 'EPERM' || code === 'EACCES';
+      if (!held) throw error;
+      if (Date.now() + budget.pauseMilliseconds > waitsUntil) {
+        throw new StoreError(
+          'STORE_COMPACTION_HELD_BY_READER',
+          `the volume refused the move of ${from} over ${to} with ${code} on ` +
+            `${asks === 1 ? 'its only ask' : `all ${asks} asks`} inside the ${budget.waitMilliseconds} ms ` +
+            `bound this move is given, which is what a handle this store does not own holding the file ` +
+            `open looks like. Every handle this store holds was put down before the move. The live file ` +
+            `was not touched, and the compacted bytes are left at ${from}, where the next compaction ` +
+            `overwrites them`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, budget.pauseMilliseconds));
+    }
+  }
+}
 
 /** The byte one record's frame ends at, its trailing digest included. */
 function frameEnd(where: Location): number {
