@@ -1,4 +1,4 @@
-import { ed25519 } from '@noble/curves/ed25519';
+import { nobleStrictVerify, type Ed25519Verifier } from './strict-ed25519.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 // The signing string is UTF-8 bytes, and this package has no DOM or Node global types, so the
 // encoder comes from the hash library already at the bottom of the signature path instead.
@@ -153,21 +153,27 @@ export function parsePopAuthorization(header: string): PopAuthorization {
 }
 
 /**
- * Strict (RFC 8032) verification rather than the subgroup-tolerant default the library picks,
- * because the option is the difference between a key that can absorb a signature nobody made and
- * a key that cannot. A public key of small order is a universal acceptor under the relaxed rule,
- * where one all-zero signature verifies for every message, and this option is what refuses it.
- * What it costs is a signature whose encoding is not canonical, which is nothing here: every
- * signature on this wire format is produced by `signPopAuthorization` in this file or by the SDK
- * that calls it, and both emit canonical encodings.
+ * Strict (RFC 8032) verification rather than the subgroup-tolerant default the library picks, because the
+ * option is the difference between a key that can absorb a signature nobody made and a key that cannot. A
+ * public key of small order is a universal acceptor under the relaxed rule, where one all-zero signature
+ * verifies for every message, and the strict rule is what refuses it. What it costs is a signature whose
+ * encoding is not canonical, which is nothing here: every signature on this wire format is produced by
+ * `signPopAuthorization` in this file or by the SDK that calls it, and both emit canonical encodings.
+ *
+ * The fourth argument names the implementation that answers, and it defaults to the library path, so a caller
+ * that says nothing is checked exactly as it was before. `strict-ed25519.ts` holds the other path: the same
+ * refusals stated as clauses, then the runtime's own primitive doing the group equation. A gateway
+ * passes that one, because verification is the largest cost it pays per admitted request, and the tests
+ * beside `strict-ed25519.ts` answer the cases each path produces and require the two to agree.
  */
 export function verifyPopSignature(
   fields: PopFields,
   signature: Uint8Array,
   publicKey: Uint8Array,
+  verifier: Ed25519Verifier = nobleStrictVerify,
 ): boolean {
   if (signature.length !== 64 || publicKey.length !== 32) return false;
-  return ed25519.verify(signature, utf8ToBytes(popSigningString(fields)), publicKey, { zip215: false });
+  return verifier(signature, utf8ToBytes(popSigningString(fields)), publicKey);
 }
 
 function required(seen: Map<string, string>, name: 'credential' | 'ts' | 'sig'): string {

@@ -36,6 +36,13 @@ export {
   verifyPopSignature,
 } from './pop.js';
 export type { PopFields, PopAuthorization } from './pop.js';
+/**
+ * The two strict verifiers, and which one this runtime answers with. A gateway asks for the runtime path and
+ * falls back to the library where the runtime has no primitive; a browser or an edge build gets the library
+ * path by construction, so the rule is one rule and only the arithmetic differs.
+ */
+export { nobleStrictVerify, preferredStrictVerify, strictVerifySource } from './strict-ed25519.js';
+export type { Ed25519Verifier } from './strict-ed25519.js';
 export {
   encodePayload,
   issueReceipt,
