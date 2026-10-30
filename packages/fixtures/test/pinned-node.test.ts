@@ -2,25 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { readSourceFile } from './doc-contract.js';
 
 /**
- * `24.21.0` is written in four places: `.nvmrc`, the `engines.node` floor in the root manifest, and the
+ * `26.13.0` is written in four places: `.nvmrc`, the `engines.node` floor in the root manifest, and the
  * two `FROM node:` tags in `enclave/Dockerfile`. A job installs the first and reads the second, but
  * nothing here builds the Dockerfile, so a bump that moved `.nvmrc` and left an image tag behind landed
  * with the image compiled on a Node no run in this repository has ever used. This file is what catches
  * that, and it names the file and the value that disagree rather than leaving someone to diff four.
  *
  * The version comes out of `.nvmrc` and every other copy is measured against it, so this test holds no
- * copy of `24.21.0` of its own: a fifth place to forget would pass on its own answer.
+ * copy of `26.13.0` of its own: a fifth place to forget would pass on its own answer.
  *
  * `engines.node` is compared as a parsed range rather than as a string, because a range is what it
- * declares. `>=24.21.0 <25`, `>= 24.21.0 <25` and `>=24.21.0 <25.0.0` state one promise, and matching the
- * text would read a re-spacing as a disagreement while missing a floor quietly widened to `>=24.0.0`. Two
+ * declares. `>=26.13.0 <27`, `>= 26.13.0 <27` and `>=26.13.0 <27.0.0` state one promise, and matching the
+ * text would read a re-spacing as a disagreement while missing a floor quietly widened to `>=26.0.0`. Two
  * things follow from parsing instead. Nothing in this package's dependency tree can parse a range:
  * `semver` sits in the store several links deep, unreachable from a test here and with no types
  * installed, so the comparators are read below rather than a package added for one assertion. And the
  * reader is deliberately narrow, accepting only a whitespace-separated list of `>=`, `>`, `<=` and `<`
  * comparators, so a range in any other form is reported rather than read as agreement.
  *
- * Admitting the pin is not by itself the check, either. `>=24.21.0 <25` admits `24.22.0`, so a range can
+ * Admitting the pin is not by itself the check, either. `>=26.13.0 <27` admits `26.14.0`, so a range can
  * be satisfied by a bumped `.nvmrc` while still naming the release before it: the floor has to be the pin.
  */
 

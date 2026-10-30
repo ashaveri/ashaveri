@@ -2,9 +2,9 @@
 
 ## Setup
 
-Node 24.21.0 and pnpm 12.3.4. Both are declared rather than assumed: `.nvmrc` names `24.21.0` and
+Node 26.13.0 and pnpm 12.3.4. Both are declared rather than assumed: `.nvmrc` names `26.13.0` and
 every CI job that installs a Node reads that file, while the root `package.json` declares
-`engines.node` as `>=24.21.0 <25` and `packageManager` as `pnpm@12.3.4`.
+`engines.node` as `>=26.13.0 <27` and `packageManager` as `pnpm@12.3.4`.
 
 ```bash
 pnpm install

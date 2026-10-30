@@ -113,9 +113,12 @@ const PREDEFINED: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '
 
 /** A cursor over the text, so each production is a step forward or a refusal. */
 class Cursor {
+  readonly text: string;
   at = 0;
 
-  constructor(readonly text: string) {}
+  constructor(text: string) {
+    this.text = text;
+  }
 
   get end(): boolean {
     return this.at >= this.text.length;
@@ -170,9 +173,12 @@ interface StartTagItem {
 }
 
 class Document {
+  private readonly source: Cursor;
   private elements = 0;
 
-  constructor(private readonly source: Cursor) {}
+  constructor(source: Cursor) {
+    this.source = source;
+  }
 
   /** The document element, with the instructions and comments the prolog and the epilog carried. */
   read(): ReadOutcome {

@@ -70,12 +70,14 @@ export interface VerifiedCompletion {
  * that publish them just after the response body finishes.
  */
 export class GatewaySession {
+  readonly baseUrl: string;
+  private readonly options: GatewaySessionOptions;
   private manifestPromise: Promise<ReadManifestResult> | undefined;
 
-  constructor(
-    readonly baseUrl: string,
-    private readonly options: GatewaySessionOptions = {},
-  ) {}
+  constructor(baseUrl: string, options: GatewaySessionOptions = {}) {
+    this.baseUrl = baseUrl;
+    this.options = options;
+  }
 
   private get fetchImpl(): typeof fetch {
     return this.options.fetchImpl ?? globalThis.fetch;

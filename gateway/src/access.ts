@@ -795,12 +795,19 @@ function nonceKey(credentialId: string, nonce: Uint8Array): string {
  */
 export class ReplaySet {
   private readonly seen = new Map<string, number>();
+  private readonly windowSeconds: number;
+  private readonly maxEntries: number;
+  private readonly nowMillis: () => number;
 
   constructor(
-    private readonly windowSeconds: number = REPLAY_WINDOW_SECONDS,
-    private readonly maxEntries: number = REPLAY_MAX_ENTRIES,
-    private readonly nowMillis: () => number = () => Date.now(),
-  ) {}
+    windowSeconds: number = REPLAY_WINDOW_SECONDS,
+    maxEntries: number = REPLAY_MAX_ENTRIES,
+    nowMillis: () => number = () => Date.now(),
+  ) {
+    this.windowSeconds = windowSeconds;
+    this.maxEntries = maxEntries;
+    this.nowMillis = nowMillis;
+  }
 
   /** True when this key was already presented inside the window. */
   see(key: string): boolean {
@@ -843,6 +850,7 @@ interface Bucket {
  */
 export class TokenBucket {
   private readonly buckets = new Map<string, Bucket>();
+  private readonly maxKeys: number;
 
   /**
    * How many keys this map may hold. Left unlimited where the keys come from a credential file, which
@@ -852,7 +860,9 @@ export class TokenBucket {
    * avoid. Eviction gives up on the key presented least recently, so the peers who lose a bucket are
    * the quiet ones - who get a full one back - and not the busy one a bucket exists to hold.
    */
-  constructor(private readonly maxKeys: number = Number.POSITIVE_INFINITY) {}
+  constructor(maxKeys: number = Number.POSITIVE_INFINITY) {
+    this.maxKeys = maxKeys;
+  }
 
   take(key: string, rate: CredentialRate, nowMs: number = Date.now()): { allowed: boolean; retryAfterSeconds: number } {
     const bucket = this.buckets.get(key);

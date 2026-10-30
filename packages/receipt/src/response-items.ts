@@ -157,6 +157,11 @@ export function frameResponse(contentType: string, body: Uint8Array): ResponseIt
  * same walk.
  */
 class ResponseItemWalk {
+  // Assigned in the constructor rather than declared as parameter properties, because the offline replay
+  // runs this file through Node's built-in type stripping, which refuses that shorthand outright.
+  private readonly streamed: boolean;
+  private readonly reader: string;
+  private readonly take: (bytes: Uint8Array) => void;
   private buffer: Uint8Array = new Uint8Array(0);
   /** How many items `take` has been handed, which is the number a refusal is decided against. */
   private taken = 0;
@@ -167,11 +172,11 @@ class ResponseItemWalk {
    * `reader` is the name the refusal of a late chunk quotes, so that the sentence sends a caller to the
    * class it should have taken rather than to whichever of the two this walk happens to serve.
    */
-  constructor(
-    private readonly streamed: boolean,
-    private readonly reader: string,
-    private readonly take: (bytes: Uint8Array) => void,
-  ) {}
+  constructor(streamed: boolean, reader: string, take: (bytes: Uint8Array) => void) {
+    this.streamed = streamed;
+    this.reader = reader;
+    this.take = take;
+  }
 
   /**
    * Take the next piece of the response, framing what of it is complete and holding the rest back.

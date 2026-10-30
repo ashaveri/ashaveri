@@ -146,6 +146,7 @@ const MODELS = [{ id: 'tinyllama', wts: sha256(new TextEncoder().encode('weights
 const STANDING = sha256(new TextEncoder().encode('ashaveri:deployment-evidence:v1'));
 
 class FakeGuest implements GuestApi {
+  private readonly document: (reportData: Uint8Array) => Uint8Array;
   readonly attested: Uint8Array[] = [];
   readonly keyPaths: string[] = [];
   readonly gpuChallenges: Uint8Array[] = [];
@@ -159,7 +160,9 @@ class FakeGuest implements GuestApi {
   /** Answers a device challenge, or stays null for a guest with no accelerators. */
   gpu: ((nonce: Uint8Array) => GpuEvidenceBundle) | null = null;
 
-  constructor(private readonly document: (reportData: Uint8Array) => Uint8Array) {}
+  constructor(document: (reportData: Uint8Array) => Uint8Array) {
+    this.document = document;
+  }
 
   async getKey(path: string, purpose: string, algorithm: 'ed25519'): Promise<GuestKey> {
     this.keyPaths.push(`${path}|${purpose}|${algorithm}`);

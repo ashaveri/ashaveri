@@ -135,7 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           work="$(mktemp -d)"
-          node --experimental-strip-types packages/cli/scripts/offline-proof.ts "$work" packages/fixtures/data
+          node packages/cli/scripts/offline-proof.ts "$work" packages/fixtures/data
 
   secret-scan:
     name: Secret scan over the full commit history

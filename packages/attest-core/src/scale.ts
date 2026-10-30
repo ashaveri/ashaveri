@@ -3,9 +3,11 @@ import { AttestationError } from './errors.js';
 const MAX_ATTESTATION_BYTES = 10 * 1024 * 1024;
 
 export class ScaleReader {
+  private readonly bytes: Uint8Array;
   private pos = 0;
 
-  constructor(private readonly bytes: Uint8Array) {
+  constructor(bytes: Uint8Array) {
+    this.bytes = bytes;
     if (bytes.length > MAX_ATTESTATION_BYTES) {
       throw new AttestationError('MALFORMED_ATTESTATION', `attestation exceeds ${MAX_ATTESTATION_BYTES} bytes`);
     }
