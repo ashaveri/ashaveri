@@ -32,6 +32,7 @@ import {
   openInstructionRecord,
   type CustomerInstructionRecord,
 } from './instruction-record.js';
+import { openTimeSourceState, type TimeSourceStateHandle } from './time-source-state.js';
 import { ACCESS_LOG_EDGE, RECEIPTS_EDGE, daysToSeconds, judgeWindow } from './duty-window.js';
 import { modelsFromManifest, type ManifestModels } from './weights.js';
 import {
@@ -44,6 +45,7 @@ import {
   type ReceiptRetention,
   type ReceiptServing,
   type ReceiptStore,
+  type TimeSource,
 } from './store.js';
 
 const USAGE = `signerd - receipt-signing gateway for Ashaveri verifiable inference
@@ -227,6 +229,43 @@ Options:
                                    that is named and cannot be read, or that is not one version this
                                    gateway reads, or that states a member it does not define, stops the
                                    start rather than being ignored.
+  --time-source-state <file>       Read every stamp this process signs from
+                                   a state file this deployment's own clock
+                                   synchronisation maintains, instead of from
+                                   this host's clock. The file states the
+                                   source's name, the bound on how far its
+                                   readings can stand from the instants they
+                                   name, and the instant it measured, in the
+                                   same whole seconds every stamp is written
+                                   in. The name and the bound travel into
+                                   every payload this process issues, so the
+                                   writer is the thing that states them and
+                                   no flag here names a bound that could
+                                   compete with the document's own number.
+                                   The gateway re-reads the file on an
+                                   interval derived from the bound the file
+                                   states, between one and sixty seconds,
+                                   and stamps from the reading it holds,
+                                   moved on between reads by a monotonic
+                                   clock, so a stepped host clock moves no
+                                   stamp and no receipt pays for a file
+                                   read. A file that is missing, unreadable,
+                                   of a version this gateway does not read,
+                                   carrying a member it has no name for, or
+                                   stating an instant further than a day from
+                                   this host's own claim at the start stops
+                                   the run where it stands: this route never
+                                   falls back to the host clock, because the
+                                   receipt's own disclosure names whichever
+                                   source read the stamp. Once serving, a
+                                   file whose stated instant falls further
+                                   behind this source's own than the ceiling
+                                   its bound allows stops receipts being
+                                   signed and prints its age, its bound and
+                                   this path, while reads of receipts already
+                                   filed go on answering. Default: this
+                                   host's clock, at the uncertainty nobody
+                                   measured.
   --allow-bearer                   Accept bearer credentials beside proof of possession. Off by
                                    default, and never per credential.
   --pop-tolerance <seconds>        Clock slack accepted for a proof-of-possession timestamp.
@@ -312,6 +351,7 @@ interface CliOptions {
   readonly 'access-log-path'?: string;
   readonly 'access-log-days'?: string;
   readonly 'instruction-record'?: string;
+  readonly 'time-source-state'?: string;
   readonly 'allow-bearer'?: boolean;
   readonly 'pop-tolerance'?: string;
   readonly 'peer-rate'?: string;
@@ -427,6 +467,7 @@ try {
       'access-log-path': { type: 'string' },
       'access-log-days': { type: 'string' },
       'instruction-record': { type: 'string' },
+      'time-source-state': { type: 'string' },
       'allow-bearer': { type: 'boolean' },
       'pop-tolerance': { type: 'string' },
       'peer-rate': { type: 'string' },
@@ -620,13 +661,40 @@ const servedReceipts = wholeNumber(
   SHIPPED_SERVED_RECEIPTS,
 );
 /**
- * The one source this process reads: named, and stating the bound anyone has measured on it. Nothing on
- * the command line moves it, which is the point: a deployment that can read a source other than its own
- * host's clock wires one at the seam in `buildGateway` and `openFileReceiptStore`, and the name and the
- * bound travel with it. What is left unset here is a host clock at the uncertainty nobody measured, and
- * the start-up line below says so rather than letting an unstamped process read as a measured one.
+ * The one source this process reads: named, and stating the bound anyone has measured on it. Nothing else
+ * on the command line moves it, which is the point: the name and the bound are the deployment's own
+ * statement, either the shipped one below or the one a state file carries, and they travel with every
+ * stamp into the `sd` member of each payload this process signs.
+ *
+ * A run that names no state file reads the source this repository ships: the host's own clock, at
+ * the uncertainty nobody measured, and the start-up line below says so rather than letting an unstamped
+ * process read as a measured one. A run that names one reads it here, before a receipt store or an access
+ * log is opened, because a process about to append to a volume it cannot date is worse than one that
+ * stopped. There is no third state: a named file that cannot be read is a refusal of the run, never a
+ * return to the host clock under the name the document gave, since the promise `sd` carries is about which
+ * source read the stamp and nothing this process could say afterward makes an unreadable document into one.
  */
-const time = HOST_CLOCK_SOURCE;
+const timeSourceStatePath = values['time-source-state'];
+let time: TimeSource = HOST_CLOCK_SOURCE;
+let filedTimeSource: TimeSourceStateHandle | undefined;
+if (timeSourceStatePath !== undefined) {
+  try {
+    filedTimeSource = await openTimeSourceState({
+      path: timeSourceStatePath,
+      // A timer that cannot read the file says so once, here, rather than only through the refusals that
+      // follow: a deployment with no traffic still learns that its synchronisation stopped writing.
+      report: (line): void => {
+        process.stderr.write(`signerd: ${line}\n`);
+      },
+    });
+    time = filedTimeSource.source;
+  } catch (error) {
+    // The operator named a file, so the fault is the deployment's rather than the command line's, and no
+    // flag spelled differently answers it: the same posture an unreadable instruction record and a store
+    // that will not chain take, on the exit that says nothing about usage.
+    refuseToStart(error instanceof Error ? error.message : String(error));
+  }
+}
 /**
  * The store's age bound, in the seconds the store is configured with, from the days this run named or the
  * default beside them. This is the number `--receipts-days` moves, and the only place the day count
@@ -1023,11 +1091,26 @@ const instructionLabel =
       }, so this run keeps ${String(accessLogDays)} days`;
 // The source every stamp this process signs comes from, printed as the process reads it. A receipt's
 // issuance instant is only as good as the source it was read from, and this line is where the process
-// says which that was and whether anybody bounded it.
+// says which that was and whether anybody bounded it. Whose claim an unmeasured reading is comes from
+// which source the process was handed: a run that named no state file rests on its own host's clock, and
+// a run that read one states whose claim it is, because a file naming a source nobody bounded is a
+// different document from a host that was never asked.
+const unmeasuredOwner =
+  filedTimeSource === undefined
+    ? "this host's own claim"
+    : `the claim of ${time.name}, which ${filedTimeSource.path} states and nobody has measured`;
 const timeLabel =
   time.uncertaintySeconds === null
-    ? `time: every stamp this process signs is read from ${time.name}, on which nobody measured an uncertainty, so a receipt's issuance instant is this host's own claim`
+    ? `time: every stamp this process signs is read from ${time.name}, on which nobody measured an uncertainty, so a receipt's issuance instant is ${unmeasuredOwner}`
     : `time: every stamp this process signs is read from ${time.name}, whose readings are bounded at ${String(time.uncertaintySeconds)} seconds`;
+// Beside a state file, the two figures a stamp's provenance now rests on, printed as this process holds
+// them: how often it looks at the file, and how far behind the file's own word it will still sign. An
+// operator comparing a run's receipts with a synchronisation log needs both numbers, and neither is a
+// bound this repository chose for the source rather than derived from the one the document states.
+const timeStateLabel =
+  filedTimeSource === undefined
+    ? undefined
+    : `time source state: ${filedTimeSource.path}, read every ${String(filedTimeSource.policy().refreshSeconds)} seconds and stamped from the reading held between reads, so a stamp is refused once that file's instant sits more than ${String(filedTimeSource.policy().stalenessCeilingSeconds)} seconds behind the instant this source states, which stops signing and not the reads of receipts already filed`;
 // The two rate limits a request spends, printed as this process holds them rather than as the flags
 // spelled it: every request from one address, signed or not, spends from the first bucket, so behind a
 // reverse proxy that number is the deployment's capacity and not a per-client one. The second is what a
@@ -1070,6 +1153,7 @@ const lines: string[] = [
   `  ${intakeGuardLabel}`,
   `  ${markingLabel}`,
   `  ${timeLabel}`,
+  ...(timeStateLabel === undefined ? [] : [`  ${timeStateLabel}`]),
   allowBearer
     ? `  auth: bearer credentials also accepted, which is a refusal of the strongest posture here: a stolen bearer credential is undetectable, and a log record cannot tell its holder from a thief; proof-of-possession signatures checked with ${verifierLabel}`
     : `  auth: proof of possession, timestamps trusted within ${String(toleranceSeconds)} seconds; bearer credentials refused; signatures checked with ${verifierLabel}`,
@@ -1124,6 +1208,9 @@ process.stdout.write(`${lines.join('\n')}\n`);
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
+    // The reader's timer is stopped on the way out, so a process already leaving takes no fresh reading of
+    // the file it was pointed at.
+    filedTimeSource?.stop();
     // The log gets one chance to take what is already written, and a refusal to close it is not a
     // reason to hold a process the operator just asked to stop.
     void app
