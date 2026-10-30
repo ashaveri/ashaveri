@@ -887,6 +887,16 @@ describe('the banner a booted gateway prints', () => {
       /^ {2}dev credential for this mock run: id=dev privateKeyHex=[0-9a-f]{64}$/u,
     );
   });
+
+  // The two names a printed record carries. A mock run that accepted `--issuer` and stamped
+  // `ashaveri-mock` anyway handed the operator a flag that answered with nothing.
+  it('stamps the issuer and instance a mock run was told to carry', async () => {
+    const banner = await readBanner('--mock', '--port', '0', '--issuer', 'ashaveri-booth', '--instance', 'card-2026-1');
+    const line = banner.find((each) => each.includes('issuer '));
+    expect(line, `no identity line; stdout held ${JSON.stringify(banner.join('\n'))}`).toBe(
+      '  issuer ashaveri-booth instance card-2026-1',
+    );
+  });
 });
 
 describe('the flags that make the access floor real', () => {
