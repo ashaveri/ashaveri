@@ -27,6 +27,7 @@ import { fromBase64Url, toBase64Url } from './b64.js';
 import { mockBackend, type BackendResponse, type CompletionBackend, type CompletionUsage } from './backend.js';
 import { mockDeployment, type AttestationBundle, type Deployment } from './deployment.js';
 import { fromHex, sha256, toHex } from './digest.js';
+import { EpochJournalError, unsealedHistoryRefusal, type EpochJournal, type EpochJournalEntry } from './epoch-journal.js';
 import { stampDisclosureOf } from './issuance-disclosure.js';
 import { StreamedItemStamps, boundStampsAt, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
 import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
@@ -134,6 +135,22 @@ export interface GatewayOptions {
    * instants of an issuance this gateway takes itself.
    */
   readonly appraisal?: AppraisalReader;
+  /**
+   * The epochs this deployment has signed under, read from the journal it keeps beside its receipts.
+   *
+   * Present means `keys[]` is published from that history: every entry the journal holds becomes a row, and
+   * each row states the epoch it signed under and the first instant this deployment accepted a signature from
+   * it, which is what lets a reader weigh a receipt from before a rotation against the window its own epoch
+   * was served in. Absent is today's document: the one key this process holds, no epoch member and no window,
+   * which a client reads as a deployment that has published no history rather than as one whose key has
+   * always been the key.
+   *
+   * A journal is written by the process it describes, so handing this option a history that does not name the
+   * running key and epoch is not a state a deployment can reach through `gateway/src/cli.ts`, and it is not a
+   * state this build checks for: what the served document would then mean for a reader is decided by
+   * `parseManifest` at that reader, which is where the rules about the shape of a history live.
+   */
+  readonly epochJournal?: EpochJournal;
 }
 
 export interface ManifestJson {
@@ -141,7 +158,19 @@ export interface ManifestJson {
   readonly iss: string;
   readonly ins: string;
   readonly epk: number;
-  readonly keys: readonly { kid: string; alg: 'Ed25519'; publicKey: string }[];
+  /**
+   * The keys this deployment signs receipts with, and for a deployment that keeps an epoch journal the whole
+   * history of them. The two optional members travel together, as section 4.4 of `docs/receipt-spec.md`
+   * states, and a row that carries one without the other is a manifest that began declaring windows and
+   * stopped halfway: `parseManifest` refuses that document, and this build never writes one.
+   */
+  readonly keys: readonly {
+    kid: string;
+    alg: 'Ed25519';
+    publicKey: string;
+    epk?: number;
+    validFrom?: number;
+  }[];
   readonly models: readonly { id: string; wts: string }[];
   readonly meas: { tee: TeeKind; m: string };
 }
@@ -721,12 +750,37 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     }
   });
 
+  // The document this deployment publishes about its own keys, in one of the two shapes a deployment can be
+  // in. With a journal beside its store, the history in that journal is the document's `keys[]`: every epoch
+  // this deployment has signed under, the key it held then, and the instant it began accepting signatures
+  // from that key. Without one, the manifest carries the single key this process stands on and states no
+  // window at all, which is what every deployment before the journal served and what a reader answers as
+  // "this document declares no epochs" rather than as a key that has always been the key.
+  //
+  // A history is published only where a reader can weigh it. Two entries say something about a key that is
+  // no longer in use, and an unsigned document saying that is a claim any observer between this process and
+  // its clients could have written, so a journal naming more than one epoch behind an unsigned manifest stops
+  // the run. One entry claims nothing beyond the key the document already carries and stays plain JSON.
+  const journal = options.epochJournal;
+  if (journal !== undefined) {
+    const unsealed = unsealedHistoryRefusal(journal, deployment.manifestKey !== undefined);
+    if (unsealed !== null) throw new EpochJournalError(unsealed);
+  }
   const manifest: ManifestJson = {
     v: 1,
     iss: deployment.issuer,
     ins: deployment.instance,
     epk: deployment.epk,
-    keys: [{ kid: toHex(deployment.key.kid), alg: 'Ed25519', publicKey: toBase64Url(deployment.key.publicKey) }],
+    keys:
+      journal === undefined
+        ? [{ kid: toHex(deployment.key.kid), alg: 'Ed25519', publicKey: toBase64Url(deployment.key.publicKey) }]
+        : journal.entries.map((entry: EpochJournalEntry) => ({
+            kid: entry.kid,
+            alg: 'Ed25519',
+            publicKey: entry.publicKey,
+            epk: entry.epk,
+            validFrom: entry.validFrom,
+          })),
     models: deployment.models.map((model) => ({ id: model.id, wts: toHex(model.wts) })),
     meas: { tee: deployment.tee, m: toHex(deployment.measurement) },
   };

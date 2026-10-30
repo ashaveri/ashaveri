@@ -111,6 +111,13 @@ export interface MockDeploymentOptions {
   readonly key?: SigningKey;
   /** The key that seals the manifest this deployment serves. Absent leaves the document unsigned. */
   readonly manifestKey?: SigningKey;
+  /**
+   * The signing-key epoch this run stamps under. Absent means `0`, the epoch a first deployment is started
+   * at, and a run that carries an epoch journal should hand it the same number it hands the journal: the
+   * epoch inside a receipt and the epoch beside the key that signed it are one fact, and two places that
+   * state it are two chances for a served document to disagree with its own records.
+   */
+  readonly epk?: number;
   readonly model?: string;
   /**
    * The models this software deployment serves, named as the operator declared them.
@@ -151,7 +158,7 @@ export function mockDeployment(options: MockDeploymentOptions = {}): Deployment 
     instance: options.instance ?? 'mock-instance-1',
     key: options.key ?? generateSigningKey(),
     manifestKey: options.manifestKey,
-    epk: 0,
+    epk: options.epk ?? 0,
     tee: 'software',
     measurement: sha256(new TextEncoder().encode('mock-measurement')),
     models,

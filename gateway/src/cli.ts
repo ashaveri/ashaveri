@@ -9,7 +9,7 @@ import {
   type MarkingScheme,
   type TeeKind,
 } from '@ashaveri/receipt';
-import { buildGateway, DEFAULT_COMPLETION_RATE } from './server.js';
+import { buildGateway, DEFAULT_COMPLETION_RATE, type GatewayInstance } from './server.js';
 import {
   AccessError,
   CredentialStore,
@@ -27,6 +27,7 @@ import { mockBackend, type CompletionBackend } from './backend.js';
 import { upstreamBackend } from './upstream.js';
 import { mockDeployment, type Deployment, type HardwareTeeKind, type MockDeploymentOptions } from './deployment.js';
 import { toHex } from './digest.js';
+import { EpochJournalError, recordEpochForRun, type EpochJournal } from './epoch-journal.js';
 import {
   DEFAULT_INSTRUCTION_RECORD_PATH,
   openInstructionRecord,
@@ -960,10 +961,6 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
   } catch (error) {
     fail(`--weights-manifest could not be read: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const epk = values.epk === undefined ? 0 : Number(values.epk);
-  if (!Number.isInteger(epk) || epk < 0) {
-    fail(`--epk must be a non-negative integer, got '${String(values.epk)}'`);
-  }
   if (values.tee !== undefined && !(HARDWARE_TEES as readonly string[]).includes(values.tee)) {
     fail(`--tee must be one of ${HARDWARE_TEES.join(', ')}, got '${values.tee}'`);
   }
@@ -984,34 +981,89 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
   });
 }
 
+/**
+ * The epoch this process signs under, read once for both modes because it is one fact about the run.
+ *
+ * A receipt states it, the manifest states it beside the keys, and the journal an epoch is recorded in states
+ * it as the entry's own, so a run that read this flag in one mode and not the other would publish a document
+ * about a key whose epoch it had never been told. `0` is what a first deployment starts at, and rotating means
+ * a new key, a higher number here, and a restart: a gateway publishes the epoch it was started with and never
+ * changes it, which is what section 3 of `docs/receipt-spec.md` states and what the journal turns into a
+ * published window.
+ */
+const epk = values.epk === undefined ? 0 : Number(values.epk);
+if (!Number.isInteger(epk) || epk < 0) {
+  fail(`--epk must be a non-negative integer, got '${String(values.epk)}'`);
+}
+
 let deployment: Deployment;
 try {
-  deployment = values.mock === true ? mockDeployment({ time, ...softwareServing(values) }) : await liveDeployment(values);
+  deployment =
+    values.mock === true
+      ? mockDeployment({ time, epk, ...softwareServing(values) })
+      : await liveDeployment(values);
 } catch (error) {
   process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 }
+
+/**
+ * The epoch this run recorded, on the volume it keeps its receipts on, or nothing where the run records none.
+ *
+ * Which runs record nothing, and why the answer about sealing travels with the entry instead of beside it, is
+ * `recordEpochForRun`'s own and is stated there once. What is decided here is only the ordering: this opens
+ * after the store, because the store is what claims the directory and refuses a second writer on it, and after
+ * the deployment, because an entry is about the key and the epoch that deployment holds. A journal that will not
+ * open is a fact about the volume, the way a store that will not chain is, so it stops the run on the exit that
+ * names no flag as the answer.
+ */
+let epochJournal: EpochJournal | undefined;
+try {
+  epochJournal = await recordEpochForRun({
+    receiptsDir,
+    mock: values.mock === true,
+    key: deployment.key,
+    manifestKey: deployment.manifestKey,
+    epk: deployment.epk,
+    time,
+  });
+} catch (error) {
+  refuseToStart(error instanceof Error ? error.message : String(error));
+}
+
 const backend: CompletionBackend =
   values.upstream === undefined ? mockBackend({ time }) : upstreamBackend({ baseUrl: values.upstream });
 
 // The guard reads the very `retention` object the store above was opened with, rather than the two
 // numbers copied out of it: a refusal raised against a bound nothing retires by, or a period nothing
 // ages by, would be a second configuration an operator has to keep in step with the first.
-const app = buildGateway({
-  deployment,
-  backend,
-  store,
-  access,
-  accessLog,
-  marking,
-  time,
-  receiptIntakeGuard: {
-    retention,
-    refusesAtFraction: guardAtPercent / GUARD_AT_BOUND_ITSELF_PERCENT,
-    growPastGuard,
-  },
-  completionBound: { rate: completionRate },
-});
+//
+// Building the gateway is where a deployment finds out whether the history it holds may be published, so a
+// refusal from that check is reported the way every other refusal about this deployment's own files is: the
+// sentence the mechanism raised, on the exit that says no command line answers it. Anything else this build
+// throws is not a refusal the operator can act on, so it is left to fail as it always did.
+let app: GatewayInstance;
+try {
+  app = buildGateway({
+    deployment,
+    backend,
+    store,
+    access,
+    accessLog,
+    marking,
+    time,
+    epochJournal,
+    receiptIntakeGuard: {
+      retention,
+      refusesAtFraction: guardAtPercent / GUARD_AT_BOUND_ITSELF_PERCENT,
+      growPastGuard,
+    },
+    completionBound: { rate: completionRate },
+  });
+} catch (error) {
+  if (error instanceof EpochJournalError) refuseToStart(error.message);
+  throw error;
+}
 await app.listen({ port, host });
 // One decision about the run's mode, read by both lines that describe it below, so neither can claim
 // a mode the process is not in.
