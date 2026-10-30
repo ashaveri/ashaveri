@@ -80,7 +80,9 @@ with `pnpm --filter @ashaveri/fixtures generate`, and the `generate:` variants n
 that document. What the evidence behind a receipt looked like as it arrived, and the record that would
 hold those original bytes beside the context that made them verifiable, is
 [docs/capture-v1.md](docs/capture-v1.md): the layout member by member, what each one lets a reader
-conclude, and what none of them can.
+conclude, and what none of them can. Whether a store can prove it held every record across a period is
+[docs/retention-assessment-v1.md](docs/retention-assessment-v1.md): the members a deployment declares, the
+observations a checkpoint and a pinned head have to support, and why a span between two timestamps is not one.
 
 Reporting a vulnerability and submitting a change have their own pages:
 [SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
