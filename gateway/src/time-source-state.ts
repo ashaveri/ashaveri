@@ -267,9 +267,11 @@ export function stalenessCeilingSeconds(uncertaintySeconds: number | null, refre
 
 /** The instant the cache answers at `mono`: the adopted whole second, moved on by elapsed monotonic time. */
 function heldAt(state: CachedState, mono: number): number {
-  // The floor is what keeps a stamp a whole second, and the clamp is what keeps an injected or restarted
-  // monotonic base from moving an instant backwards: this source's own contract is that its stamps do not.
-  const elapsed = Math.max(0, Math.floor(mono - state.baseMono));
+  // The floor of a stamp taken from one adopted document. What keeps an answer from ever going below a
+  // stamp already signed is the handle's own mark, not a clamp here: a smaller monotonic reading lands
+  // under this number and the mark answers instead, so clamping the elapsed term twice would change no
+  // answer a reader can observe and leave one guard with no way to show it can fail.
+  const elapsed = Math.floor(mono - state.baseMono);
   return state.base + elapsed;
 }
 
@@ -412,6 +414,15 @@ export async function openTimeSourceState(options: TimeSourceStateOptions): Prom
     stalenessCeilingSeconds: stalenessCeilingSeconds(first.uncertaintySeconds, refreshSeconds),
   };
 
+  // The highest instant this handle has answered with. `performance.now()` never steps back, but a
+  // caller that supplies the reading can, and two stamps out of order under one `sd` name is what a
+  // reader cannot reconcile. It sits beside the reading rather than inside it, so adopting a document
+  // still swaps one immutable object whole, and it is the floor every answer is taken against: no
+  // smaller monotonic reading, and no later document naming an older instant, reaches a stamp already
+  // signed. A refusal leaves it where it stands, because an answer this source did not give cannot
+  // become the floor of the next.
+  let issued = state.base;
+
   /**
    * Adopt one document, whole.
    *
@@ -462,12 +473,12 @@ export async function openTimeSourceState(options: TimeSourceStateOptions): Prom
         return state.uncertaintySeconds;
       },
       nowSeconds(): number {
-        const mono = monotonic();
-        const held = heldAt(state, mono);
+        const held = Math.max(heldAt(state, monotonic()), issued);
         const age = held - state.declared;
         if (age > state.stalenessCeilingSeconds) {
           throw new TimeSourceStateError(stalenessRefusal(path, state, age, lastFault));
         }
+        issued = held;
         return held;
       },
     },

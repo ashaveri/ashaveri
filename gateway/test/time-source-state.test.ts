@@ -477,6 +477,24 @@ describe('what the cached source answers between reads', () => {
     }
   });
 
+  it('holds a stamp at the highest instant it has answered when the monotonic base steps backwards', async () => {
+    const dir = await emptyDir();
+    const path = join(dir, 'clock-state.json');
+    await writeFile(path, stateDocument({ uncertaintySeconds: 600, measuredAtSeconds: BASE }), 'utf8');
+    const mono = monotonicFixture();
+    const handle = await openFixture(path, { mono });
+
+    mono.advance(5);
+    const issued = handle.source.nowSeconds();
+    expect(issued).toBe(BASE + 5);
+
+    // A caller that brings its own monotonic reading can hand back a smaller one, and an answer below the
+    // last instant this source gave is two receipts out of order under one `sd` name. The file's word still
+    // bounds the age and still names the source; an instant already signed stays signed.
+    mono.advance(-10);
+    expect(handle.source.nowSeconds()).toBe(issued);
+  });
+
   it('refuses rather than rewinds when a later document states an instant behind the one it stamped', async () => {
     const dir = await emptyDir();
     const path = join(dir, 'clock-state.json');
