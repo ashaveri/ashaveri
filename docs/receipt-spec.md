@@ -462,6 +462,33 @@ that breaks any of those is refused rather than read. With neither member the de
 history at all, which is what every manifest published before this section's rule was written carries, and
 which is reported to a client as no declared windows rather than as an endless one.
 
+What a deployment that keeps its receipts on a volume answers at that route is the wider document, because its
+members fill themselves. A deployment that keeps its receipts on a volume keeps an epoch journal beside them: `gateway/src/epoch-journal.ts`
+records one entry for every signing epoch this gateway has served under, taking each field from the only
+process that can state it, the key it signs with, the epoch it was started at, and the instant it first served
+there. A boot under an epoch the journal already names records nothing at all, so the history is what a
+deployment lived rather than a table somebody typed, and rotating a key means a new key path, a higher
+`--epk`, and a restart. `gateway/src/server.ts` publishes the entries that journal holds as the `keys[]` above,
+each row carrying both members, and the manifest route seals them with the rest of the document. A history is
+never served unauthenticated: a journal naming more than one epoch behind a deployment that was handed no
+manifest signing key stops the run rather than publishing a statement about retired keys that signs nothing.
+An epoch the journal never recorded stays unrecorded, because there is no route to a window that no process
+served under: a receipt from before the journal arrives at a document that names its epoch nowhere and is
+refused by the rule above, which is the honest answer and not a forgery of one.
+
+Before this writer existed, nothing in the estate filled the two members, and that is still the shape of every
+manifest published before it: the shipped binary answered that route with the one key a process stood on, and
+a reader saw no declared windows rather than a claim that today's key has always been the key. A deployment
+that wants its document attributed publishes it sealed, and that path is shipped in published code rather than
+left to a service of ours: `sealDeploymentManifest` renders and signs the sealed form the manifest route can
+serve, `isSealedDeploymentManifest`, `decodeSealedDeploymentManifest` and `verifySealedDeploymentManifest`
+read it back, `adjudicateReceiptEpoch` in `packages/sdk/src/epoch.ts` applies the rules above and is what a
+client reaches through `gateway.ts`, and `packages/fixtures/data/manifest-v1.json` publishes both the accepted
+windows and the shapes this section refuses. No other artifact of the estate carries the mapping from a key to
+an epoch and a start: the epoch inventory names the run it describes and states no copy of a manifest's key
+list, as its own layout says, because which keys are trusted is a reviewer's designation and not a fact one
+document hands another.
+
 `epk` at the top level is the epoch this process stamps new receipts under; the windows in `keys[]` are
 what a reader checks a past receipt against. Section 5's step 2 is what adjudicates the two.
 
