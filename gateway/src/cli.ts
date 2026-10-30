@@ -1022,9 +1022,7 @@ try {
   epochJournal = await recordEpochForRun({
     receiptsDir,
     mock: values.mock === true,
-    key: deployment.key,
-    manifestKey: deployment.manifestKey,
-    epk: deployment.epk,
+    deployment,
     time,
   });
 } catch (error) {

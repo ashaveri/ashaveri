@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { hashRequest, signingKeyFromSeed } from '@ashaveri/receipt';
+import { mockDeployment } from '../src/deployment.js';
 import {
   EPOCH_JOURNAL_FILE,
   EPOCH_JOURNAL_VERSION,
@@ -36,6 +37,7 @@ const SECOND_INSTANT = 1_772_003_600;
 
 const FIRST_KEY = signingKeyFromSeed(hashRequest(new TextEncoder().encode('ashaveri-epoch-journal-first-key')));
 const SECOND_KEY = signingKeyFromSeed(hashRequest(new TextEncoder().encode('ashaveri-epoch-journal-second-key')));
+const SEAL_KEY = signingKeyFromSeed(hashRequest(new TextEncoder().encode('ashaveri-epoch-journal-seal-key')));
 
 function utf8(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -293,13 +295,12 @@ describe('a journal that is not receipts', () => {
 describe('the run a binary hands the journal', () => {
   it('records nothing where the run keeps no receipts, and files no journal behind it', async () => {
     const dir = await volume();
+    const clock = clockAt(FIRST_INSTANT);
     const journal = await recordEpochForRun({
       receiptsDir: undefined,
       mock: false,
-      key: FIRST_KEY,
-      manifestKey: FIRST_KEY,
-      epk: 1,
-      time: clockAt(FIRST_INSTANT).time,
+      deployment: mockDeployment({ key: FIRST_KEY, manifestKey: SEAL_KEY, epk: 1, time: clock.time }),
+      time: clock.time,
     });
     expect(journal).toBeUndefined();
     // A volume that was never pointed at is not written to, so the answer is not a journal of no entries.
@@ -308,13 +309,12 @@ describe('the run a binary hands the journal', () => {
 
   it('records nothing for a mock run, because its key is generated with the process and dropped by it', async () => {
     const dir = await volume();
+    const clock = clockAt(FIRST_INSTANT);
     const journal = await recordEpochForRun({
       receiptsDir: dir,
       mock: true,
-      key: FIRST_KEY,
-      manifestKey: FIRST_KEY,
-      epk: 1,
-      time: clockAt(FIRST_INSTANT).time,
+      deployment: mockDeployment({ key: FIRST_KEY, manifestKey: SEAL_KEY, epk: 1, time: clock.time }),
+      time: clock.time,
     });
     expect(journal).toBeUndefined();
     await expect(journalBytes(dir)).rejects.toThrowError(/ENOENT/u);
@@ -326,9 +326,7 @@ describe('the run a binary hands the journal', () => {
     const first = await recordEpochForRun({
       receiptsDir: dir,
       mock: false,
-      key: FIRST_KEY,
-      manifestKey: FIRST_KEY,
-      epk: 1,
+      deployment: mockDeployment({ key: FIRST_KEY, manifestKey: SEAL_KEY, epk: 1, time: clock.time }),
       time: clock.time,
     });
     expect(first?.entries).toHaveLength(1);
@@ -336,9 +334,7 @@ describe('the run a binary hands the journal', () => {
     const rotated = await recordEpochForRun({
       receiptsDir: dir,
       mock: false,
-      key: SECOND_KEY,
-      manifestKey: FIRST_KEY,
-      epk: 2,
+      deployment: mockDeployment({ key: SECOND_KEY, manifestKey: SEAL_KEY, epk: 2, time: clock.time }),
       time: clock.time,
     });
     expect(rotated?.entries.map((entry) => entry.epk)).toEqual([1, 2]);
@@ -351,9 +347,7 @@ describe('the run a binary hands the journal', () => {
     await recordEpochForRun({
       receiptsDir: dir,
       mock: false,
-      key: FIRST_KEY,
-      manifestKey: undefined,
-      epk: 1,
+      deployment: mockDeployment({ key: FIRST_KEY, epk: 1, time: clock.time }),
       time: clock.time,
     });
     clock.move(SECOND_INSTANT);
@@ -361,14 +355,29 @@ describe('the run a binary hands the journal', () => {
       recordEpochForRun({
         receiptsDir: dir,
         mock: false,
-        key: SECOND_KEY,
-        manifestKey: undefined,
-        epk: 2,
+        deployment: mockDeployment({ key: SECOND_KEY, epk: 2, time: clock.time }),
         time: clock.time,
       }),
     ).rejects.toThrowError(EpochJournalError);
-    // The answer about sealing is read from the key the run was handed, so a run that was handed none is the
-    // only one that meets this refusal, and the file still holds the one entry the first boot recorded.
+    // The seal answer is read out of the deployment rather than stated beside it, so a run that was handed no
+    // manifest key is the only one that meets this refusal, and the file still holds the one entry recorded.
     expect(document(await journalBytes(dir)).entries.map((entry) => entry.epk)).toEqual([1]);
+  });
+
+  it('records the epoch and key of the deployment it is handed, which is the one fact it may not be told', async () => {
+    const dir = await volume();
+    const clock = clockAt(FIRST_INSTANT);
+    const journal = await recordEpochForRun({
+      receiptsDir: dir,
+      mock: false,
+      deployment: mockDeployment({ key: SECOND_KEY, manifestKey: SEAL_KEY, epk: 7, time: clock.time }),
+      time: clock.time,
+    });
+    const entry = journal?.entries[0];
+    expect(entry).toMatchObject({
+      epk: 7,
+      kid: Buffer.from(SECOND_KEY.kid).toString('hex'),
+      publicKey: Buffer.from(SECOND_KEY.publicKey).toString('base64url'),
+    });
   });
 });

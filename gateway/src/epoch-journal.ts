@@ -2,6 +2,7 @@ import { open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SigningKey } from '@ashaveri/receipt';
 import { toBase64Url } from './b64.js';
+import type { Deployment } from './deployment.js';
 import { sha256, toHex } from './digest.js';
 import {
   declarationOf,
@@ -375,14 +376,16 @@ export interface EpochRunRecord {
   readonly receiptsDir: string | undefined;
   /** Whether this run is a `--mock` run, whose key is generated when the process starts. */
   readonly mock: boolean;
-  /** The key this run signs receipts with, whose kid and public key an entry states. */
-  readonly key: SigningKey;
-  /** The key that would seal the manifest publishing this history, or nothing where the run holds none. */
-  readonly manifestKey: SigningKey | undefined;
-  /** The epoch this run was started under. */
-  readonly epk: number;
+  /**
+   * The deployment this process serves, whose signing key, manifest key and epoch an entry is read from.
+   *
+   * One object rather than three fields, because the three are one fact: an entry naming a key this deployment
+   * does not hold, or an epoch its receipts do not carry, would be a history about a process that never ran. A
+   * caller that could state them apart is a caller that could publish a window no receipt was stamped under.
+   */
+  readonly deployment: Deployment;
   /** The source every instant of this run is read from, so the entry names the same clock a stamp does. */
-  readonly time?: TimeSource;
+  readonly time: TimeSource;
 }
 
 /**
@@ -405,10 +408,10 @@ export async function recordEpochForRun(run: EpochRunRecord): Promise<EpochJourn
   if (run.receiptsDir === undefined || run.mock) return undefined;
   return openEpochJournal({
     dir: run.receiptsDir,
-    key: run.key,
-    epk: run.epk,
-    sealed: run.manifestKey !== undefined,
-    ...(run.time === undefined ? {} : { time: run.time }),
+    key: run.deployment.key,
+    epk: run.deployment.epk,
+    sealed: run.deployment.manifestKey !== undefined,
+    time: run.time,
   });
 }
 

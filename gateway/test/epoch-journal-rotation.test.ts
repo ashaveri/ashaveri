@@ -184,16 +184,14 @@ async function rehearse(): Promise<Rehearsal> {
     const clock = { at: opened };
     const time = fixedClock(() => clock.at, 3);
     const deployment: Deployment = mockDeployment({ key, manifestKey: SEAL_KEY, epk: epoch, time });
-    // Recorded through the function the binary itself calls, from this process's own key, epoch, sealing key
-    // and clock, so what this rehearsal settles is the shipped wiring rather than a shape only a rehearsal can
-    // reach. `record` false hands it no volume, which is the state a deployment that keeps no receipts is in
-    // and the one shape that must publish no history at all.
+    // Recorded through the function the binary itself calls, from the deployment this process serves and the
+    // clock its stamps are read from, so what this rehearsal settles is the shipped wiring rather than a shape
+    // only a rehearsal can reach. `record` false hands it no volume, which is the state a deployment that keeps
+    // no receipts is in and the one shape that must publish no history at all.
     const journal = await recordEpochForRun({
       receiptsDir: record ? volume : undefined,
       mock: false,
-      key,
-      manifestKey: deployment.manifestKey,
-      epk: epoch,
+      deployment,
       time,
     });
     const gateway: Harness = await harness({
