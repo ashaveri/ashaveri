@@ -1057,7 +1057,7 @@ retires prefixes and a compaction rewrites the front of the file without changin
 record's digest. Which receipts a pack holds is a separate question from which the chain links: the
 store serves every receipt whose `iat` is at or after a `from` stamp and strictly before a `to` stamp,
 so a pack's interval is half-open and its end is excluded: a receipt issued at exactly the end stamp
-belongs to the next pack, not this one (`range` and `inRange` in `gateway/src/store.ts`).
+belongs to the next pack, not this one (`servedBatches` in `gateway/src/store.ts`).
 
 **The window's bound, and whether its end is included.** The age a store retires by is a deployment's own
 number, and `--receipts-days` is the flag that states it. What this repository ships as the fallback when
