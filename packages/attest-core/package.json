@@ -33,7 +33,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
-    "generate:anchor-ledger": "node --experimental-strip-types scripts/anchor-ledger.ts"
+    "generate:anchor-ledger": "node scripts/anchor-ledger.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",

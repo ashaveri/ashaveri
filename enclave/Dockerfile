@@ -2,16 +2,17 @@
 
 # Build the whole workspace, then let pnpm extract a self-contained production copy of
 # the gateway. dist/ is gitignored, so the image has to compile from source itself.
-# The tag names a patch release, not a major, because a floating `24` lets the image be built on a
+# The tag names a patch release, not a major, because a floating `26` lets the image be built on a
 # different Node than `.nvmrc` declares and CI tests on. It is written twice below, once per stage, and
 # `packages/fixtures/test/pinned-node.test.ts` fails the run when either copy, or the `engines.node` floor
 # in the root manifest, stops naming the release `.nvmrc` does: no job here builds this file, so that test
-# is the only thing joining these two lines to the pin. `corepack enable` below takes the package manager
-# version from `packageManager` in the manifest, so no version of pnpm is written here either.
-FROM node:24.21.0-bookworm-slim AS build
-RUN corepack enable
+# is the only thing joining these two lines to the pin. Node 25 stopped shipping Corepack, so the package
+# manager is installed below from the release `packageManager` names in the manifest, which keeps that
+# version written once rather than copied a second time into this file.
+FROM node:26.13.0-bookworm-slim AS build
 WORKDIR /repo
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+RUN npm install --global --no-audit --no-fund "pnpm@$(node -p 'require("./package.json").packageManager.split("@")[1]')"
 COPY packages ./packages
 COPY gateway ./gateway
 RUN pnpm install --frozen-lockfile
@@ -20,7 +21,7 @@ RUN pnpm deploy --filter @ashaveri/signerd --prod /app
 COPY enclave/weights.mjs enclave/docker-entrypoint.sh /app/
 RUN chmod 755 /app/docker-entrypoint.sh
 
-FROM node:24.21.0-bookworm-slim AS runtime
+FROM node:26.13.0-bookworm-slim AS runtime
 WORKDIR /app
 COPY --from=build /app /app
 # A named volume mounted at an existing path inherits its ownership, so the log directory has to

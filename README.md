@@ -214,14 +214,15 @@ file, with its dependencies inside it and every import resolved to the standard 
 one file to a machine that has no checkout, no `node_modules` and no network, and it runs. The
 prerequisites are the file, the documents, the inputs named below, and Node.
 
-**Node.** The artifact targets the release this repository is developed against, `24.21.0`, the
-version `.nvmrc` names and `engines.node` bounds to `>=24.21.0 <25`. It is plain JavaScript with no
+**Node.** The artifact targets the release this repository is developed against, `26.13.0`, the
+version `.nvmrc` names and `engines.node` bounds to `>=26.13.0 <27`. It is plain JavaScript with no
 build step at the far end and no native module: nothing is fetched, compiled or installed while it
-runs. The acceptance recorded for this artifact ran at `24.21.0` inside a `node:24-slim` container,
-image `node@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6`, with the file
-and the documents on a read-only mount, no network and nothing installed, and at `24.7.0` on the
-development host, below the declared floor; every command behaved as documented at both. Treat the
-declared range as what is supported and a different `24.x` as something to try before relying on.
+runs. The acceptance recorded for this artifact ran at `26.13.0` inside a `node:26-slim` container,
+image `node@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39`, with the file
+and the documents on a read-only mount, no network and nothing installed, and at `26.13.0` on the
+development host, where `packages/cli/scripts/offline-proof.ts` starts the artifact twenty-five times
+from a directory holding no `node_modules`; every command behaved as documented at both. Treat the
+declared range as what is supported and a different `26.x` as something to try before relying on.
 
 **No network, and no route that would take one.** `verify-receipt` reads its deployment manifest from
 `--manifest` and refuses every other address, so a receipt pointing its `att.url` at a host does not

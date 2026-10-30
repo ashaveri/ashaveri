@@ -10,7 +10,7 @@ hostname, or the exact flags that tier accepts; they get resolved the first time
 | File | Role |
 | --- | --- |
 | `docker-compose.yaml` | The compose text the platform measures. It defines `inference` (llama.cpp, loopback only) and `gateway` (signerd, the only published port). |
-| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a `node:24.21.0-bookworm-slim` build stage, then copies the production install into a runtime stage on the same tag. |
+| `Dockerfile` | Compiles `@ashaveri/signerd` from source in a `node:26.13.0-bookworm-slim` build stage, then copies the production install into a runtime stage on the same tag. |
 | `docker-entrypoint.sh` | Refuses a run that sets one weights environment value without the other, checks the mounted model files against the manifest when both are set, then execs `signerd`. |
 | `weights.mjs` | Emits and checks the model manifest whose sha256 every receipt carries as `wts`. |
 
@@ -42,7 +42,7 @@ The image is x86-64 only, like the llama.cpp server image, which is why the buil
 flag the built image carries the architecture of whichever host ran the build, and one made on an arm64
 laptop boots nowhere in this deployment.
 
-Both stages name the same `node:24.21.0-bookworm-slim`, which is the release the workspace pins. The tag is
+Both stages name the same `node:26.13.0-bookworm-slim`, which is the release the workspace pins. The tag is
 written by hand into the two `FROM` lines, it has to move with the pinned Node, and no job here builds this
 file, so `packages/fixtures/test/pinned-node.test.ts` reads those lines and fails when one of them, or the
 `engines.node` floor in the root manifest, stops naming the release `.nvmrc` does. That test reads the text

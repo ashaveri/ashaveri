@@ -15,6 +15,9 @@
     "sourceMap": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    // Node runs this tree from source with its own type stripping, which refuses `enum`, a runtime
+    // `namespace` and a constructor parameter property outright.
+    "erasableSyntaxOnly": true
   }
 }

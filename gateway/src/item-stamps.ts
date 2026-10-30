@@ -151,6 +151,7 @@ function join(held: Uint8Array, chunk: Uint8Array): Uint8Array {
  * One instance answers for one response, which is what its `res` and its `itm` are the digests of.
  */
 export class StreamedItemStamps {
+  private readonly readStamp: () => number;
   /** Every byte written to the client, walked once by the shipped reader, digests kept and bytes dropped. */
   private readonly authoritative = new ResponseItemDigestFramer(true);
   /** Each item the writes closed, with the reading taken for it, in the order the items were framed. */
@@ -164,7 +165,9 @@ export class StreamedItemStamps {
    * a write closed, and never for a write that closed none, so a stream that produces no item produces no
    * reading either.
    */
-  constructor(private readonly readStamp: () => number) {}
+  constructor(readStamp: () => number) {
+    this.readStamp = readStamp;
+  }
 
   /**
    * Record that these bytes were handed to the client, in this order, and nothing else was.

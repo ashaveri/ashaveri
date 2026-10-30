@@ -28,7 +28,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
-    "measure:erasure-pass": "node --experimental-strip-types scripts/erasure-pass/measure.ts"
+    "measure:erasure-pass": "node scripts/erasure-pass/measure.ts"
   },
   "dependencies": {
     "@ashaveri/attest-core": "workspace:*",
