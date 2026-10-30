@@ -98,8 +98,10 @@ Options:
                                    this is a compatibility event and it is yours to decide.
   --manifest-key-purpose <purpose> Purpose string mixed into the manifest key.
   --epk <n>                        Epoch of the signing key, published in the manifest.
-  --issuer <id>                    Override the issuer derived from the event log.
-  --instance <id>                  Override the instance id derived from the event log.
+  --issuer <id>                    The issuer every receipt of this run stamps. Live mode takes it over the
+                                   event log; mock mode reads it instead of its own ashaveri-mock default, so
+                                   the issuer a receipt states is the one this run was given.
+  --instance <id>                  The instance id beside it, read the same two ways.
   --tee <environment>              Refuse to start unless the evidence agrees.
                                    One of snp, snp+gpucc, tdx, tdx+gpucc; the
                                    composite kinds also require a device report.
@@ -1000,7 +1002,7 @@ let deployment: Deployment;
 try {
   deployment =
     values.mock === true
-      ? mockDeployment({ time, epk, ...softwareServing(values) })
+      ? mockDeployment({ time, epk, issuer: values.issuer, instance: values.instance, ...softwareServing(values) })
       : await liveDeployment(values);
 } catch (error) {
   process.stderr.write(`signerd: ${error instanceof Error ? error.message : String(error)}\n`);
