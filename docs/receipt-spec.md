@@ -462,6 +462,21 @@ that breaks any of those is refused rather than read. With neither member the de
 history at all, which is what every manifest published before this section's rule was written carries, and
 which is reported to a client as no declared windows rather than as an endless one.
 
+What the shipped gateway answers at that route is the narrower document, and it is worth stating because the
+members do not fill themselves. `gateway/src/server.ts` builds `keys[]` from the one key the process holds,
+and `gateway/src/deployment.ts` starts the top-level `epk` at 0, so a manifest fetched from a running
+deployment states its current epoch and no history, which a reader sees as no declared windows rather than as
+a claim that today's key has always been the key. A deployment that wants its history in the document
+publishes one that carries it, and that path is shipped in published code rather than left to a service of
+ours: `sealDeploymentManifest` renders and signs the sealed form the manifest route can serve,
+`isSealedDeploymentManifest`, `decodeSealedDeploymentManifest` and `verifySealedDeploymentManifest` read it
+back, `adjudicateReceiptEpoch` in `packages/sdk/src/epoch.ts` applies the rules above and is what a client
+reaches through `gateway.ts`, and `packages/fixtures/data/manifest-v1.json` publishes both the accepted
+windows and the shapes this section refuses. No other artifact of the estate carries the mapping from a key to
+an epoch and a start: the epoch inventory names the run it describes and states no copy of a manifest's key
+list, as its own layout says, because which keys are trusted is a reviewer's designation and not a fact one
+document hands another.
+
 `epk` at the top level is the epoch this process stamps new receipts under; the windows in `keys[]` are
 what a reader checks a past receipt against. Section 5's step 2 is what adjudicates the two.
 
