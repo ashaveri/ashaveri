@@ -153,8 +153,9 @@ export interface Marking {
  * not know" is cheaper than two.
  *
  * Exported, and named by `index.ts`, because this is the set an outside reader holds its own table against:
- * what each label states is the `enc` row of section 3's table in `docs/receipt-spec.md`, which is where this
- * package publishes them until the registry has a section of its own beside the marking schemes.
+ * section 3.4 of `docs/receipt-spec.md` publishes these labels as its rows, and
+ * `test/encryption-registry.test.ts` holds that section and this list to each other in both directions, so a
+ * label added on one side reddens the other rather than drifting from it.
  */
 export const ENCRYPTION_SCHEMES = ['none', 'x25519-aes-256-gcm-v1'] as const;
 
