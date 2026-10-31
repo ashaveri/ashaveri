@@ -37,7 +37,7 @@ import {
   type PackManifest,
   type PackOrderingFinding,
   type Provenance,
-  type ReceiptPayload,
+  type ReceiptPayloadV1,
   type SigningKey,
   type VerifiedPack,
 } from '@ashaveri/receipt';
@@ -142,8 +142,8 @@ const text = (value: string): Uint8Array => new TextEncoder().encode(value);
  * field set at the call site, which is how a row states the one thing its document says about its own execution
  * rather than taking the corpus default.
  */
-function receiptFor(id: string, iat: number, key: SigningKey = CURRENT, slots?: AnchorSlots, over: Partial<ReceiptPayload> = {}): Uint8Array {
-  const fields: ReceiptPayload = {
+function receiptFor(id: string, iat: number, key: SigningKey = CURRENT, slots?: AnchorSlots, over: Partial<ReceiptPayloadV1> = {}): Uint8Array {
+  const fields: ReceiptPayloadV1 = {
     ...fixturePayload({ iat }),
     nce: labeled(`ashaveri-pack-v1/nonce/${id}`, 16),
     ...over,
@@ -164,7 +164,7 @@ interface AnchorSlots {
 }
 
 /** The form of one record's receipt that names its anchor slots: the same fields, and the slots beside them. */
-function anchoredPayload(fields: ReceiptPayload, iat: number, slots: AnchorSlots): ReceiptPayload {
+function anchoredPayload(fields: ReceiptPayloadV1, iat: number, slots: AnchorSlots): ReceiptPayloadV1 {
   const absent = (which: string) => ({ presence: 'not-taken-in' as const, reason: `this collector never took the ${which} in` });
   return {
     ...fields,
@@ -184,7 +184,7 @@ interface Entry {
   /** Where the material of this record came from. Absent, the row is the fixture run every case starts from. */
   readonly prov?: Provenance;
   /** A member of the receipt's field set this record moves, for a row that states its own measurement. */
-  readonly over?: Partial<ReceiptPayload>;
+  readonly over?: Partial<ReceiptPayloadV1>;
 }
 
 /**
@@ -419,7 +419,7 @@ const SEAM = chained(ENTRIES, digest(text('the seam a trim record carried')));
  * provenance field included: no reader recomputes where material came from, so that field is the writer's signed
  * statement and the reader's check is that the document states the weakest of its items.
  */
-const LIVE_MEASUREMENT: Partial<ReceiptPayload> = {
+const LIVE_MEASUREMENT: Partial<ReceiptPayloadV1> = {
   meas: { tee: 'software', m: digest(text('ashaveri-pack-v1/live-measurement')) },
 };
 const LIVE_RUN = chained(ENTRIES.map((one) => ({ ...one, prov: 'live' as const, over: LIVE_MEASUREMENT })));

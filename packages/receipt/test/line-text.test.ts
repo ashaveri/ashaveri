@@ -9,7 +9,7 @@ import {
   issueReceipt,
   verifyEpochInventory,
 } from '../src/index.js';
-import type { EpochInventoryManifest, ReceiptPayload } from '../src/index.js';
+import type { EpochInventoryManifest, ReceiptPayload, ReceiptPayloadV1 } from '../src/index.js';
 import { buildRun, FOLD_HONEST, HELD as foldHeld, sealFoldDocument, sealOf, FOLD_KEY } from './presence-run.js';
 
 /**
@@ -108,7 +108,7 @@ const SWEEPS: ReadonlyArray<{ readonly name: string; readonly from: number; read
 ];
 
 /** A whole document, so the only thing a case moves is the text the class is asked about. */
-function payloadV1(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload {
+function payloadV1(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayload {
   const at = 1_772_000_000;
   return {
     v: 1,

@@ -1,6 +1,7 @@
 # Conformance vectors
 
-Status: current for format versions 1. The payload carries one version, and it states seventeen members:
+Status: current for format versions 1. The payload has two versions and every receipt fixture listed here is
+made at the older one, which states seventeen members:
 the twelve every receipt has always carried, the metering of a call's tokens, the marking member, the
 disclosure of a stamped instant, the anchor of an appraisal context, and the item list of a response.
 The receipt fixtures under
@@ -459,7 +460,7 @@ These vectors check bytes. They say nothing about trust:
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
   not be trusted at all.
 - A passing port is not a certified port. It is a reimplementation that agrees with this one on the
-  cases chosen here, which for the one payload version are the field set, the digests and the framing,
+  cases chosen here, which for the payload version these fixtures carry are the field set, the digests and the framing,
   the marking member, the disclosure of the source
   an instant came from, the anchor of the context an appraisal ran on, the list of items a response
   was made of, and the count of those anchor slots a client's policy demands be stated as taken in,

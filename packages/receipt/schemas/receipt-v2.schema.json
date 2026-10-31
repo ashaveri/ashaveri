@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/receipt-v2.json",
+  "title": "Ashaveri Inference Receipt, version 2 (JSON twin of the CBOR/COSE wire format)",
+  "description": "Display-only projection of the signed COSE_Sign1 receipt. The CBOR bytes are canonical; this JSON form is never signed directly. The payload branch describes version 2 of the two the CDDL defines: eighteen members, the twelve every receipt carries beside its own version, the marking attestation, the stamp disclosure, the captured collateral validity anchor, the per-item list, and the statement of what the bodies those two digests were taken over were on the wire. This twin is the other version's shape with one member appended, and the appended name is the only difference between the two files: `packages/receipt/schemas/receipt-v1.schema.json` is the same document with that member absent, and a receipt is read by the twin of the version its own `v` names. The branch is closed, so a member it does not name is a refusal here exactly as it is in the CDDL and in the parser, and a document naming a number neither block carries is refused as a version before one member of it is read. Closure is not one level: the payload map and the six nested inside it, `meas`, `att`, `tok`, `mk`, `sd` and `cva`, are closed, so a member one of them does not name is refused at that level too rather than read here and dropped on the way to a verifier. `itm` is an array rather than a map, and its elements are the closed `itemStamp` map below, so a member an entry does not name is refused at that level as well. `enc` is a choice between two closed arms told apart by the label at `enc.sch`, and no single member list answers for both, so it is closed by the `oneOf` that resolves that label exactly as the two collateral slots are. The payload branch refuses an unnamed member through `unevaluatedProperties`, which is the keyword that reaches through its `allOf`, and the nested definitions through `additionalProperties`, which is the one that applies where the members are named in the same object. `protectedHeader` carries the three labels the CDDL declares and no more, and this definition carries no closure keyword: the parser reads that map by number and accepts only those three labels, so a document carrying another is refused before any projection of it is built and an unnamed label never arrives here as a field left out, and the parser decodes that map where no floating-point number can appear, because a label written as the float 1.0 takes the map slot of the integer 1 and is no longer distinguishable from it afterwards. The unprotected map is the format's one declared carrier of no claim, outside the signature and outside this projection.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the Ed25519 public key, hex" },
+        "typ": { "const": "ashaveri/receipt" }
+      }
+    },
+    "payload": {
+      "description": "The version 2 branch. `v` names the version the document is, and a number other than the one below is not read through this branch: the parser refuses one neither block defines as a version, and one the format does define is described by that version's own twin rather than by this one.",
+      "$ref": "#/$defs/payloadV2"
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
+  },
+  "$defs": {
+    "payloadFields": {
+      "type": "object",
+      "required": ["iss", "ins", "iat", "nce", "req", "res", "mdl", "wts", "meas", "att", "epk", "tok"],
+      "properties": {
+        "iss": { "type": "string", "description": "deployment id (dStack compose-hash prefix)" },
+        "ins": { "type": "string", "description": "CVM instance id" },
+        "iat": { "type": "integer", "description": "issuance time, unix seconds" },
+        "nce": { "$ref": "#/$defs/hex16", "description": "client nonce, echoed" },
+        "req": { "$ref": "#/$defs/hex32", "description": "sha256 of canonical request, or of its ciphertext under a session" },
+        "res": { "$ref": "#/$defs/hex32", "description": "sha256 of full response bytes, or of its ciphertext under a session" },
+        "mdl": { "type": "string", "description": "model id" },
+        "wts": { "$ref": "#/$defs/hex32", "description": "sha256 of deployment manifest" },
+        "meas": {
+          "type": "object",
+          "required": ["tee", "m"],
+          "properties": {
+            "tee": { "enum": ["software", "snp", "snp+gpucc", "tdx", "tdx+gpucc"] },
+            "m": {
+              "$ref": "#/$defs/hexDigest",
+              "description": "SHA-256 for a software deployment, the platform's SHA-384 measurement for a TEE"
+            }
+          },
+          "additionalProperties": false,
+          "allOf": [
+            {
+              "if": { "required": ["tee"], "properties": { "tee": { "const": "software" } } },
+              "then": { "properties": { "m": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }
+            },
+            {
+              "if": { "required": ["tee"], "properties": { "tee": { "enum": ["snp", "snp+gpucc", "tdx", "tdx+gpucc"] } } },
+              "then": { "properties": { "m": { "type": "string", "pattern": "^[0-9a-f]{96}$" } } }
+            }
+          ]
+        },
+        "att": {
+          "type": "object",
+          "required": ["d", "ts", "url"],
+          "properties": {
+            "d": { "$ref": "#/$defs/hex32", "description": "sha256 of attestation evidence document" },
+            "ts": { "type": "integer", "description": "evidence timestamp, unix seconds" },
+            "url": { "type": "string", "format": "uri" }
+          },
+          "additionalProperties": false
+        },
+        "epk": { "type": "integer", "minimum": 0, "description": "signing-key epoch" },
+        "tok": {
+          "type": "object",
+          "required": ["p", "c"],
+          "properties": {
+            "p": { "type": "integer", "minimum": 0, "description": "prompt tokens" },
+            "c": { "type": "integer", "minimum": 0, "description": "completion tokens" }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "payloadV2": {
+      "allOf": [{ "$ref": "#/$defs/payloadFields" }],
+      "type": "object",
+      "required": ["v", "mk", "sd", "cva", "itm", "enc"],
+      "properties": {
+        "v": { "const": 2 },
+        "mk": { "$ref": "#/$defs/marking" },
+        "sd": { "$ref": "#/$defs/stampDisclosure" },
+        "cva": { "$ref": "#/$defs/collateralValidityAnchor" },
+        "itm": {
+          "type": "array",
+          "minItems": 1,
+          "description": "One entry per response item, in the order the response put them in, and never an empty list: a run of nothing states nothing, and a stream that sent no data frame is a refusal at issuance rather than an array of zero here. A response that was not streamed is one entry holding the whole body, which may be no bytes at all.",
+          "items": { "$ref": "#/$defs/itemStamp" }
+        },
+        "enc": { "$ref": "#/$defs/encryption" }
+      },
+      "unevaluatedProperties": false,
+      "description": "A v2 document and nothing else: eighteen members are the whole of it, the twelve every receipt carries beside its version, then the marking attestation, the stamp disclosure, the collateral validity anchor, the per-item list, and the statement of what the transmitted bodies were. The map is closed, so a member outside this list is a malformed payload rather than a member a reader agreed to forget, and that reaches the name the older version lacks: a document bearing `2` and holding the seventeen members of the other block is refused for the member this one requires, while a document bearing `1` and carrying `enc` is refused by that branch for a name it does not define. A document naming a number neither block carries is refused as a version by the parser before either branch is reached."
+    },
+    "marking": {
+      "type": "object",
+      "required": ["sch", "d"],
+      "properties": {
+        "sch": {
+          "type": "string",
+          "description": "a label from the marking-scheme registry. Not an enum here because the CDDL admits any tstr: the registry this package reads is `none` and `provenance-v1`, and it refuses a label outside those two as UNSUPPORTED_SCHEME rather than this twin deciding the format."
+        },
+        "d": {
+          "$ref": "#/$defs/hex32",
+          "description": "sha256 of the marked region exactly as it appears in the response, not of the whole response. For `sch: \"none\"` the region is empty and this is the digest of no bytes. Under a session the region is a region of the plaintext, which is what the gateway marks before it encrypts, so a reader holding only the ciphertext cannot recompute it."
+        }
+      },
+      "additionalProperties": false,
+      "description": "The marking attestation: one map, required of both versions the payload branches declare, so a receipt states whether a region was marked rather than leaving a reader to infer it from what it does not say."
+    },
+    "stampDisclosure": {
+      "type": "object",
+      "required": ["name", "unc"],
+      "properties": {
+        "name": { "type": "string", "description": "what the source that read the issuance instant calls itself, as its owner names it" },
+        "unc": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Seconds that source declares it can be away from the instant it names. `null` is the source saying nobody measured how far away it is, which is a different statement from `0` and is refused by a policy that demands a bound; an absent member would be readable as either, so the field is required and its two readings are values."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Where one signed instant came from, in the source's own words. The instant itself is not here, because it is already signed once beside the nonce that dates the document."
+    },
+    "collateralValidityAnchor": {
+      "type": "object",
+      "required": ["col", "val"],
+      "properties": {
+        "col": { "$ref": "#/$defs/collateralSlot", "description": "the signed collateral the bytes were appraised against" },
+        "val": { "$ref": "#/$defs/collateralSlot", "description": "the validity context they were appraised in" }
+      },
+      "additionalProperties": false,
+      "description": "What became of the two pieces of appraisal context, captured when they were taken in. Both halves are required because an anchor that defaults a missing half to a pass is not an anchor."
+    },
+    "collateralSlot": {
+      "oneOf": [{ "$ref": "#/$defs/collateralHeld" }, { "$ref": "#/$defs/collateralAbsent" }],
+      "description": "One of two shapes, told apart by `p`: the context this anchor holds, which is a digest and nothing else, or the context it does not, which is a reason and no digest. `oneOf` rather than a list of members because a slot with a digest and a reason is not a third state, and a reader would have to choose which of the two the writer meant."
+    },
+    "collateralHeld": {
+      "type": "object",
+      "required": ["p", "d"],
+      "properties": {
+        "p": { "const": "held" },
+        "d": {
+          "$ref": "#/$defs/hex32",
+          "description": "sha256 of the bytes exactly as they arrived. No byte count rides beside it, because a count of bytes this document does not hold is a number nothing can check it against, and no verdict, because whether the collateral verifies is a reader's question asked with its own pins."
+        }
+      },
+      "additionalProperties": false
+    },
+    "collateralAbsent": {
+      "type": "object",
+      "required": ["p", "r"],
+      "properties": {
+        "p": {
+          "enum": ["absent-at-source", "not-taken-in"],
+          "description": "Which of the two absences this is: the source had nothing to give, or this collector did not take in what was there. One is a statement about the world and the other about us, and a record that could not tell them apart could be read as either."
+        },
+        "r": { "type": "string", "description": "In one line, the collector's own words for why there are no bytes. Required, because an absence nobody explained is a hole rather than a state." }
+      },
+      "additionalProperties": false
+    },
+    "encryption": {
+      "oneOf": [{ "$ref": "#/$defs/encryptionPlain" }, { "$ref": "#/$defs/encryptionSession" }],
+      "description": "One of two shapes, told apart by `sch`: the bodies were transmitted in the clear, which is a statement and not an absence, or they were sealed under a key this document names. `oneOf` rather than a list of members because a plaintext reading carrying a key is not a third state, and a reader would have to decide which of the two the writer meant. A label outside the two arms is refused here as a document of no shape the format states, and the reader answers the same bytes with UNSUPPORTED_ENCRYPTION_SCHEME, which is how it says the construction is one it does not know: the twin refuses the shape and the reader names the registry, and neither is a claim the other makes."
+    },
+    "encryptionPlain": {
+      "type": "object",
+      "required": ["sch"],
+      "properties": {
+        "sch": { "const": "none", "description": "the label for bodies that were transmitted as they were, which is why this arm holds no key: a member this arm does not define would be a claim about bytes that were never sealed" }
+      },
+      "additionalProperties": false
+    },
+    "encryptionSession": {
+      "type": "object",
+      "required": ["sch", "pk"],
+      "properties": {
+        "sch": { "const": "x25519-aes-256-gcm-v1", "description": "one label for the whole construction, algorithm and key exchange folded into it: two members that had to agree with each other and with nothing else would be a cross-check a reader runs for no gain" },
+        "pk": {
+          "$ref": "#/$defs/hex32",
+          "description": "the session key the ciphertext of both legs was sealed under. This document states no report data and so ties nothing to a measurement: the binding a reader weighs lives in the evidence the deployment's key route serves beside the key, and a reader holding only the ciphertext can still weigh the digests against the bytes it was handed"
+        }
+      },
+      "additionalProperties": false
+    },
+    "itemStamp": {
+      "type": "object",
+      "required": ["t", "d"],
+      "properties": {
+        "t": { "type": "integer", "minimum": 0, "description": "unix seconds the source named by `sd` read when this item's bytes were framed" },
+        "d": { "$ref": "#/$defs/hex32", "description": "sha256 of exactly this item's bytes and of none of the framing around them, which is why the item list and the whole-response digest are two statements about one byte string rather than one derivable from the other" }
+      },
+      "additionalProperties": false,
+      "description": "One response item: its instant and its digest, in the order the response put them in. Chain order is that order and stamp order is `t`; a reader refuses a list where the two disagree."
+    },
+    "hex16": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "hexDigest": { "type": "string", "pattern": "^([0-9a-f]{64}|[0-9a-f]{96})$" }
+  }
+}

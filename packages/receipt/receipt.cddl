@@ -15,29 +15,35 @@ Ashaveri-Protected-Header = {
     3: "ashaveri/receipt",    ; typ
 }
 
-; A receipt's version says what its fields attest, not which software wrote them. This format declares
-; one version, `v: 1`. The payload under it carries seventeen members, four of which exist so that a
+; A receipt's version says what its fields attest, not which software wrote them. This format declares two
+; payload versions. The map under `v: 1` carries seventeen members, four of which exist so that a
 ; silence cannot pass for a statement: `mk` so a mark is attested rather than passed over, `sd` for the
 ; source the issuance stamp was read from and the bound that source declares on itself, `cva` for what
 ; became of the two pieces of context the appraisal of the evidence ran on, and `itm` for one entry per
-; response item.
+; response item. The map under `v: 2` is that list with one name appended, `enc`, and `enc` is the only
+; reason the second number exists: under a session `req` and `res` are digests of the ciphertext that was
+; transmitted, so both keep their name, their type and their width while what they attest moves, and a
+; reader written before the change would recompute them over the plaintext it held, match both, and report a
+; verified receipt for a document attesting other bytes under the same names. Version 1 is frozen in content:
+; nothing it names moves, and every document signed under it is read exactly as it was written.
 ;
 ; A version number moves when bytes carrying the old number exist that a reader must refuse, and not
 ; otherwise: where no such bytes exist there is no document for a second number to be a rule about, so
 ; one number names the shape a reader opens. Silence is what those four each refuse: a reader that took
 ; a mark, a stamp's source, an appraisal's context and a response's items and dropped them would verify
 ; a receipt that states nothing about any of them, and a receipt is a document that states. Every member
-; of the block is required rather than optional, because an optional member is a silence a reader has to
+; of both blocks is required rather than optional, because an optional member is a silence a reader has to
 ; guess at.
 ;
 ; A payload map is closed, and the absence of `...` below is that rule rather than an oversight: a
 ; member this file does not define makes the document invalid. It is not read with the unexpected
-; member dropped. A document naming any number but `1` is refused as a version, with the number named
-; back to the reader, before one member of it is read.
-Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1
+; member dropped. A document naming a number neither block carries is refused as a version, with the
+; number named back to the reader, before one member of it is read, and a document naming one of the two
+; and carrying the other's member set is refused as a payload, for the member the number it names requires.
+Ashaveri-Receipt-Payload = Ashaveri-Receipt-Payload-v1 / Ashaveri-Receipt-Payload-v2
 
 Ashaveri-Receipt-Payload-v1 = {
-    v: 1,                     ; the one version this format declares
+    v: 1,                     ; the older of the two versions this format declares
     iss: tstr,                ; deployment id (dStack compose-hash prefix)
     ins: tstr,                ; CVM instance id
     iat: int,                 ; unix seconds, issuance time
@@ -56,17 +62,42 @@ Ashaveri-Receipt-Payload-v1 = {
     itm: [+ ItemStamp],       ; one entry per response item, and never an empty list
 }
 
+Ashaveri-Receipt-Payload-v2 = {
+    v: 2,                     ; the version that states what the transmitted bodies were
+    iss: tstr,                ; deployment id (dStack compose-hash prefix)
+    ins: tstr,                ; CVM instance id
+    iat: int,                 ; unix seconds, issuance time
+    nce: bstr .size 16,       ; client nonce, echoed for anti-replay
+    req: bstr .size 32,       ; sha256(canonical request, or of its ciphertext under a session)
+    res: bstr .size 32,       ; sha256(full response bytes, or of its ciphertext under a session)
+    mdl: tstr,                ; model id, e.g. "meta-llama/Llama-3.1-8B-Instruct"
+    wts: bstr .size 32,       ; sha256(deployment manifest: weights + image + config)
+    meas: Measurement,
+    att: EvidenceRef,
+    epk: int,                 ; signing-key epoch
+    tok: TokenMetering,
+    mk: Marking,              ; required: a receipt attests that marking was considered
+    sd: StampDisclosure,      ; what source read the issuance stamp, and what it admits
+    cva: CollateralValidityAnchor, ; what became of the context the appraisal ran on
+    itm: [+ ItemStamp],       ; one entry per response item, and never an empty list
+    enc: Encryption,          ; required: what the bodies this receipt digests were on the wire
+}
+
 ; That rule is the format's, not one map's. `Marking`, `Measurement`, `EvidenceRef`,
 ; `TokenMetering`, `StampDisclosure`, `CollateralValidityAnchor`, `CollateralHeld`,
-; `CollateralAbsent` and `ItemStamp` below carry no `...` either, and the absence means there what
+; `CollateralAbsent`, `EncryptionPlain`, `EncryptionSession` and `ItemStamp` below carry no `...` either,
+; and the absence means there what
 ; it means here: a member one of these maps does not define makes the document invalid rather than
 ; a document read with the unexpected member dropped. The parser and the JSON twin refuse it at that
 ; level exactly as they refuse one at the payload level, so the payload map and every map nested
-; inside it close at every level. The one position the walk cannot close by itself is `itm`,
-; whose value is an array rather than a map: its elements are closed one at a time by the reader
-; that reads them, at the position each one sits at, which is what `ItemStamp` names. `p` closes the
-; two slot maps the same way, because which member list stands behind `cva.col` is decided by the
-; label that member carries and no single list can answer for both arms.
+; inside it close at every level. The positions the walk cannot close by itself are three: `itm`,
+; whose value is an array rather than a map, has its elements closed one at a time by the reader
+; that reads them, at the position each one sits at, which is what `ItemStamp` names; `p` closes the
+; two slot maps, because which member list stands behind `cva.col` is decided by the label that member
+; carries and no single list can answer for both arms; and `enc` is one map whose member list the label at
+; `enc.sch` decides, which is why `Encryption` below names no block of its own and why no list stands
+; behind it either. Where the reader resolves the label, it closes the map at the position the member sits
+; at, and a label outside the registry it reads is refused there rather than interpreted.
 ; `Ashaveri-Protected-Header` closes with them, and its reason is stronger than the
 ; payload's: its bytes are the ones hashed into the `Sig_structure`, so a label that block does not
 ; name is an authenticated parameter, and a reader that took the three labels above out of it and
@@ -106,7 +137,9 @@ Ashaveri-Receipt-Payload-v1 = {
 
 ; Absence is declared here rather than inferred from a missing member: `sch: "none"` carries the
 ; digest of the empty region, so `mk` is never optional and a reader never has to decide what an
-; omitted field meant.
+; omitted field meant. `enc` is required of version 2 for exactly the same reason, and its plain reading
+; is a value there too: a document that says nothing was encrypted says so, and one that says nothing is
+; not that document.
 Marking = {
     sch: "none" / tstr,       ; a label from the marking-scheme registry
     d: bstr .size 32,         ; sha256 of the marked region, exactly as it appears in the response
@@ -206,4 +239,36 @@ CollateralAbsent = {
 ItemStamp = {
     t: int,                   ; unix seconds, the instant this item's bytes were stamped
     d: bstr .size 32,         ; sha256 of exactly those bytes
+}
+
+; What the bodies this receipt digests were on the wire, required of version 2. Which of the two shapes
+; `enc` has is its `sch`, and the reader that resolves `sch` is what closes the map, because a choice
+; between two member sets is not one member list: `Encryption` names no block of its own and no list
+; stands behind it, exactly as `CollateralSlot` names no block of its own above.
+;
+; `sch` is the same label `mk` uses, and it carries the same meaning: a name for a construction a reader
+; may or may not know, refused rather than interpreted when it does not. The two are members of different
+; maps and one vocabulary for that question is cheaper than two. The algorithm and the key exchange are
+; folded into the one label because two members that have to agree with each other and with nothing else
+; are a cross-check a reader runs for no gain, and a reader that knows the label knows the construction.
+;
+; A session states that both legs rode the key: `req` and `res` are then digests of the ciphertext
+; actually transmitted. The payload states nothing about the plaintext, because a receipt is a statement
+; about bytes on a wire. Which evidence ties `pk` to a measurement is not a question this document answers:
+; `att` names an attestation by its digest, its instant and the route it came from, and no member states
+; what that attestation's report data carried. The deployment's key route is where the key is bound, its own
+; attestation fetched for the key rather than for the request, so a reader that wants `pk` weighed against a
+; measurement asks a second document, and a reader holding only the ciphertext can still run the digest
+; checks against what it was handed.
+;
+; `Marking` is inserted before encryption, so `mk.d` digests the marked region of the plaintext while
+; `res` digests the ciphertext: two authenticated statements about two byte strings, and neither one is a
+; verdict on the other.
+Encryption = EncryptionPlain / EncryptionSession
+EncryptionPlain = {
+    sch: "none",              ; both legs were transmitted in the clear, and this states that
+}
+EncryptionSession = {
+    sch: "x25519-aes-256-gcm-v1", ; x25519 shared secret, each leg sealed with AES-256-GCM
+    pk: bstr .size 32,        ; the session key, bound to a measurement by the key route's own evidence
 }

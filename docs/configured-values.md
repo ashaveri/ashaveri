@@ -123,7 +123,7 @@ kind and the checkpoint cadence: the count of records a sidecar block indexes, r
 and resume paths, and reached by no flag. The period a bounded record states is chosen per run, by
 `--receipts-record-kind`, and it is a statement inside the record rather than a bound this process
 enforces. The same posture holds for the four values the state-file route reads without an operator naming
-any of them: `TIME_SOURCE_STATE_FILE_VERSION` is the one version of a state document this gateway reads,
+any of them: `TIME_SOURCE_STATE_FILE_VERSION` is the only version of a state document this gateway reads,
 `MIN_TIME_SOURCE_STATE_REFRESH_SECONDS` and `MAX_TIME_SOURCE_STATE_REFRESH_SECONDS` are the two ends of the
 interval it re-reads on, which the bound the document states picks between, and
 `TIME_SOURCE_STATE_PLAUSIBILITY_BAND_SECONDS` is the distance a document's instant may stand from the host's

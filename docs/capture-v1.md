@@ -69,7 +69,7 @@ Each row says what the member states, what a reader may conclude from it, and wh
 | `acquired.sourceStatedAt` | the timestamp the source claimed, or none | that the two stamps agree, or that the record says how they do not | that either is right |
 | `manifests.deployment` | the manifest the source served, as served | which pins were in force at that instant, from a document rather than a summary | that the manifest was this deployment's: the record authenticates nothing, and a sealed manifest is only attributed by a reader that holds the key that signed it |
 | `check.policyVersion`, `policyDigest` | which policy rules, and the digest of the document used | which pins the check read, given the document | that the check was right to read them |
-| `check.receiptFormatVersion` | which receipt version the check read, of the one version the format defines | that a reader reads the bytes at the version named and refuses one it does not | that the version was current, which it need not be |
+| `check.receiptFormatVersion` | which receipt version the check read, of the two versions the format defines | that a reader reads the bytes at the version named and refuses one it does not | that the version was current, which it need not be |
 | `check.verifierVersion` | which verifier build ran | which procedure produced the context | that the procedure was correct |
 | `check.appraisedAt` | when the appraisal ran, on our clock | that the appraisal could have seen these bytes | anything about validity, which lives in `context.validity` |
 | `context.collateral` | the vendor chain the bytes were appraised against, and the answer those bytes are | that a verdict about the signature has something to stand on, and which question that something answered | that the chain was this platform's |
@@ -150,13 +150,16 @@ The list is the same on both sides of the reader: `enum: [1]` in the published s
 `packages/sdk/test/capture.test.ts` at the boundary of the list, so a version gained on one side without the
 other fails the assertion belonging to the side that moved rather than passing in silence.
 
-That set is the format's and not a narrowing of it, and the reason is the gateway's: a deployment signs the
-one receipt version for every response whose bytes frame into items, and serves no completion at all for a
-stream that sent no `data:` frame. A record naming `1` is therefore the ordinary output of a check a
-collector will be written against, and refusing one would leave a client unable to record what it verified.
-A version outside the one the format declares is still refused, by the schema and by the reader alike, with `UNSUPPORTED_VERSION` naming what
-the record stated and what the reader implements; the refusal is of a number no format has used, measured
-against the set the format owns, and not of a set this reader chose to keep narrow.
+That list holds one of the two versions the format declares, and the narrowing is deliberate rather than an
+oversight the two halves above would let pass: a capture record states a receipt version a collector was handed
+bytes of, and this repository publishes no capture record at the newer number, so a record naming it would be a
+claim nothing exercises. A deployment signs the older number for every response whose bytes frame into items,
+and serves no completion at all for a stream that sent no `data:` frame, so a record naming `1` is the
+ordinary output of a check a collector will be written against, and refusing one would leave a client unable
+to record what it verified. A version the list does not hold is still refused, by the schema and by the reader
+alike, with `UNSUPPORTED_VERSION` naming what the record stated and what the reader implements; the refusal is
+of a number this reader was never given bytes for, measured against the set this package implements, and the
+set widens in the change that adds a document at the newer number to this package's own conformance suite.
 
 The same walk reads `original.sourceKind` against the `SOURCE_KINDS` list the reader and its type are made
 of, which is the coupling that holds `check.receiptFormatVersion` to its enum: a kind added to one side
