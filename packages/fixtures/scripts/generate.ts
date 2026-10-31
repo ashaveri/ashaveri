@@ -12,9 +12,12 @@ import {
   toBase64Url,
   type CollateralSlot,
   type CollateralValidityAnchor,
+  type Encryption,
   type ItemStamp,
   type MarkingScheme,
   type ReceiptPayload,
+  type ReceiptPayloadV1,
+  type ReceiptPayloadV2,
   type StampDisclosure,
 } from '@ashaveri/receipt';
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -302,16 +305,16 @@ function itemStamps(shape: ResponseShape): ItemStamp[] {
 }
 
 /**
- * The document a published row is made of: the one version this format declares, its twelve shared fields
- * over these bytes, and the four members a receipt states about itself. `mk` is read off the response
- * shape, because which marking these bytes came off is a fact of the bytes; the disclosure, the anchor and
- * the item list are what the row names, because a document that left one of them out is one the writer
- * refuses to make and the reader refuses to open.
+ * The document a published row is made of: the version the rows this suite began with carry, its twelve
+ * shared fields over these bytes, and the four members a receipt states about itself. `mk` is read off the
+ * response shape, because which marking these bytes came off is a fact of the bytes; the disclosure, the
+ * anchor and the item list are what the row names, because a document that left one of them out is one the
+ * writer refuses to make and the reader refuses to open.
  */
 function payloadFor(
   shape: ResponseShape,
   over: { sd: StampDisclosure; cva: CollateralValidityAnchor; itm: readonly ItemStamp[] },
-): ReceiptPayload {
+): ReceiptPayloadV1 {
   return {
     ...fixturePayload({ res: sha256(shape.bytes) }),
     v: 1,
@@ -322,11 +325,29 @@ function payloadFor(
   };
 }
 
+/**
+ * The same document at the newer version, with the one member that number exists for. `enc` is required of
+ * version 2, so a row that states no arm of its own states the plain one: both legs rode the wire as the
+ * bytes this row publishes, which is a value and never an absence. The seventeen positions are the ones the
+ * builder above writes, unchanged, because the newer number adds a member and moves none.
+ */
+function payloadForV2(
+  shape: ResponseShape,
+  over: {
+    sd: StampDisclosure;
+    cva: CollateralValidityAnchor;
+    itm: readonly ItemStamp[];
+    enc?: Encryption;
+  },
+): ReceiptPayloadV2 {
+  return { ...payloadFor(shape, over), v: 2, enc: over.enc ?? { sch: 'none' } };
+}
+
 /** The columns a row states about the document it publishes. */
 interface RowColumns {
   [key: string]: unknown;
   readonly keyless: string;
-  readonly v: 1;
+  readonly v: 1 | 2;
   readonly marking: MarkingScheme;
   readonly contentType: string;
   readonly response: string;
@@ -336,6 +357,7 @@ interface RowColumns {
   readonly items?: Array<{ t: number; d: string; bytesBase64Url: string; byteLength: number }>;
   readonly sd?: { name: string; unc?: number | null };
   readonly cva?: { col: { p: string; d?: string; r?: string }; val: { p: string; d?: string; r?: string } };
+  readonly enc?: { sch: string; pkBase64Url?: string };
   readonly handover?: Array<{ minAnchorSlotsHeld: number | null; verdict: string }>;
   readonly stampSource?: Array<{ maxTimeUncertaintySeconds: number | null; verdict: string }>;
   readonly fault?: { at: string; member?: string; states: string };
@@ -361,6 +383,16 @@ function slotColumn(slot: CollateralSlot): { p: string; d?: string; r?: string }
 }
 
 /**
+ * The `enc` arm as a row states it: the label that decides which member list stands behind the map, and the
+ * key only the arm that names one has a use for. The label is typed as a string rather than as the registry
+ * because a refusal row publishes this column too, and the row that refuses an unregistered label states the
+ * label its own bytes carry.
+ */
+function encColumn(enc: { readonly sch: string; readonly pk?: Uint8Array }): RowColumns['enc'] {
+  return enc.pk === undefined ? { sch: enc.sch } : { sch: enc.sch, pkBase64Url: toBase64Url(enc.pk) };
+}
+
+/**
  * The columns one row publishes about its own bytes.
  *
  * A column is stated exactly where the document carries the member it describes, which is what makes a
@@ -371,10 +403,11 @@ function slotColumn(slot: CollateralSlot): { p: string; d?: string; r?: string }
 function columnsOf(
   shape: ResponseShape,
   over: {
-    v: 1;
+    v: 1 | 2;
     sd?: StampDisclosure;
     cva?: CollateralValidityAnchor;
     stamps?: readonly ItemStamp[];
+    enc?: { readonly sch: string; readonly pk?: Uint8Array };
     keyless?: string;
     fault?: RowColumns['fault'];
   },
@@ -391,6 +424,7 @@ function columnsOf(
     ...(over.stamps === undefined ? {} : { items: itemColumns(shape, over.stamps) }),
     ...(over.sd === undefined ? {} : { sd: { name: over.sd.name, unc: over.sd.uncertaintySeconds } }),
     ...(over.cva === undefined ? {} : { cva: { col: slotColumn(over.cva.collateral), val: slotColumn(over.cva.validity) } }),
+    ...(over.enc === undefined ? {} : { enc: encColumn(over.enc) }),
     ...(over.fault === undefined ? {} : { fault: over.fault }),
   };
 }
@@ -438,6 +472,12 @@ const CLOSED_MAPS = ['payload', 'meas', 'att', 'tok', 'mk', 'sd', 'cva', 'cva.co
 
 /** The name every unknown-member row carries, which is the name the refusal quotes back. */
 const UNKNOWN_MEMBER = 'not_a_member';
+
+/** The seed the session arm's key is derived from, which is this suite's own label-to-bytes helper. */
+const SESSION_KEY_SEED = 'ashaveri-fixtures/session-key/v1';
+
+/** The label the unregistered-arm row wears: a next generation of a registered one, which no reader knows yet. */
+const UNREGISTERED_ENCRYPTION_SCHEME = 'x25519-aes-256-gcm-v2';
 
 const slug = (value: string): string =>
   value
@@ -651,6 +691,49 @@ function main(): void {
       },
       payload: payloadFor(markedSentinel, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedSentinelStamps }),
     },
+    {
+      row: {
+        name: 'receipt-enc-plain-v2',
+        expected: 'verify-ok',
+        note: 'A receipt at the newer payload version whose `enc` states that both legs rode the wire in the clear: `sch: "none"` is that statement and the member is required, so a reader of this document never weighs an absence in place of a claim about the bytes it was handed. The response is the marked stream `receipt-not-taken-in-v1` attests, so `res` is sha256 of those bytes, `mk.d` is sha256 of the marking frame inside them, and the item list is the five the shipped reader frames out of them: the version moves which statements a payload owes, not what these digests are of. Both anchor halves are held, so all three postures a policy can take about an anchor accept it, and the newest number changes nothing about what the client reaches.',
+        columns: {
+          ...columnsOf(markedStream, {
+            v: 2,
+            sd: MEASURED_SOURCE,
+            cva: ANCHOR_HELD_BOTH,
+            stamps: markedStreamStamps,
+            enc: { sch: 'none' },
+          }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
+        },
+      },
+      payload: payloadForV2(markedStream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedStreamStamps }),
+    },
+    {
+      row: {
+        name: 'receipt-enc-session-v2',
+        expected: 'verify-ok',
+        note: 'A receipt at the newer payload version whose `enc` states that both legs were sealed under the key its `pk` names. `pk` is 32 bytes derived from this suite\'s own seed, so the document is reproducible and names no key anyone holds. Under this label `req` and `res` are digests of the bytes as transmitted, and the response column publishes exactly those bytes, so both digest checks a reader runs are against what it was handed; this corpus publishes synthetic bodies, so the row is read as what the two digests cover and as what `enc` states about their transmission, and not as a claim that these particular bytes are the output of a cipher. The marking is the declared `none`, which is a statement about a region and not about the sealing: a reader holding only what was transmitted cannot recompute a mark written into the plaintext, and nothing here asks it to. Nothing in this document ties `pk` to a measurement: `att` names evidence by digest, instant and route and states no report data, so that binding belongs to the deployment\'s key route and its own attestation, and a reader weighing it asks a second document. Its collateral half is held and its validity half stated never issued, so a demand of one slot is met and a demand of both is refused.',
+        columns: {
+          ...columnsOf(body, {
+            v: 2,
+            sd: MEASURED_SOURCE,
+            cva: ANCHOR_HELD_AND_ABSENT,
+            stamps: bodyStamps,
+            enc: { sch: 'x25519-aes-256-gcm-v1', pk: labeled(SESSION_KEY_SEED) },
+          }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
+        },
+      },
+      payload: payloadForV2(body, {
+        sd: MEASURED_SOURCE,
+        cva: ANCHOR_HELD_AND_ABSENT,
+        itm: bodyStamps,
+        enc: { sch: 'x25519-aes-256-gcm-v1', pk: labeled(SESSION_KEY_SEED) },
+      }),
+    },
   ];
 
   for (const one of accepted) {
@@ -663,6 +746,13 @@ function main(): void {
   // of them refuses for authenticity, and every one is answered the same with a key in hand and without.
 
   const refusalBase = payloadFor(markedStream, {
+    sd: MEASURED_SOURCE,
+    cva: ANCHOR_ONE_OF_EACH,
+    itm: markedStreamStamps,
+  });
+
+  /** The same document at the newer number, with the one member that number exists for stated in its plain arm. */
+  const refusalBaseV2 = payloadForV2(markedStream, {
     sd: MEASURED_SOURCE,
     cva: ANCHOR_ONE_OF_EACH,
     itm: markedStreamStamps,
@@ -773,6 +863,79 @@ function main(): void {
         for (const member of ['mk', 'sd', 'cva', 'itm']) payload.delete(member);
       }),
     },
+    {
+      name: 'receipt-enc-missing-v2',
+      expected: 'BAD_PAYLOAD',
+      twin: false,
+      note: 'A document wearing the newer version with every one of the seventeen members of the older one present and in place, and no `enc` among them. The member is required of this version precisely so that a reader never has to guess what a silence meant, and the refusal names the position rather than the version: these are a version 2 document missing the one thing the number adds, not a version the reader cannot read. `receipt-enc-plain-v2` is the same seventeen members and the plain arm stated as a value, and is accepted.',
+      columns: columnsOf(markedStream, {
+        v: 2,
+        sd: MEASURED_SOURCE,
+        cva: ANCHOR_ONE_OF_EACH,
+        stamps: markedStreamStamps,
+        keyless: 'BAD_PAYLOAD',
+        fault: { at: 'enc', states: 'the member version 2 requires and these bytes leave unstated' },
+      }),
+      bytes: signedEditedDocument(encodePayload(refusalBaseV2), (payload) => {
+        payload.delete('enc');
+      }),
+    },
+    {
+      name: 'receipt-enc-unknown-v2',
+      expected: 'UNSUPPORTED_ENCRYPTION_SCHEME',
+      twin: false,
+      note: `A version 2 document whose \`enc\` names \`${UNREGISTERED_ENCRYPTION_SCHEME}\`, a label outside the registry, with a 32-byte key beside it so the refusal cannot be about a missing member. The document is well-formed and it is the construction it names that no reader can look for, which is why this answer is its own code rather than \`BAD_PAYLOAD\`, and why the message quotes the label back: a port that read these bytes under some cipher it happened to have would be guessing at a rule nobody gave it. The same map with a registered label, at either arm, is read.`,
+      columns: columnsOf(markedStream, {
+        v: 2,
+        sd: MEASURED_SOURCE,
+        cva: ANCHOR_ONE_OF_EACH,
+        stamps: markedStreamStamps,
+        enc: { sch: UNREGISTERED_ENCRYPTION_SCHEME, pk: labeled(SESSION_KEY_SEED) },
+        keyless: 'UNSUPPORTED_ENCRYPTION_SCHEME',
+        fault: { at: 'enc', member: UNREGISTERED_ENCRYPTION_SCHEME, states: 'a label the registry does not hold' },
+      }),
+      bytes: signedEditedDocument(encodePayload(refusalBaseV2), (payload) => {
+        const arm = asMapOf(payload, 'enc');
+        arm.set('sch', UNREGISTERED_ENCRYPTION_SCHEME);
+        arm.set('pk', labeled(SESSION_KEY_SEED));
+      }),
+    },
+    {
+      name: 'receipt-enc-plaintext-key-v2',
+      expected: 'BAD_PAYLOAD',
+      twin: false,
+      note: 'A version 2 document whose `enc` declares the plain arm and carries a key beside it: the label says nothing was sealed, and the member beside it is the one only the sealed arm has a use for, so the map holds the other arm\'s claim and drops its own. Which list stands behind `enc` is decided by the label and by nothing else, and the reader that resolves the label closes the map at that position, so this is refused as a document of a shape the version states no reading for rather than as a scheme no reader knows. A key at another width, or a session arm holding none, are the same refusal at the same position.',
+      columns: columnsOf(markedStream, {
+        v: 2,
+        sd: MEASURED_SOURCE,
+        cva: ANCHOR_ONE_OF_EACH,
+        stamps: markedStreamStamps,
+        enc: { sch: 'none', pk: labeled(SESSION_KEY_SEED) },
+        keyless: 'BAD_PAYLOAD',
+        fault: { at: 'enc', member: 'pk', states: 'the member the other arm owns, beside a label that names no key' },
+      }),
+      bytes: signedEditedDocument(encodePayload(refusalBaseV2), (payload) => {
+        asMapOf(payload, 'enc').set('pk', labeled(SESSION_KEY_SEED));
+      }),
+    },
+    {
+      name: 'receipt-enc-at-v1',
+      expected: 'BAD_PAYLOAD',
+      twin: false,
+      note: 'A document wearing the older version and carrying `enc` beside its seventeen members. The older number is frozen in content: nothing joins it, so a confidentiality claim at that position is a name its version does not define and the closed map refuses it rather than reading it, whatever the label inside it would have been. This is the same rule `receipt-unknown-member-payload-v1` states for a name no version defines, met at the one name that a newer version does.',
+      columns: columnsOf(markedStream, {
+        v: 1,
+        sd: MEASURED_SOURCE,
+        cva: ANCHOR_ONE_OF_EACH,
+        stamps: markedStreamStamps,
+        enc: { sch: 'none' },
+        keyless: 'BAD_PAYLOAD',
+        fault: { at: 'payload', member: 'enc', states: 'a member the version these bytes name does not define' },
+      }),
+      bytes: signedEditedDocument(encodePayload(refusalBase), (payload) => {
+        payload.set('enc', new Map<unknown, unknown>([['sch', 'none']]));
+      }),
+    },
   ];
 
   for (const level of CLOSED_MAPS) {
@@ -854,7 +1017,7 @@ function main(): void {
               'verifyReceipt checks the signature under the published key first and reads the payload after it, so `expected` is the answer the same bytes owe a reader holding the key the published key file names',
           },
           columns: {
-            v: 'The payload version the document names in its own `v` member. The format declares one, so every row that states this column states `1`, and the entries that state no `v` are the fixtures this suite began with.',
+            v: 'The payload version the document names in its own `v` member. The format declares two, so every row that states this column states `1` or `2`, and the entries that state no `v` are the fixtures this suite began with, each of which is a `1` document. Which members a row owes is decided by the number it names, and a document carrying a member the version it claims does not define is refused rather than read with the extra name dropped.',
             marking:
               'Which marking setting the response bytes came off, `none` or `provenance-v1`. This is a fact about the bytes and not about the document: one upstream body frames no item with the marking off and one item with it on, so whether a document can be signed over a response at all depends on this column, and `receipt-marked-sentinel-v1` and `receipt-empty-items-v1` are those two answers over one completion, the second a refusal because the format requires a non-empty item list. The payload states the setting again as `mk.sch`.',
             contentType:
@@ -865,12 +1028,15 @@ function main(): void {
               'On a row whose response is joined rather than quoted, the published pieces it was joined from in the order they were written, each as `<file>#<path>` a reader can look up.',
             responseBase64Url:
               'The response exactly as transmitted, framing and sentinel included, unpadded base64url. These are the bytes the row\'s `res` is the digest of.',
+            responseByteLength:
+              'The length of those same bytes, stated beside them so a reader that rebuilt the body from another suite checks a length as well as a digest, and a port that decoded the string and never counted it is told which of the two it did.',
             items:
               'One entry per item the shipped reader gives those bytes, in the order it gives them: the instant the source named by `sd` read for it, the digest of that item\'s bytes, and the bytes themselves so the digest is checkable rather than asserted. A row states `items` exactly where its document carries the list. Where a refusal is about the list, the row states the list as the bytes hold it, which is the whole of what the reader compares.',
             sd: 'The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source\'s statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.',
             cva: 'The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.',
+            enc: 'The arm of `enc` the payload carries: the label that decides which member list stands behind the map, and the key spelled in unpadded base64url only on the arm that names one. A row states this column exactly where its bytes carry the member, which is every row at the newer version except the one published to state that the member is missing, and the row at the older number that carries it anyway. A refusal row states the arm its own bytes hold, label and all, so the answer these bytes get is checkable against what they carry rather than against what a reader would have written.',
             handover:
-              'What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field\'s own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture\'s issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row\'s `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row\'s own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because the format declares one payload version and it requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.',
+              'What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field\'s own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture\'s issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row\'s `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row\'s own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because every version the format declares requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.',
             stampSource:
               'What the shipped client path answers for this document under each posture `maxTimeUncertaintySeconds` can take, three entries in the order `null`, `0`, `1`: the policy that names no demand, the tightest demand a policy can state, and a demand of one second. The figures are the ones the two disclosures this suite publishes part on: the measured rows declare `unc` `1`, so the demand of `1` meets them at the boundary and the demand of `0` refuses them for stating a number wider than nothing, while the row declaring that nobody measured is refused at both, which is the pair a reader that flattened the null into a zero, or read the absence as a bound of nothing, could never tell apart. Like the `handover` readings each entry names the policy field, states the verdict, and is read off `verifyCompletionReceipt` with nothing but the document, that issuer pinned and the clock at the instant the document names; the demand is weighed against the payload\'s own `sd`, which is the only place a reader of a finished receipt can reach it from, and the `null` entry repeats the row\'s `expected` for the same promised reason. A row states this column on the same roster as `handover`, because both are answers the client path reaches over accepted bytes.',
             fault:

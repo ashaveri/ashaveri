@@ -536,6 +536,165 @@
       "note": "A receipt over a stream that framed no item until the mark was written to it: the response is one marking frame, the blank line that closes it, and the closing sentinel, joined from the pieces the marking and response suites publish, and it frames exactly one item, the mark. The same upstream body with the marking off frames nothing at all, and no document this format declares can be signed over those bytes: `itm` is required and never empty, which is what `receipt-empty-items-v1` states as a refusal. Its anchor holds both halves, so all three postures a policy can take about an anchor accept it, which is the row that states its demand and the rows that state none agreeing."
     },
     {
+      "name": "receipt-enc-plain-v2",
+      "path": "receipts/receipt-enc-plain-v2.cbor",
+      "digestSha256": "dd4b5ac7e71c83834b5189ccbcf5cae7ba4a976e15d0aee21a285d498968dd6d",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 2,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "enc": {
+        "sch": "none"
+      },
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "verify-ok"
+        }
+      ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
+        }
+      ],
+      "note": "A receipt at the newer payload version whose `enc` states that both legs rode the wire in the clear: `sch: \"none\"` is that statement and the member is required, so a reader of this document never weighs an absence in place of a claim about the bytes it was handed. The response is the marked stream `receipt-not-taken-in-v1` attests, so `res` is sha256 of those bytes, `mk.d` is sha256 of the marking frame inside them, and the item list is the five the shipped reader frames out of them: the version moves which statements a payload owes, not what these digests are of. Both anchor halves are held, so all three postures a policy can take about an anchor accept it, and the newest number changes nothing about what the client reaches."
+    },
+    {
+      "name": "receipt-enc-session-v2",
+      "path": "receipts/receipt-enc-session-v2.cbor",
+      "digestSha256": "b3abd46de65f8511877248e5fb24def23ac3262e63ac85b0bae55dddfcf8007f",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 2,
+      "marking": "none",
+      "contentType": "application/json",
+      "response": "marking-v1.json#absence-declared",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+      "responseByteLength": 286,
+      "items": [
+        {
+          "t": 1771999999,
+          "d": "f25278113271447ec6a242f1d72db47b101028d2673b2948eb2b329683b970e6",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9fQ",
+          "byteLength": 286
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "absent-at-source",
+          "r": "the appraisal this receipt was issued from ran on collateral its source reports as never having been issued, and no byte of it reached this record"
+        }
+      },
+      "enc": {
+        "sch": "x25519-aes-256-gcm-v1",
+        "pkBase64Url": "tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY"
+      },
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "ANCHOR_SLOT_NOT_HELD"
+        }
+      ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
+        }
+      ],
+      "note": "A receipt at the newer payload version whose `enc` states that both legs were sealed under the key its `pk` names. `pk` is 32 bytes derived from this suite's own seed, so the document is reproducible and names no key anyone holds. Under this label `req` and `res` are digests of the bytes as transmitted, and the response column publishes exactly those bytes, so both digest checks a reader runs are against what it was handed; this corpus publishes synthetic bodies, so the row is read as what the two digests cover and as what `enc` states about their transmission, and not as a claim that these particular bytes are the output of a cipher. The marking is the declared `none`, which is a statement about a region and not about the sealing: a reader holding only what was transmitted cannot recompute a mark written into the plaintext, and nothing here asks it to. Nothing in this document ties `pk` to a measurement: `att` names evidence by digest, instant and route and states no report data, so that binding belongs to the deployment's key route and its own attestation, and a reader weighing it asks a second document. Its collateral half is held and its validity half stated never issued, so a demand of one slot is met and a demand of both is refused."
+    },
+    {
       "name": "receipt-stamps-descending-v1",
       "path": "receipts/receipt-stamps-descending-v1.cbor",
       "digestSha256": "5b50360746a46d1ae7197fe771ebc7aea0a24f404a26fd2932390766cdf78fa4",
@@ -771,6 +930,276 @@
         "states": "the member the format requires and these bytes never wrote"
       },
       "note": "A document wearing `v: 1` with its twelve shared members present, well-typed and in place, and the four a receipt states about itself not there at all. One version requires all seventeen, so the check holds one document's member set against the format rather than a document's number against a table of member sets, and the row states which member the reader names first, because which member a document left out is not something a reader can guess from what it finds."
+    },
+    {
+      "name": "receipt-enc-missing-v2",
+      "path": "receipts/receipt-enc-missing-v2.cbor",
+      "digestSha256": "577b953c843c0a377ad28c73818b9b8730b11978d2cea279a8fa528e29cecacf",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 2,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "enc",
+        "states": "the member version 2 requires and these bytes leave unstated"
+      },
+      "note": "A document wearing the newer version with every one of the seventeen members of the older one present and in place, and no `enc` among them. The member is required of this version precisely so that a reader never has to guess what a silence meant, and the refusal names the position rather than the version: these are a version 2 document missing the one thing the number adds, not a version the reader cannot read. `receipt-enc-plain-v2` is the same seventeen members and the plain arm stated as a value, and is accepted."
+    },
+    {
+      "name": "receipt-enc-unknown-v2",
+      "path": "receipts/receipt-enc-unknown-v2.cbor",
+      "digestSha256": "b8e9655788989857bdf1a59207f06d121d758e4a3dc53614a0e87c04a71c2e19",
+      "expected": "UNSUPPORTED_ENCRYPTION_SCHEME",
+      "keyless": "UNSUPPORTED_ENCRYPTION_SCHEME",
+      "v": 2,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "enc": {
+        "sch": "x25519-aes-256-gcm-v2",
+        "pkBase64Url": "tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY"
+      },
+      "fault": {
+        "at": "enc",
+        "member": "x25519-aes-256-gcm-v2",
+        "states": "a label the registry does not hold"
+      },
+      "note": "A version 2 document whose `enc` names `x25519-aes-256-gcm-v2`, a label outside the registry, with a 32-byte key beside it so the refusal cannot be about a missing member. The document is well-formed and it is the construction it names that no reader can look for, which is why this answer is its own code rather than `BAD_PAYLOAD`, and why the message quotes the label back: a port that read these bytes under some cipher it happened to have would be guessing at a rule nobody gave it. The same map with a registered label, at either arm, is read."
+    },
+    {
+      "name": "receipt-enc-plaintext-key-v2",
+      "path": "receipts/receipt-enc-plaintext-key-v2.cbor",
+      "digestSha256": "d6dfaf287688eb4d34a89cab4b61c1689396b08adac257d29caf970c1d3d274a",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 2,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "enc": {
+        "sch": "none",
+        "pkBase64Url": "tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY"
+      },
+      "fault": {
+        "at": "enc",
+        "member": "pk",
+        "states": "the member the other arm owns, beside a label that names no key"
+      },
+      "note": "A version 2 document whose `enc` declares the plain arm and carries a key beside it: the label says nothing was sealed, and the member beside it is the one only the sealed arm has a use for, so the map holds the other arm's claim and drops its own. Which list stands behind `enc` is decided by the label and by nothing else, and the reader that resolves the label closes the map at that position, so this is refused as a document of a shape the version states no reading for rather than as a scheme no reader knows. A key at another width, or a session arm holding none, are the same refusal at the same position."
+    },
+    {
+      "name": "receipt-enc-at-v1",
+      "path": "receipts/receipt-enc-at-v1.cbor",
+      "digestSha256": "e2ffa8ce1d459ce585af2d40810695380bac88a693527bd77e9ff71381f363a8",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 1,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "enc": {
+        "sch": "none"
+      },
+      "fault": {
+        "at": "payload",
+        "member": "enc",
+        "states": "a member the version these bytes name does not define"
+      },
+      "note": "A document wearing the older version and carrying `enc` beside its seventeen members. The older number is frozen in content: nothing joins it, so a confidentiality claim at that position is a name its version does not define and the closed map refuses it rather than reading it, whatever the label inside it would have been. This is the same rule `receipt-unknown-member-payload-v1` states for a name no version defines, met at the one name that a newer version does."
     },
     {
       "name": "receipt-unknown-member-payload-v1",
@@ -1435,16 +1864,18 @@
       "keyBearing": "verifyReceipt checks the signature under the published key first and reads the payload after it, so `expected` is the answer the same bytes owe a reader holding the key the published key file names"
     },
     "columns": {
-      "v": "The payload version the document names in its own `v` member. The format declares one, so every row that states this column states `1`, and the entries that state no `v` are the fixtures this suite began with.",
+      "v": "The payload version the document names in its own `v` member. The format declares two, so every row that states this column states `1` or `2`, and the entries that state no `v` are the fixtures this suite began with, each of which is a `1` document. Which members a row owes is decided by the number it names, and a document carrying a member the version it claims does not define is refused rather than read with the extra name dropped.",
       "marking": "Which marking setting the response bytes came off, `none` or `provenance-v1`. This is a fact about the bytes and not about the document: one upstream body frames no item with the marking off and one item with it on, so whether a document can be signed over a response at all depends on this column, and `receipt-marked-sentinel-v1` and `receipt-empty-items-v1` are those two answers over one completion, the second a refusal because the format requires a non-empty item list. The payload states the setting again as `mk.sch`.",
       "contentType": "The content type the response was served with, which is what decides whether its items are `data:` frames or one whole body.",
       "response": "Where these bytes are published already, as `<file>#<vector>`: `res` is sha256 over that file's bytes and every item digest is of a slice of them, so one response is read out of two files and a generator that drifted on either side disagrees here.",
       "assembledFrom": "On a row whose response is joined rather than quoted, the published pieces it was joined from in the order they were written, each as `<file>#<path>` a reader can look up.",
       "responseBase64Url": "The response exactly as transmitted, framing and sentinel included, unpadded base64url. These are the bytes the row's `res` is the digest of.",
+      "responseByteLength": "The length of those same bytes, stated beside them so a reader that rebuilt the body from another suite checks a length as well as a digest, and a port that decoded the string and never counted it is told which of the two it did.",
       "items": "One entry per item the shipped reader gives those bytes, in the order it gives them: the instant the source named by `sd` read for it, the digest of that item's bytes, and the bytes themselves so the digest is checkable rather than asserted. A row states `items` exactly where its document carries the list. Where a refusal is about the list, the row states the list as the bytes hold it, which is the whole of what the reader compares.",
       "sd": "The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source's statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.",
       "cva": "The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.",
-      "handover": "What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field's own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture's issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row's `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row's own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because the format declares one payload version and it requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.",
+      "enc": "The arm of `enc` the payload carries: the label that decides which member list stands behind the map, and the key spelled in unpadded base64url only on the arm that names one. A row states this column exactly where its bytes carry the member, which is every row at the newer version except the one published to state that the member is missing, and the row at the older number that carries it anyway. A refusal row states the arm its own bytes hold, label and all, so the answer these bytes get is checkable against what they carry rather than against what a reader would have written.",
+      "handover": "What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field's own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture's issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row's `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row's own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because every version the format declares requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.",
       "stampSource": "What the shipped client path answers for this document under each posture `maxTimeUncertaintySeconds` can take, three entries in the order `null`, `0`, `1`: the policy that names no demand, the tightest demand a policy can state, and a demand of one second. The figures are the ones the two disclosures this suite publishes part on: the measured rows declare `unc` `1`, so the demand of `1` meets them at the boundary and the demand of `0` refuses them for stating a number wider than nothing, while the row declaring that nobody measured is refused at both, which is the pair a reader that flattened the null into a zero, or read the absence as a bound of nothing, could never tell apart. Like the `handover` readings each entry names the policy field, states the verdict, and is read off `verifyCompletionReceipt` with nothing but the document, that issuer pinned and the clock at the instant the document names; the demand is weighed against the payload's own `sd`, which is the only place a reader of a finished receipt can reach it from, and the `null` entry repeats the row's `expected` for the same promised reason. A row states this column on the same roster as `handover`, because both are answers the client path reaches over accepted bytes.",
       "fault": "On a refusal row, the position the shipped reader names in the answer these bytes get, and what the row states about it. Where the reader quotes a member back, the row states the name as `member`. The position is what makes the row about one member rather than about the document as a whole."
     },

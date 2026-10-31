@@ -104,6 +104,31 @@ export function sectionBody(markdown: string, heading: string): string {
 }
 
 /**
+ * The members of a `const <name> = [ ... ];` declaration in a source file, read as the numbers the source
+ * writes.
+ *
+ * Two document tests need the payload's version set, and neither imports it: `PARSED_VERSIONS` is
+ * deliberately kept off the receipt package's index, and a cross-package source import does not sit inside
+ * this package's `rootDir`. A reading written twice is a reading that can disagree with itself, so it lives
+ * here beside the other two, and it refuses to guess: a declaration that cannot be found, or that holds no
+ * number, stops the run rather than handing back an empty set a claim would pass on nothing.
+ */
+export function declaredVersions(name: string, file: string): number[] {
+  const source = readSourceFile(file);
+  const declared = new RegExp(`const ${name}(?::[^=]+)? = \\[([^\\]]*)\\]`, 'u').exec(source);
+  if (declared === null) throw new Error(`${name} is not a bracketed list this reader can find in ${file}`);
+  const cells = (declared[1] ?? '')
+    .split(',')
+    .map((cell) => cell.trim())
+    .filter((cell) => cell.length > 0);
+  if (cells.length === 0) throw new Error(`${name} in ${file} declares no versions, so there is nothing to hold a document to`);
+  return cells.map((cell) => {
+    if (!/^[0-9]+$/u.test(cell)) throw new Error(`${name} in ${file} carries ${cell}, which is not a version number`);
+    return Number(cell);
+  });
+}
+
+/**
  * Counts the documents write as words rather than digits. Reading one is a check that the sentence
  * still agrees with the thing it counts, which a document that only ever restated the number in a
  * table could not make.
