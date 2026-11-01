@@ -16,7 +16,6 @@ import {
   MEASUREMENT_BYTES,
   claimsConfidentialDevice,
   equalBytes,
-  type Encryption,
   type ReceiptPayload,
   type TeeKind,
 } from '@ashaveri/receipt';
@@ -94,39 +93,15 @@ export function requireHardwareEvidence(tee: TeeKind): void {
 }
 
 /**
- * The report data a gateway must attest to for one request.
+ * The report data a gateway must attest to for one request, and the one place this estate spells the fold.
  *
- * Two arms, chosen by the document and by nothing else. Where the receipt's `enc` names a session key, the
- * value the platform quote is bound to is `sha256(nce || pk || req)`: this request's nonce, the session
- * public key the signed payload itself carries, and the digest of the exact request bytes, concatenated in
- * that order and no other. Where `enc` states the plain arm, or where the document is a version that names
- * no arm at all, there is no key to fold and the value is `sha256(nce || req)`, byte for byte what this rule
- * shipped before a key was folded into it. The parts come out of the signed payload rather than in beside
- * it, so an auditor holding one receipt and the evidence that receipt names needs nothing else to recompute
- * the binding that ties the key to the measurement.
- *
- * Mirrors the gateway's own mint rule (`gateway/src/server.ts`), which folds a key only where the deployment
- * holds one, so it states the plain arm today. Recomputing the value here rather than trusting one off the
- * wire is what makes the evidence unforgeable and non-replayable: only that instance, at that moment, could
- * have quoted it. The nonce folded here is `nce`, the request's challenge nonce; it is not the AES-256-GCM
- * nonce the session arm's seal is opened with, and the two must never be conflated.
+ * It lives in `@ashaveri/attest-core` beside `reportDataBinds`, because the two ends of a completion read it
+ * from opposite sides of the wire: the gateway's mint calls it on the members it is about to sign and this
+ * client calls it on the members it has just verified, and an edge from the signer back to this package is a
+ * build cycle. What is re-exported here is the name the client's own callers already hold, so the rule stays
+ * one function rather than two that have to be kept agreeing.
  */
-export function evidenceReportData(
-  nonce: Uint8Array,
-  requestHash: Uint8Array,
-  encryption?: Encryption,
-): Uint8Array {
-  const sessionKey = encryption === undefined || encryption.sch === 'none' ? null : encryption.pk;
-  const bound = new Uint8Array(nonce.length + requestHash.length + (sessionKey === null ? 0 : sessionKey.length));
-  bound.set(nonce, 0);
-  if (sessionKey === null) {
-    bound.set(requestHash, nonce.length);
-  } else {
-    bound.set(sessionKey, nonce.length);
-    bound.set(requestHash, nonce.length + sessionKey.length);
-  }
-  return sha256(bound);
-}
+export { evidenceReportData } from '@ashaveri/attest-core';
 
 /**
  * The device reports inside the bytes a gateway's device route served.

@@ -36,7 +36,14 @@ export {
   SNP_SIGNATURE_OFFSET,
   verifyAmdCertificateChain,
 } from './sev-snp.js';
-export { reportDataBinds, verifyAttestation, mrConfigDocumentDigest, pinnedComposeHash, platformMeasurement } from './verify.js';
+export {
+  evidenceReportData,
+  reportDataBinds,
+  verifyAttestation,
+  mrConfigDocumentDigest,
+  pinnedComposeHash,
+  platformMeasurement,
+} from './verify.js';
 export type {
   MrConfigDetails,
   SnpVerification,
