@@ -9,7 +9,7 @@ import {
   type ReceiptPayload,
 } from '@ashaveri/receipt';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { assessCapture } from '../src/capture.js';
+import { assessCapture, parseCaptureRecord } from '../src/capture.js';
 import {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
   DEFAULT_MAX_RECEIPT_AGE_SECONDS,
@@ -291,15 +291,29 @@ describe('missing context is never upgraded into a pass', () => {
   });
 
   it('refuses a record that names a receipt version this build has no reader for', () => {
-    // One version is read, so a record naming any other number describes a document no reader of these
-    // bytes can open. The reader answers the number the record named rather than re-reading the bytes at
-    // a version the format does not declare, and the refusal says which number it would not take.
-    for (const named of [0, 2, 3] as const) {
+    // This reader names both versions the format declares, so a record has to go past that pair to describe a
+    // document no reader of these bytes can open. The layout answers each of these before any field is read,
+    // and the refusal says which numbers this build implements rather than the one it would have preferred.
+    for (const named of [0, 3, 4] as const) {
       expect(
         codes(() => assessCapture({ record: record(receiptV1, {}, { receiptFormatVersion: named }), policy: PINNED, ...AT_NOW })),
         `a record naming ${named}`,
       ).toBe('UNSUPPORTED_VERSION');
+      expect(
+        codes(() => parseCaptureRecord(record(receiptV1, {}, { receiptFormatVersion: named }))),
+        `a record naming ${named} at the layout`,
+      ).toBe('UNSUPPORTED_VERSION');
     }
+    // The number a record states is the number its own bytes are weighed at, and that rule has two edges: the
+    // version named has to be one this build reads, and the bytes have to be that version's. A record stating
+    // the newer number over a document written at the older one is taken by the layout, which binds the shape
+    // of a record and not the truth of its claim, and refused by the leg, because the verifier reads those
+    // bytes only at the version the record carries and never at a default of its own.
+    expect(parseCaptureRecord(record(receiptV1, {}, { receiptFormatVersion: 2 })).check.receiptFormatVersion).toBe(2);
+    expect(
+      codes(() => assessCapture({ record: record(receiptV1, {}, { receiptFormatVersion: 2 }), policy: PINNED, ...AT_NOW })),
+      'a record naming the newer version over bytes written at the older one',
+    ).toBe('UNSUPPORTED_VERSION');
     expect(
       assessCapture({ record: record(receiptV1, {}, { receiptFormatVersion: 1 }), policy: PINNED, ...AT_NOW }).status,
     ).toBe('repeated');

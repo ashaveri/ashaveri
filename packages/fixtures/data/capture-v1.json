@@ -5445,7 +5445,7 @@
       },
       "stage": "layout",
       "code": "UNSUPPORTED_VERSION",
-      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.receiptFormatVersion names version 3, and this reader implements 1 and does not read it as one of them"
+      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.receiptFormatVersion names version 3, and this reader implements 1, 2 and does not read it as one of them"
     },
     {
       "name": "claiming-a-served-signature-and-carrying-none",
