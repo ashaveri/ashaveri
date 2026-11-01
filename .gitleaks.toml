@@ -117,8 +117,8 @@ paths = [
 # A sixth block, and like the fourth it exempts an identifier rather than a key. Every accepted row of the
 # capture fixture publishes `recordKey`, which is sha256 of that record’s canonical JSON, and the built-in
 # generic-api-key rule reads the `"recordKey":` prefix plus the 64 hex characters behind it as a credential
-# candidate. Each value is a content address of bytes the same row already prints: all 19 were reproduced by
-# the shipped `captureRecordKey` over the records beside them, and 17 distinct values cover the 19 rows,
+# candidate. Each value is a content address of bytes the same row already prints: all 20 were reproduced by
+# the shipped `captureRecordKey` over the records beside them, and 18 distinct values cover the 20 rows,
 # because three accepted rows differ only in what the caller pinned, so they hold one record and state one
 # key. Nothing secret is named, and a row whose stated key is not its record’s digest is refused by the
 # suite that replays them.
@@ -130,7 +130,7 @@ paths = [
 # exemption is the intersection of the two lines below and not either one alone, and the file is
 # generated, so a value pasted over one of its slots also fails the job that regenerates it.
 [[allowlists]]
-description = "The capture fixture’s record keys, in the file that publishes them"
+description = "The capture fixture’s record keys, in the file that publishes them, including the row that names a version 2 receipt"
 condition = "AND"
 regexTarget = "secret"
 regexes = [
@@ -150,7 +150,8 @@ regexes = [
   '''^cf78592627f7b3f3a7da047818513c43be88b8fdf44a13c95eee862eb2d59a13$''',
   '''^eeddad0c87eb2ccc0dde2bac1d63d03260e0e58e9754fe626138e6f7b704e231$''',
   '''^f69e0d49e07f8428a7ac6f4077b5c5e160441a480c1ffdd2e2b0d2689f5abd65$''',
-  '''^f772189e549e243bffce6936eafb22e3353a83b68cba032fdb59ef61b87a5ef0$'''
+  '''^f772189e549e243bffce6936eafb22e3353a83b68cba032fdb59ef61b87a5ef0$''',
+  '''^103c20ca482c8c93c241071d084f92c09a4a46da38553612661a992bcfb19651$'''
 ]
 paths = [
   '''^packages/fixtures/data/capture-v1\.json$''',
