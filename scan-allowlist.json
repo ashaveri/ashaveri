@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "description": "The candidate roster the secret scan's allowlist is written from: one entry per exemption that `packages/fixtures/scripts/derive-scan-allowlist.ts` is asked to earn, each naming one path, the shape a built-in rule reads there, the kind of arithmetic that recomputes the value, and the reason paragraph the emitted block carries. The script keeps the arithmetic and this file keeps the roster, so a second repository that wants the same control states its own entries at its own root and reuses the rules rather than copying them. A rule name the script does not answer is a refusal, not a default, and the run prints the names it does. The four kinds this roster uses are `capture-record-key`, the digest the shipped reader takes over a published record; `import-envelope-key`, the digest it takes over an envelope's version, provider and original; `epoch-public-half`, the digest of a public half printed in the row beside the key it names; and `hand-written`, for a value no bytes of a tree are the address of, which states the value and says whether a line of its path still carries it. This is an input read from the scanned root, so it sits at the root beside the config it feeds and not under `packages/fixtures/data`, which the vectors job diffs as output, where an input would make a drift report ambiguous.",
+  "entries": [
+    {
+      "path": "packages/fixtures/data/epoch-inventory-v1.json",
+      "description": "The epoch inventory fixture's key identifiers, in the file that publishes them",
+      "rule": "epoch-public-half",
+      "shape": "key kid=([0-9a-f]{64})",
+      "reason": "An identifier rather than a key. The inventory readers that answer a kid mismatch spell their refusal as `header kid=<hex> key kid=<hex>`, and this suite publishes that sentence verbatim, so the built-in generic-api-key rule reads the `key kid=` prefix and the sixty-four hex characters behind it as a credential candidate. Every value admitted below is sha256 of a public half printed in this same file, in the `layout.keyMaterial` row beside it, and the script takes that digest over those bytes before the line naming it is written. What the block exempts is an address of a published key, and nothing secret is named."
+    },
+    {
+      "path": "packages/fixtures/data/capture-v1.json",
+      "description": "The capture fixture's record keys, in the file that publishes them",
+      "rule": "capture-record-key",
+      "shape": "\"recordKey\": \"([0-9a-f]{64})\"",
+      "reason": "An identifier rather than a key, in the same shape as the block above. Every accepted row of this suite publishes `recordKey`, which is sha256 of that record under the domain prefix `captureRecordKey` states, and the built-in generic-api-key rule reads the `\"recordKey\":` prefix plus the sixty-four hex characters behind it as a credential candidate. Every value admitted below is the address of bytes the same row already prints: the script runs the shipped `captureRecordKey` over the record beside each one and admits only what it reproduces. A row whose stated key is not its record's digest is refused by the suite that replays them, and by this script before a block carrying it is written."
+    },
+    {
+      "path": "packages/fixtures/data/import-v1.json",
+      "description": "The import envelope's content keys, in the file that publishes the vectors",
+      "rule": "import-envelope-key",
+      "shape": "\"key\": \"([0-9a-f]{64})\"",
+      "reason": "An identifier rather than a key, in the same shape as the two blocks above. Every accepted row publishes `key`, which is sha256 of the version, the provider and the original of its envelope under the domain prefix `importEnvelopeKey` states, and the rule reads that name beside a long token as a credential candidate. The script runs the shipped key function over each row's own envelope and admits only what it reproduces, so the row that states a second intake of one export is covered by the same value as the row it restates rather than by an extra line."
+    },
+    {
+      "path": "packages/fixtures/data/pop-v1.json",
+      "description": "The PoP fixture's signing key, in the file that publishes it",
+      "rule": "hand-written",
+      "value": "d1332ee54c62ab3f5336167d4d694944ed98509395a5529e165e043013de19dd",
+      "statedInPath": true,
+      "reason": "One of the two deterministic test signing keys this repository publishes deliberately, each in the same object as the public half it pairs with, so a scanner with no context has to be told it is not a credential. Its bytes come from `signingKeyFromSeed(labeled('pop-vector-key-v1/private'))` in `packages/fixtures/scripts/pop-vectors.ts`. A digest of a seed label is a key and not the address of the file that prints it, so this line stays hand-written with the seed named beside it. The file is generated, so a value pasted over its slot fails the job that regenerates it as well as the scan."
+    },
+    {
+      "path": "packages/fixtures/data/keys/receipt-key-v1.json",
+      "description": "The receipt fixture's signing key, in the file that publishes it",
+      "rule": "hand-written",
+      "value": "83323642bdd8d84c58b3d208d07b4dfc7d84be7b4d670d2272a7ea328f2a06b7",
+      "statedInPath": true,
+      "reason": "The second deterministic test signing key. Its bytes come from `labeled('ashaveri-fixtures/receipt-key/v1')`, the seed `fixtureKey()` in `packages/fixtures/scripts/receipt-envelope.ts` hands to `signingKeyFromSeed`, and the receipt fixtures beside it are sealed under it. A seed digest again, so a key rather than an address. The file is generated, so a value pasted over its slot fails the job that regenerates it as well as the scan."
+    },
+    {
+      "path": "README.md",
+      "description": "The receipt fixture's public verification key, in the README example that prints it",
+      "rule": "hand-written",
+      "value": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU",
+      "statedInPath": true,
+      "reason": "The public half of the key above, and the verification half rather than the signing half, so the private bytes stay outside this block. It is exempted at the one place a document prints it: the verify-pack example, where the same thirty-two bytes appear base64url rather than hex and the sentence under the example names the file that publishes them. Base64url of a curve point is an encoding of bytes and not a digest of them, so no script writes this line; the bytes come from `data/keys/receipt-key-v1.json` beside its private half."
+    },
+    {
+      "path": "gateway/test/receipt-provenance.test.ts",
+      "description": "The provenance case's canary marker, in the file that asserts it goes nowhere",
+      "rule": "hand-written",
+      "value": "CANARY-4f7b2e9a",
+      "statedInPath": true,
+      "reason": "A marker rather than a key. The gateway's provenance case puts one short string in the prompt, the completion, the model id and the credential of every request it issues, then asserts that string reaches none of the receipt's text members. The value authenticates nothing, and eight hex characters behind a word is too short for any real credential to be. The built-in generic-api-key rule matched it at the line that declared the constant under the name `TOKEN`, because that rule reads the name beside the value rather than what the value is worth. The constant carries the name the case uses for the thing, so no line of the current tree matches it, and this block answers for the commit that introduced the shape, which stays in the history whatever the constant is called after it. Nothing digests to this value, so nothing derives it."
+    },
+    {
+      "path": "packages/fixtures/data/challenge-v1.json",
+      "description": "The session public key the challenge family states, in the file that publishes it",
+      "rule": "hand-written",
+      "value": "tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY",
+      "statedInPath": true,
+      "reason": "The public half of a session key pair, published so a reader can lay the challenge pre-image out without this repository's code, and the built-in rule reads that forty-three character base64url run beside its name as a candidate. Nothing new is disclosed by it: the bytes are the `pk` member of the `enc` arm of `data/receipts/receipt-enc-session-v2.cbor`, the signed document this repository already publishes, and `decodeReceipt` answers them equal to the value the block below names. A reader handed that document already holds them. An encoding of a CBOR member is not a digest of anything, so this line stays hand-written and names the document instead. The file is generated, so a value pasted over its slot fails the job that regenerates it as well as the scan."
+    }
+  ]
+}
