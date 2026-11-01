@@ -52,6 +52,7 @@ export {
   randomNonce,
   MEASUREMENT_BYTES,
   isTeeKind,
+  isReceiptVersion,
   claimsConfidentialDevice,
   isMarkingScheme,
   MARKING_SCHEMES,
