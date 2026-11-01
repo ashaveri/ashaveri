@@ -553,9 +553,9 @@ const HEADER: readonly (readonly string[])[] = [
     'This file is written, not copied. `pnpm -C packages/fixtures generate:scan-allowlist` produces it from',
     '`packages/fixtures/scripts/derive-scan-allowlist.ts`, and the vectors job runs that command and refuses a diff.',
     'A block is admitted only when the value it names is the digest of bytes this tree carries as something',
-    'published, and the run prints whose bytes; a value with no address to name is written in `HAND_BLOCKS` inside',
-    'that script instead, where it has to state what it is and where its bytes come from before it exempts anything.',
-    'A scan run with `--redact` never prints the value it found, so no line here is authored out of a log.',
+    'published, and the run prints whose bytes; a value with no address to name is declared hand-written in',
+    '`scan-allowlist.json`, where it has to state what it is and where its bytes come from before it exempts',
+    'anything. A scan run with `--redact` never prints the value it found, so no line here is authored out of a log.',
   ],
 ];
 
