@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
+import { evidenceReportData } from '@ashaveri/attest-core';
 import {
   hashRequest,
   isEventStream,
@@ -10,6 +11,8 @@ import {
   type Marking,
   type MarkingScheme,
   type ReceiptPayload,
+  type ReceiptPayloadV1,
+  type ReceiptPayloadV2,
   type SigningKey,
   type TeeKind,
 } from '@ashaveri/receipt';
@@ -236,11 +239,41 @@ function upstreamError(reply: { code: (n: number) => { send: (b: unknown) => unk
   reply.code(502).send({ error: { message, type: 'upstream_error' } });
 }
 
-function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
-  const out = new Uint8Array(left.length + right.length);
-  out.set(left);
-  out.set(right, left.length);
-  return out;
+/**
+ * The members of a payload that decide the value its evidence is bound to: which document this issuance
+ * signs, the request nonce, the digest of the exact request bytes, and the session key a document naming an
+ * arm carries. Typed out of the two payload versions themselves, so the pair the fold reads and the pair the
+ * signature covers cannot be spelled apart: a version 1 holding a key, or a version 2 naming none, is not a
+ * state this type can write, which is why nothing below refuses one.
+ *
+ * Minted while the request is the only fact this process holds, because the evidence is gathered while the
+ * model generates and signing must not cost a round trip, and spread into the document by the issuance that
+ * files it. So the value a platform quote is asked to seal is read out of the same fields the receipt states
+ * rather than restated beside them: a served receipt cannot name a nonce, a request digest or an arm that was
+ * not the one its own quote was bound to.
+ */
+type PayloadIdentity =
+  | Pick<ReceiptPayloadV1, 'v' | 'nce' | 'req'>
+  | Pick<ReceiptPayloadV2, 'v' | 'nce' | 'req' | 'enc'>;
+
+/**
+ * This gateway signs the document that names no arm, because it holds no session key to write into one, so
+ * the challenge is the two-part reading and every part of it is this request's own. A deployment that begins
+ * to seal a prompt moves this line and the fold follows it; that is the whole of what the mint is asked to
+ * hold, and it is why the fold sits on these members rather than beside them.
+ */
+function mintIdentity(nonce: Uint8Array, requestBody: Uint8Array): PayloadIdentity {
+  return { v: 1, nce: nonce, req: hashRequest(requestBody) };
+}
+
+/**
+ * The value this issuance's evidence has to carry, reached through the one derivation the shipped reader
+ * runs as well. The arm comes out of the payload identity above and not from a caller's argument, so the
+ * reading a stranger recomputes from a receipt and the reading made here are the same call over the same
+ * fields.
+ */
+function reportDataFor(identity: PayloadIdentity): Uint8Array {
+  return evidenceReportData(identity.nce, identity.req, identity.v === 2 ? identity.enc : undefined);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -808,8 +841,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
   async function issue(args: {
     id: string;
-    nonce: Uint8Array;
-    requestBody: Buffer;
+    identity: PayloadIdentity;
     responseHash: Uint8Array;
     framing: FramedItemStamps;
     modelId: string;
@@ -855,12 +887,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // no read of anything else, so an unframed stream never touches a deployment's cache.
     const cva = await anchorForEvidence(args.evidence);
     const payload: ReceiptPayload = {
-      v: 1,
+      ...args.identity,
       iss: deployment.issuer,
       ins: deployment.instance,
       iat,
-      nce: args.nonce,
-      req: hashRequest(args.requestBody),
       res: args.responseHash,
       mdl: args.modelId,
       wts: args.weights,
@@ -1037,10 +1067,11 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       return;
     }
 
-    // Evidence is gathered while the model generates, so signing costs no extra
-    // round trip, and the report data ties it to this client's nonce and request.
-    const reportData = sha256(concat(nonce, hashRequest(raw)));
-    const evidencePromise = deployment.attestation(reportData);
+    // The payload's own members are minted here, before the upstream is called, so the value the platform is
+    // asked to seal is read out of the document this issuance signs instead of agreeing with it by accident,
+    // and the evidence arrives while the model generates rather than after it.
+    const identity = mintIdentity(nonce, raw);
+    const evidencePromise = deployment.attestation(reportDataFor(identity));
     evidencePromise.catch(() => undefined);
     const failed = response.status >= 400;
 
@@ -1098,8 +1129,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       const framing = stampedBufferedItem(stamp, response.contentType, sent);
       await issue({
         id: receiptId,
-        nonce,
-        requestBody: raw,
+        identity,
         responseHash: sha256(sent),
         framing,
         modelId: declared.id,
@@ -1232,8 +1262,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       // immediately fetches its receipt cannot lose the race.
       await issue({
         id,
-        nonce,
-        requestBody: raw,
+        identity,
         responseHash: new Uint8Array(hasher.digest()),
         // Read after the last frame was written, mark frame included, and before the digest is taken,
         // so the list states the frames the bytes a client holds contain and none that arrived after.

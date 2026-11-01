@@ -162,9 +162,12 @@ serving side:
 - `meas`, the issuer and the instance are read out of the guest's own evidence at startup.
   A hand-entered value is only possible through the explicit `--issuer` / `--instance`
   overrides, and `--tee` refuses to start if the evidence contradicts the configured platform.
-- Every receipt points at evidence bound to that request's nonce: the gateway checks that the
-  quote's report data equals `sha256(nonce, hashRequest(request))` before it publishes the
-  document, so a quote captured for another request is rejected.
+- Every receipt points at evidence bound to that request: the value a quote has to carry is derived
+  from the payload the issuance signs, `sha256(nce || req)` where that document names no session
+  arm and `sha256(nce || enc.pk || req)` where it names one, by the one function
+  `@ashaveri/attest-core` publishes and the reader calls on the same members; the gateway checks
+  the served quote's report data against that value before it publishes the document, so a quote
+  captured for another request is rejected.
 - The entrypoint verifies the mounted model files against a manifest before `signerd` starts when
   the container sets both `ASHAVERI_WEIGHTS_DIR` and `ASHAVERI_WEIGHTS_MANIFEST`, which the
   bundled compose does (see [enclave/README.md](../enclave/README.md)), so a swapped model file
