@@ -12,7 +12,14 @@ import {
   type RuntimeEvent,
   type VerificationResult,
 } from '@ashaveri/attest-core';
-import { MEASUREMENT_BYTES, claimsConfidentialDevice, equalBytes, type ReceiptPayload, type TeeKind } from '@ashaveri/receipt';
+import {
+  MEASUREMENT_BYTES,
+  claimsConfidentialDevice,
+  equalBytes,
+  type Encryption,
+  type ReceiptPayload,
+  type TeeKind,
+} from '@ashaveri/receipt';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { toHex } from './b64.js';
 import { SdkError } from './errors.js';
@@ -31,7 +38,7 @@ export interface EvidenceTrustAnchors {
 export interface VerifyEvidenceParams {
   /** The `VersionedAttestation` document the gateway served for this request. */
   readonly document: Uint8Array;
-  /** The digest the evidence had to be bound to: `evidenceReportData(nonce, requestHash)`. */
+  /** The digest the evidence had to be bound to: `evidenceReportData(nonce, requestHash, enc)`. */
   readonly expectedReportData: Uint8Array;
   /** The already verified receipt payload, which the evidence must agree with. */
   readonly payload: ReceiptPayload;
@@ -89,15 +96,35 @@ export function requireHardwareEvidence(tee: TeeKind): void {
 /**
  * The report data a gateway must attest to for one request.
  *
- * Mirrors the gateway's own rule (server.ts): the digest of the client nonce
- * joined with the hash of the exact request bytes. Recomputing it here rather
- * than trusting a value off the wire is what makes the evidence unforgeable and
- * non-replayable: only that instance, at that moment, could have quoted it.
+ * Two arms, chosen by the document and by nothing else. Where the receipt's `enc` names a session key, the
+ * value the platform quote is bound to is `sha256(nce || pk || req)`: this request's nonce, the session
+ * public key the signed payload itself carries, and the digest of the exact request bytes, concatenated in
+ * that order and no other. Where `enc` states the plain arm, or where the document is a version that names
+ * no arm at all, there is no key to fold and the value is `sha256(nce || req)`, byte for byte what this rule
+ * shipped before a key was folded into it. The parts come out of the signed payload rather than in beside
+ * it, so an auditor holding one receipt and the evidence that receipt names needs nothing else to recompute
+ * the binding that ties the key to the measurement.
+ *
+ * Mirrors the gateway's own mint rule (`gateway/src/server.ts`), which folds a key only where the deployment
+ * holds one, so it states the plain arm today. Recomputing the value here rather than trusting one off the
+ * wire is what makes the evidence unforgeable and non-replayable: only that instance, at that moment, could
+ * have quoted it. The nonce folded here is `nce`, the request's challenge nonce; it is not the AES-256-GCM
+ * nonce the session arm's seal is opened with, and the two must never be conflated.
  */
-export function evidenceReportData(nonce: Uint8Array, requestHash: Uint8Array): Uint8Array {
-  const bound = new Uint8Array(nonce.length + requestHash.length);
+export function evidenceReportData(
+  nonce: Uint8Array,
+  requestHash: Uint8Array,
+  encryption?: Encryption,
+): Uint8Array {
+  const sessionKey = encryption === undefined || encryption.sch === 'none' ? null : encryption.pk;
+  const bound = new Uint8Array(nonce.length + requestHash.length + (sessionKey === null ? 0 : sessionKey.length));
   bound.set(nonce, 0);
-  bound.set(requestHash, nonce.length);
+  if (sessionKey === null) {
+    bound.set(requestHash, nonce.length);
+  } else {
+    bound.set(sessionKey, nonce.length);
+    bound.set(requestHash, nonce.length + sessionKey.length);
+  }
   return sha256(bound);
 }
 
@@ -131,7 +158,8 @@ function asAttestationFailure(err: unknown): SdkError {
  *
  * Four independent facts have to line up: the bytes served hash to the `att.d`
  * the gateway signed into the receipt, the quote's report data is the digest of
- * this nonce and request, the platform signature chains to a pinned vendor root,
+ * this nonce, this document's session key where it names one, and this request,
+ * the platform signature chains to a pinned vendor root,
  * and the measurement the hardware reports equals the one the receipt claims.
  * The last of these is what stops a valid quote from an unrelated CVM from
  * satisfying a receipt for a deployment the client pinned.

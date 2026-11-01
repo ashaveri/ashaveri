@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "description": "The attestation challenge a receipt states, published as the bytes it hashes and the digest they give. Where a receipt's `enc` names a session arm, the value a platform quote must be bound to is sha256(nce || pk || req): the request nonce, the session public key the signed payload itself carries, and the digest of the exact request bytes, concatenated in that order and no other. Where `enc` states the plain arm, or the document is a version that names no arm, there is no key to fold and the value is sha256(nce || req), unchanged from what shipped. The arm the document states selects the rule, so no member names a ceremony and no new label exists for this: the registry and the member lists are untouched. Every triple is read out of a receipt this package publishes and signs, the pre-image is published as bytes because part order is a wire fact a sentence cannot pin, and each expected digest was computed twice before it was written: once by the shipped client derivation and once by concatenation here. `refusals` are the near readings: the other arm's rule over one of these documents, a key folded where the arm names none, and the same members in another order, each with the code the receipt-linked path owes it. What this suite does NOT pin is the platform's seal: no quote captured in this repository carries a composite, because a captured report data is fixed by the signature over it, so these rows pin the arithmetic and the owed second capture is stated in `layout.owedPlatformCapture` and in `docs/vectors.md` rather than left implied.",
+  "layout": {
+    "format": "one challenge rule, two arms, stated as pre-image bytes and the digest they hash to",
+    "twin": "the receipts this suite reads its triples out of are published and signed by generate.ts in data/manifest.json and data/receipts/",
+    "reader": "evidenceReportData in @ashaveri/sdk is the shipped derivation, and the pre-image published beside each digest is what an implementation with none of our code has to concatenate",
+    "arms": [
+      "none",
+      "x25519-aes-256-gcm-v1"
+    ],
+    "partOrder": "the session arm is nce, then enc.pk, then req, and the plain arm is nce then req; the `parts` column states the order and the `preImageBase64Url` bytes are laid out in it, so a reader checks the order against the bytes rather than against its assumption",
+    "challengeNonceIsNotTheSealNonce": "nce is the request's challenge nonce, the value the platform is asked to quote; the AES-256-GCM nonce the session arm seals each leg with is a different value, never folded into this digest and never interchangeable with it",
+    "encodings": "byte strings unpadded base64url, digests lowercase hex, lengths in bytes",
+    "owedPlatformCapture": "A vector over a real platform quote whose report data carries a composite is owed to a capture. The Intel-signed quote under attest-core/test/fixtures has its REPORT_DATA fixed by Intel's own signature, so no test in this repository can ask it to carry sha256(nce || pk || req); these rows pin the arithmetic and the refusals name the codes, and the platform leg of the rule is witnessed when a confidential-VM deployment captures a quote over a composite.",
+    "verdictFields": [
+      "arm",
+      "parts",
+      "nonceBase64Url",
+      "sessionKeyBase64Url",
+      "requestDigestHex",
+      "preImageBase64Url",
+      "preImageByteLength",
+      "digestHex",
+      "digestByteLength"
+    ],
+    "rowNamingFields": [
+      "name",
+      "note",
+      "document"
+    ]
+  },
+  "vectors": [
+    {
+      "name": "plain-arm",
+      "note": "The document whose `enc` states that both legs rode the wire in the clear. There is no key in it to fold, so the value a platform quote is bound to is `sha256(nce || req)` and it is byte for byte what this rule shipped before a key existed to fold: the plain arm is not a third reading, it is the old one, and a row that moved it would move every receipt served under it.",
+      "document": "manifest.json#receipt-enc-plain-v2",
+      "arm": "none",
+      "parts": [
+        "nce",
+        "req"
+      ],
+      "nonceBase64Url": "W2aHPT3Mn8lv2aFDQbwbLg",
+      "requestDigestHex": "ae8b759968f574a1c423445e00f4e73ee2aa0d4fcb889d79d6aed877fc6d9a79",
+      "preImageBase64Url": "W2aHPT3Mn8lv2aFDQbwbLq6LdZlo9XShxCNEXgD05z7iqg1Py4idedau2Hf8bZp5",
+      "preImageByteLength": 48,
+      "digestHex": "63f793c7b1e2ff8e7191e72dee54f59b60f70530857def6f3b2bb24283f90c8f",
+      "digestByteLength": 32
+    },
+    {
+      "name": "session-arm",
+      "note": "The document whose `enc` names a session key. The same `nce` and `req` as the plain row above, and one more part between them, so the two rows differ by the arm alone and a reader that folded a key where the document names none, or named one where the document folds it, produces the other row value and is refused. The key is a fixture value this corpus derives from its own seed and no party holds it: the row pins the arithmetic over the bytes a receipt states, not a secret behind them.",
+      "document": "manifest.json#receipt-enc-session-v2",
+      "arm": "x25519-aes-256-gcm-v1",
+      "parts": [
+        "nce",
+        "enc.pk",
+        "req"
+      ],
+      "nonceBase64Url": "W2aHPT3Mn8lv2aFDQbwbLg",
+      "sessionKeyBase64Url": "tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY",
+      "requestDigestHex": "ae8b759968f574a1c423445e00f4e73ee2aa0d4fcb889d79d6aed877fc6d9a79",
+      "preImageBase64Url": "W2aHPT3Mn8lv2aFDQbwbLrR-EQjWSa7OTDiCzshHGGA5v94tYWyflsQqtLeM5vsWrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnk",
+      "preImageByteLength": 80,
+      "digestHex": "700c3fa53a7f548b6f573ab2614a9109c9b5c8843ca0dff6e652debabcd8a218",
+      "digestByteLength": 32
+    }
+  ],
+  "refusals": [
+    {
+      "name": "session-arm-read-as-plain",
+      "note": "The session document above, weighed as though its arm named no key: the reader hashes `nce || req` and asks the route with that. The deployment minted its evidence for the composite, so the bytes handed back are not the document the receipt digests into `att.d`, and the refusal is the receipt speaking rather than the platform.",
+      "document": "manifest.json#receipt-enc-session-v2",
+      "wrongReading": "sha256(nce || req) over a document whose `enc` names a key",
+      "presentedPreImageBase64Url": "W2aHPT3Mn8lv2aFDQbwbLq6LdZlo9XShxCNEXgD05z7iqg1Py4idedau2Hf8bZp5",
+      "presentedDigestHex": "63f793c7b1e2ff8e7191e72dee54f59b60f70530857def6f3b2bb24283f90c8f",
+      "statedDigestHex": "700c3fa53a7f548b6f573ab2614a9109c9b5c8843ca0dff6e652debabcd8a218",
+      "code": "EVIDENCE_DIGEST_MISMATCH",
+      "notCode": "EVIDENCE_NOT_FOUND"
+    },
+    {
+      "name": "plain-arm-folded-a-key",
+      "note": "The plain document above, weighed as though its arm named a key, with the attestation digest `att.d` put where the key would go because the reader wanted three parts and the payload offers one beside the nonce. Nothing about this is a well-formed reading of the format: the arm states that no key was exchanged, so there is no part to insert, and a reader that inserted something anyway asks for an evidence document no receipt of this deployment commits to.",
+      "document": "manifest.json#receipt-enc-plain-v2",
+      "wrongReading": "sha256(nce || att.d || req) over a document whose `enc` states `none`",
+      "presentedPreImageBase64Url": "W2aHPT3Mn8lv2aFDQbwbLkyM3PHw_wcisAKtydgyPNMUtQ9XoBw94wKxs6G2ZKnbrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnk",
+      "presentedDigestHex": "c1bfcd1f57ec639dfb9cb6c8c77143a6d2f4c1a0bdc46159d735b79e927fa595",
+      "statedDigestHex": "63f793c7b1e2ff8e7191e72dee54f59b60f70530857def6f3b2bb24283f90c8f",
+      "code": "EVIDENCE_DIGEST_MISMATCH",
+      "notCode": "EVIDENCE_NOT_FOUND"
+    },
+    {
+      "name": "parts-in-another-order",
+      "note": "The three members of the session triple, right and concatenated request-last instead of request-middle: `sha256(nce || req || pk)`. This row exists because the members and the widths are identical to the accepted reading and only their order differs, which is exactly the disagreement a signature cannot see and a vector can: a quote whose field carries this value binds nothing a client on the stated order asked it to bind.",
+      "document": "manifest.json#receipt-enc-session-v2",
+      "wrongReading": "sha256(nce || req || pk), the stated members in another order",
+      "presentedPreImageBase64Url": "W2aHPT3Mn8lv2aFDQbwbLq6LdZlo9XShxCNEXgD05z7iqg1Py4idedau2Hf8bZp5tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY",
+      "presentedDigestHex": "307c2f94c42262d698b761baa8b280c3f87f5924c6cdb9399b5f303f5cc77a21",
+      "statedDigestHex": "700c3fa53a7f548b6f573ab2614a9109c9b5c8843ca0dff6e652debabcd8a218",
+      "code": "EVIDENCE_REPORT_DATA_MISMATCH",
+      "notCode": "EVIDENCE_NOT_FOUND"
+    }
+  ]
+}

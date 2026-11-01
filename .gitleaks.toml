@@ -170,3 +170,27 @@ regexes = [
 paths = [
   '''^packages/fixtures/data/import-v1\.json$''',
 ]
+
+# A seventh block, and like the sixth it exempts an identifier rather than a credential. The challenge family
+# publishes `sessionKeyBase64Url` so a reader can lay the pre-image out without this repository's code, and the
+# built-in generic-api-key rule reads that 43-character base64url run beside its name as a candidate. Nothing new
+# is disclosed: the value is `enc.pk` of the session-arm receipt this repository already publishes and signs at
+# `packages/fixtures/data/receipts/receipt-enc-session-v2.cbor`, and it was measured equal to those bytes through
+# the shipped `decodeReceipt` on the day this block was written. A reader handed that document already holds them.
+#
+# Measured on 8.30.1 against this branch's history: the scan reports 1 finding in this file with no block below,
+# and reports nothing with it. The narrowing checks ran on the same release against synthetic repositories carrying
+# this config: a different 43-character base64url value written at the same shape in a file at this path is still
+# reported, and the value below copied to another path is still reported, because the exemption is the intersection
+# of the two lines and not either one alone. The file is generated, and the job that regenerates it diffs
+# `packages/fixtures/data`, so a value pasted over its slot fails there as well.
+[[allowlists]]
+description = "The session public key the challenge family states, in the file that publishes it"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY$''',
+]
+paths = [
+  '''^packages/fixtures/data/challenge-v1\.json$''',
+]
