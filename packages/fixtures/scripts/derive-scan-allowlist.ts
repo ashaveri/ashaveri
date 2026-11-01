@@ -462,8 +462,8 @@ function report(derivations: readonly Derivation[], root: string): readonly Cand
     for (const each of one.unquoted) console.log(`  no block written: sha256 of ${each.witness}`);
     for (const each of one.refused) {
       console.error(
-        `  line ${String(each.line)} refused: the file states a value where the scan reads a candidate, and no bytes` +
-          ' this tree carries are the address of it',
+        `  ${one.file.path} line ${String(each.line)} refused: the file states a value where the scan reads a` +
+          ' candidate, and no bytes this tree carries are the address of it',
       );
       refused.push(each);
     }
