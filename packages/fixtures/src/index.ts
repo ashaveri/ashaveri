@@ -915,6 +915,8 @@ export interface ChallengeVector {
   nonceBase64Url: string;
   /** Present on the arm that names a key and absent on the one that states there is none. */
   sessionKeyBase64Url?: string;
+  /** `sha256` of the key above, the identifier the composite folds and a receipt header states as `kid`. */
+  keyIdentifierBase64Url?: string;
   requestDigestHex: string;
   preImageBase64Url: string;
   preImageByteLength: number;

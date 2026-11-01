@@ -616,7 +616,7 @@ evidence for other work.
 
 What the two documents jointly support is narrow, and worth stating exactly. A verified device
 report proves a genuine confidential-computing GPU signed the challenge this receipt's arm
-decides, `sha256(nce || req)` or `sha256(nce || enc.pk || req)`; the platform quote
+decides, `sha256(nce || req)` or `sha256(nce || enc.pk || keyId(enc.pk) || req)`; the platform quote
 proves a genuine attesting VM served that same value. Neither signature covers the other's
 bytes, and the NVIDIA report binds the device and its challenge but not the host it sits in, so
 nothing here proves the two are the same machine. Only TDISP/TEE-IO device binding closes that
@@ -775,10 +775,14 @@ steps are one receipt.
 10. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
    gateway for the attestation document whose report data equals the challenge this receipt
    states, which the document's own `enc` arm decides: `sha256(nce || req)` where the arm is
-   `none`, which is also every version 1 document, and `sha256(nce || enc.pk || req)` where the
-   arm names a session key. The key is read out of the payload the client has already verified,
-   so a reader never folds a key its document does not name and no member has to state which
-   ceremony ran. Both readings, and the refusals between them, are published as bytes in
+   `none`, which is also every version 1 document, and `sha256(nce || enc.pk || keyId(enc.pk) || req)`
+   where the arm names a session key. `keyId` is the `sha256` of that public key, the same 32 bytes
+   the document's protected header states as `kid` and a deployment manifest states as `epk`, so the
+   sealed digest names the key in the form a reader already holds. The key and its identifier are read
+   out of the payload the client has already verified, so a reader never folds a key its document does
+   not name and no member has to state which ceremony ran. The binding says the machine that sealed the
+   quote held that key at that moment; it does not say the key was generated inside that machine, and a
+   passing check establishes no more than that. Both readings, and the refusals between them, are published as bytes in
    `packages/fixtures/data/challenge-v1.json`. It is a value the client recomputes rather than reads off the wire,
    then requires that `sha256(document)` equals `att.d`, that the platform signature chains to a pinned
    vendor root, that the document's platform agrees with `meas.tee`, and that the launch

@@ -224,7 +224,7 @@ operator out of band.
 
 On every completion, strict mode repeats the laptop checks against the deployment itself: it
 derives the report data from the receipt's own `nce` and its own request digest, plus the session
-key the receipt's `enc` names where it names one, fetches
+key the receipt's `enc` names where it names one and that key's identifier `sha256(pk)`, fetches
 `GET /v1/attestation?report_data=<hex>`, requires the served bytes to hash to the `att.d` the
 gateway signed, chains the quote signature to a pinned vendor root (the Intel SGX root CA bundled
 with `@ashaveri/attest-core`, or your own through `policy.trustAnchors`), and requires the MRTD

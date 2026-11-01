@@ -164,7 +164,7 @@ serving side:
   overrides, and `--tee` refuses to start if the evidence contradicts the configured platform.
 - Every receipt points at evidence bound to that request: the value a quote has to carry is derived
   from the payload the issuance signs, `sha256(nce || req)` where that document names no session
-  arm and `sha256(nce || enc.pk || req)` where it names one, by the one function
+  arm and `sha256(nce || enc.pk || keyId(enc.pk) || req)` where it names one, by the one function
   `@ashaveri/attest-core` publishes and the reader calls on the same members; the gateway checks
   the served quote's report data against that value before it publishes the document, so a quote
   captured for another request is rejected.

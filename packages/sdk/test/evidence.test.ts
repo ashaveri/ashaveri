@@ -168,20 +168,31 @@ describe('evidenceReportData', () => {
     expect(toHex(evidenceReportData(nonce, requestHash, undefined))).toBe(shipped);
   });
 
-  it('folds the session key the arm names between the nonce and the request', () => {
+  it('folds the session key and its identifier between the nonce and the request', () => {
     const nonce = new Uint8Array(16).fill(7);
     const requestHash = sha256(utf8('body'));
     const key = new Uint8Array(32).fill(11);
     const enc = { sch: 'x25519-aes-256-gcm-v1', pk: key } as const;
     expect(toHex(evidenceReportData(nonce, requestHash, enc))).toBe(
-      toHex(sha256(new Uint8Array([...nonce, ...key, ...requestHash]))),
+      toHex(sha256(new Uint8Array([...nonce, ...key, ...sha256(key), ...requestHash]))),
     );
-    // The three parts are one pre-image and the order is a wire fact: the same members concatenated in
-    // another order, or without the key, are three different values and only one of them is the rule.
+    // The four parts are one pre-image and the order is a wire fact: the same members in another order,
+    // the point without its identifier, and the identifier without the point are each a different value,
+    // and only one of them is the rule this file publishes a vector for.
+    const identifier = sha256(key);
     expect(toHex(evidenceReportData(nonce, requestHash, enc))).not.toBe(
       toHex(sha256(new Uint8Array([...nonce, ...requestHash, ...key]))),
     );
     expect(toHex(evidenceReportData(nonce, requestHash, enc))).not.toBe(toHex(evidenceReportData(nonce, requestHash)));
+    expect(toHex(evidenceReportData(nonce, requestHash, enc))).toBe(
+      toHex(sha256(new Uint8Array([...nonce, ...key, ...identifier, ...requestHash]))),
+    );
+    expect(toHex(evidenceReportData(nonce, requestHash, enc))).not.toBe(
+      toHex(sha256(new Uint8Array([...nonce, ...key, ...requestHash]))),
+    );
+    expect(toHex(evidenceReportData(nonce, requestHash, enc))).not.toBe(
+      toHex(sha256(new Uint8Array([...nonce, ...identifier, ...requestHash]))),
+    );
   });
 });
 

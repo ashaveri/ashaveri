@@ -359,7 +359,10 @@ function challengeColumn(payload: ReceiptPayloadV2): {
   digestHex: string;
 } {
   const sessionKey = payload.enc.sch === 'none' ? null : payload.enc.pk;
-  const parts = sessionKey === null ? [payload.nce, payload.req] : [payload.nce, sessionKey, payload.req];
+  const parts =
+    sessionKey === null
+      ? [payload.nce, payload.req]
+      : [payload.nce, sessionKey, sha256(sessionKey), payload.req];
   let preImage = new Uint8Array(0);
   for (const part of parts) {
     const joined = new Uint8Array(preImage.length + part.length);
@@ -368,8 +371,8 @@ function challengeColumn(payload: ReceiptPayloadV2): {
     preImage = joined;
   }
   return {
-    rule: sessionKey === null ? 'sha256(nce || req)' : 'sha256(nce || pk || req)',
-    parts: sessionKey === null ? ['nce', 'req'] : ['nce', 'enc.pk', 'req'],
+    rule: sessionKey === null ? 'sha256(nce || req)' : 'sha256(nce || pk || keyId(pk) || req)',
+    parts: sessionKey === null ? ['nce', 'req'] : ['nce', 'enc.pk', 'keyId(enc.pk)', 'req'],
     preImageBase64Url: toBase64Url(preImage),
     digestHex: toHex(sha256(preImage)),
   };
@@ -1085,7 +1088,7 @@ function main(): void {
             cva: 'The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.',
             enc: 'The arm of `enc` the payload carries: the label that decides which member list stands behind the map, and the key spelled in unpadded base64url only on the arm that names one. A row states this column exactly where its bytes carry the member, which is every row at the newer version except the one published to state that the member is missing, and the row at the older number that carries it anyway. A refusal row states the arm its own bytes hold, label and all, so the answer these bytes get is checkable against what they carry rather than against what a reader would have written.',
             challenge:
-              'The attestation challenge this document states, as the document itself states it: which rule the `enc` arm selects, the parts it reads out of the signed payload in the order they are concatenated, the pre-image those bytes give, and the digest that pre-image hashes to. A receipt that names a session key binds that key to the measurement its own evidence quotes, because the value the platform was asked to attest is sha256(nce || pk || req) with all three parts read out of this document; a receipt that states the plain arm names no key and the value stays sha256(nce || req), which is what shipped before a key existed to fold. The column is stated on the rows whose arm decides a challenge and on no others, and `data/challenge-v1.json` publishes the same arithmetic beside the refusals a reader owes it: this file writes it out again rather than calling that suite, because two publications that share a helper cannot disagree, and a cross-check that cannot fail checks nothing.',
+              'The attestation challenge this document states, as the document itself states it: which rule the `enc` arm selects, the parts it reads out of the signed payload in the order they are concatenated, the pre-image those bytes give, and the digest that pre-image hashes to. A receipt that names a session key binds that key to the measurement its own evidence quotes, because the value the platform was asked to attest is sha256(nce || pk || keyId(pk) || req) with every part read out of this document, and keyId(pk) is the sha256 of that public key, the same 32 bytes the protected header states as kid and a deployment manifest states as epk; a receipt that states the plain arm names no key and the value stays sha256(nce || req), which is what shipped before a key existed to fold. What the identifier inside the digest establishes is that the machine which sealed the quote held that key at that moment, and it establishes no more than that: that the key was generated inside that machine is not a claim this value supports. The column is stated on the rows whose arm decides a challenge and on no others, and `data/challenge-v1.json` publishes the same arithmetic beside the refusals a reader owes it: this file writes it out again rather than calling that suite, because two publications that share a helper cannot disagree, and a cross-check that cannot fail checks nothing.',
             handover:
               'What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field\'s own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture\'s issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row\'s `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row\'s own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because every version the format declares requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.',
             stampSource:
