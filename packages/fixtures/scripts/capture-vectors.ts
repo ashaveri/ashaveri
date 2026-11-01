@@ -757,9 +757,9 @@ const REFUSALS: readonly Case[] = [
     code: 'UNSUPPORTED_VERSION',
   },
   {
-    name: 'receipt-version-two',
-    note: 'A record stating that the check read a receipt at version 2, which is a payload number the format retired. The bytes beside it frame a version 1 document, and the reader answers the version the record named rather than re-reading those bytes at a version no reader of this build opens.',
-    record: member(baseRecord(), 'check', 'receiptFormatVersion', 2),
+    name: 'receipt-version-three',
+    note: 'A record stating that the check read a receipt at version 3, which is a number this format declares no payload map for. The refusal is of a version the format does not parse, measured against the list this reader implements and never against the arithmetic: a reader answers the version the record named rather than re-reading those bytes at the nearest version inside the list, and the bytes beside this row frame a version 1 document. The number this row used to state is one the format defines and every reader of this build parses, so it is no longer a refusal this suite states.',
+    record: member(baseRecord(), 'check', 'receiptFormatVersion', 3),
     read: PINNED,
     stage: 'layout',
     code: 'UNSUPPORTED_VERSION',

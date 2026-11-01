@@ -5355,8 +5355,8 @@
       "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.policyVersion names version 2, and this reader implements 1 and does not read it as one of them"
     },
     {
-      "name": "receipt-version-two",
-      "note": "A record stating that the check read a receipt at version 2, which is a payload number the format retired. The bytes beside it frame a version 1 document, and the reader answers the version the record named rather than re-reading those bytes at a version no reader of this build opens.",
+      "name": "receipt-version-three",
+      "note": "A record stating that the check read a receipt at version 3, which is a number this format declares no payload map for. The refusal is of a version the format does not parse, measured against the list this reader implements and never against the arithmetic: a reader answers the version the record named rather than re-reading those bytes at the nearest version inside the list, and the bytes beside this row frame a version 1 document. The number this row used to state is one the format defines and every reader of this build parses, so it is no longer a refusal this suite states.",
       "record": {
         "v": 1,
         "original": {
@@ -5383,7 +5383,7 @@
         "check": {
           "policyVersion": 1,
           "policyDigest": "d22930c994e3f68527029d1ca01d044ec5f6929dc96c947d8442b37f0f90b5a4",
-          "receiptFormatVersion": 2,
+          "receiptFormatVersion": 3,
           "verifierVersion": "0.1.0",
           "appraisedAt": 1772000040
         },
@@ -5445,7 +5445,7 @@
       },
       "stage": "layout",
       "code": "UNSUPPORTED_VERSION",
-      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.receiptFormatVersion names version 2, and this reader implements 1 and does not read it as one of them"
+      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.receiptFormatVersion names version 3, and this reader implements 1 and does not read it as one of them"
     },
     {
       "name": "claiming-a-served-signature-and-carrying-none",
