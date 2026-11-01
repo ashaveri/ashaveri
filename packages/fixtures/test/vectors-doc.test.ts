@@ -110,11 +110,12 @@ function publishedSuites(): string[] {
 
 /**
  * The verdict and code of every row one suite states a verdict on, read out of the file rather than
- * from the prose. Each shape is written out because the twelve suites do not agree on where a verdict
- * lives: five keep the refusing cases in an array beside the accepted ones and name a code on each row,
- * and seven give every case one word that is either the accepted verdict or the code of the refusal. A
+ * from the prose. Each shape is written out because the suites do not agree on where a verdict lives:
+ * some keep the refusing cases in an array beside the accepted ones and name a code on each row, and
+ * others give every case one word that is either the accepted verdict or the code of the refusal. A
  * suite whose file gains a shape no one recognized has to be named here, which is what stops this
- * reading an empty list as a suite with no refusals.
+ * reading an empty list as a suite with no refusals. The cases are counted by the switch and not here,
+ * because nothing reads a number written in a comment and this file already refuses one that is stale.
  */
 function verdictsOf(basename: string): { verdict: string; code: string | null }[] {
   const found = resolve(`packages/fixtures/data/${basename}`) ?? resolve(`data/${basename}`);
@@ -141,6 +142,7 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
     case 'pop-v1.json':
     case 'req-v1.json':
     case 'res-v1.json':
+    case 'challenge-v1.json':
     case 'chain-v1.json':
     case 'capture-v1.json':
     case 'import-v1.json':

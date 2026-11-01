@@ -615,7 +615,8 @@ receipt's own challenge, which it recomputes, so the gateway never gets to point
 evidence for other work.
 
 What the two documents jointly support is narrow, and worth stating exactly. A verified device
-report proves a genuine confidential-computing GPU signed `sha256(nce, req)`; the platform quote
+report proves a genuine confidential-computing GPU signed the challenge this receipt's arm
+decides, `sha256(nce || req)` or `sha256(nce || enc.pk || req)`; the platform quote
 proves a genuine attesting VM served that same value. Neither signature covers the other's
 bytes, and the NVIDIA report binds the device and its challenge but not the host it sits in, so
 nothing here proves the two are the same machine. Only TDISP/TEE-IO device binding closes that
@@ -772,9 +773,14 @@ steps are one receipt.
 9. **Check policy pins.** Issuer, instance, and measurement must each be pinned by the
    policy when the client pins that dimension.
 10. **Verify the evidence the receipt commits to.** Strict mode only. The client asks the
-   gateway for the attestation document whose report data equals
-   `sha256(nce, req)`, a value it recomputes rather than reads off the wire, then requires
-   that `sha256(document)` equals `att.d`, that the platform signature chains to a pinned
+   gateway for the attestation document whose report data equals the challenge this receipt
+   states, which the document's own `enc` arm decides: `sha256(nce || req)` where the arm is
+   `none`, which is also every version 1 document, and `sha256(nce || enc.pk || req)` where the
+   arm names a session key. The key is read out of the payload the client has already verified,
+   so a reader never folds a key its document does not name and no member has to state which
+   ceremony ran. Both readings, and the refusals between them, are published as bytes in
+   `packages/fixtures/data/challenge-v1.json`. It is a value the client recomputes rather than reads off the wire,
+   then requires that `sha256(document)` equals `att.d`, that the platform signature chains to a pinned
    vendor root, that the document's platform agrees with `meas.tee`, and that the launch
    digest the hardware reports equals `meas.m`. A `tee` of `"software"` claims no hardware,
    so strict mode refuses it before the fetch. This is the receipt's only cross-protocol
@@ -783,8 +789,8 @@ steps are one receipt.
    `"snp+gpucc"` or `"tdx+gpucc"` the client additionally fetches the device document from
    the route in section 4.6, using the same challenge it just recomputed, and requires at
    least one NVIDIA SPDM measurement report whose signature verifies under a chain anchored at
-   a pinned NVIDIA device root and whose signed challenge equals that same
-   `sha256(nce, req)`. The shared challenge is the only link between the two documents:
+   a pinned NVIDIA device root and whose signed challenge equals that same value the arm decided.
+   The shared challenge is the only link between the two documents:
    neither vendor's signature covers the other's bytes, so a client holding no device
    report has not verified the accelerator half of the label and must reject it.
 

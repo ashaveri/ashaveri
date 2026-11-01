@@ -596,6 +596,15 @@
       "enc": {
         "sch": "none"
       },
+      "challenge": {
+        "rule": "sha256(nce || req)",
+        "parts": [
+          "nce",
+          "req"
+        ],
+        "preImageBase64Url": "W2aHPT3Mn8lv2aFDQbwbLq6LdZlo9XShxCNEXgD05z7iqg1Py4idedau2Hf8bZp5",
+        "digestHex": "63f793c7b1e2ff8e7191e72dee54f59b60f70530857def6f3b2bb24283f90c8f"
+      },
       "handover": [
         {
           "minAnchorSlotsHeld": null,
@@ -663,6 +672,16 @@
       "enc": {
         "sch": "x25519-aes-256-gcm-v1",
         "pkBase64Url": "tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY"
+      },
+      "challenge": {
+        "rule": "sha256(nce || pk || req)",
+        "parts": [
+          "nce",
+          "enc.pk",
+          "req"
+        ],
+        "preImageBase64Url": "W2aHPT3Mn8lv2aFDQbwbLrR-EQjWSa7OTDiCzshHGGA5v94tYWyflsQqtLeM5vsWrot1mWj1dKHEI0ReAPTnPuKqDU_LiJ151q7Yd_xtmnk",
+        "digestHex": "700c3fa53a7f548b6f573ab2614a9109c9b5c8843ca0dff6e652debabcd8a218"
       },
       "handover": [
         {
@@ -1875,6 +1894,7 @@
       "sd": "The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source's statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.",
       "cva": "The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.",
       "enc": "The arm of `enc` the payload carries: the label that decides which member list stands behind the map, and the key spelled in unpadded base64url only on the arm that names one. A row states this column exactly where its bytes carry the member, which is every row at the newer version except the one published to state that the member is missing, and the row at the older number that carries it anyway. A refusal row states the arm its own bytes hold, label and all, so the answer these bytes get is checkable against what they carry rather than against what a reader would have written.",
+      "challenge": "The attestation challenge this document states, as the document itself states it: which rule the `enc` arm selects, the parts it reads out of the signed payload in the order they are concatenated, the pre-image those bytes give, and the digest that pre-image hashes to. A receipt that names a session key binds that key to the measurement its own evidence quotes, because the value the platform was asked to attest is sha256(nce || pk || req) with all three parts read out of this document; a receipt that states the plain arm names no key and the value stays sha256(nce || req), which is what shipped before a key existed to fold. The column is stated on the rows whose arm decides a challenge and on no others, and `data/challenge-v1.json` publishes the same arithmetic beside the refusals a reader owes it: this file writes it out again rather than calling that suite, because two publications that share a helper cannot disagree, and a cross-check that cannot fail checks nothing.",
       "handover": "What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field's own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture's issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row's `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row's own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because every version the format declares requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.",
       "stampSource": "What the shipped client path answers for this document under each posture `maxTimeUncertaintySeconds` can take, three entries in the order `null`, `0`, `1`: the policy that names no demand, the tightest demand a policy can state, and a demand of one second. The figures are the ones the two disclosures this suite publishes part on: the measured rows declare `unc` `1`, so the demand of `1` meets them at the boundary and the demand of `0` refuses them for stating a number wider than nothing, while the row declaring that nobody measured is refused at both, which is the pair a reader that flattened the null into a zero, or read the absence as a bound of nothing, could never tell apart. Like the `handover` readings each entry names the policy field, states the verdict, and is read off `verifyCompletionReceipt` with nothing but the document, that issuer pinned and the clock at the instant the document names; the demand is weighed against the payload's own `sd`, which is the only place a reader of a finished receipt can reach it from, and the `null` entry repeats the row's `expected` for the same promised reason. A row states this column on the same roster as `handover`, because both are answers the client path reaches over accepted bytes.",
       "fault": "On a refusal row, the position the shipped reader names in the answer these bytes get, and what the row states about it. Where the reader quotes a member back, the row states the name as `member`. The position is what makes the row about one member rather than about the document as a whole."

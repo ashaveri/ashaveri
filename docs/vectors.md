@@ -41,12 +41,13 @@ each shape.
 | Capture record | `packages/fixtures/data/capture-v1.json` | Whole capture records and the answer the two published capture entry points give each one: one evidence document's exact original bytes held as they arrived beside the context stated with them, a signature re-framed by a second encoder refused as bytes rather than accepted as an equivalent, a context member left unmentioned refused rather than read as an absence, and a digest that is not the digest of the bytes beside it | `version: 1` |
 | Import envelope | `packages/fixtures/data/import-v1.json` | Whole envelopes and the answer the published reader gives each one: one synthetic provider export's exact bytes held as they arrived beside the derived representation the shipped normalization produced from them with its label, its transformation and the basis it rests on, the deterministic report of every position the rules do not read and every position they read that the export states nothing at, a second intake of one export keyed to the same record as the first, and the refusals in between | `version: 1` |
 | Retention assessment | `packages/fixtures/data/retention-assessment-v1.json` | Whole assessment documents and the outcome the published reading computes for each one: the declared scope with a head an independent party pinned and a customer-held checkpoint schedule, the observed intake runs and acknowledgments, the checkpoint receipts, the observed head, explicit gaps, duplicates, rollbacks and suffix loss, and the three outcomes a reader replays, including a span-only input the old span rule would have called met and a covered period that genuinely reaches met | `version: 1` |
+| Challenge binding | `packages/fixtures/data/challenge-v1.json` | The pre-image each `enc` arm of a version 2 receipt builds and the digest it hashes to, both read out of the two receipts the manifest publishes: the plain arm folding `nce` and `req` into 48 bytes, the session arm folding `enc.pk` between them into 80, and three refusals beside them, the session document weighed as though its arm named no key, the plain document weighed with the attestation digest put where a key would go, and the same three members concatenated request-last. The order is published as bytes as well as named, because a second implementation can agree on every member and width and still fold them the other way round | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `chain-v1.json`, `export-v1.json`,
 `manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
-`import-v1.json` and `retention-assessment-v1.json` each carry a
+`import-v1.json`, `retention-assessment-v1.json` and `challenge-v1.json` each carry a
 `description` stating their rule in prose, and the digest, marked-region, chain, export,
-sealed-manifest, pack, redaction, inventory, capture, import and retention-assessment suites carry a `rule`
+sealed-manifest, pack, redaction, inventory, capture, import, retention-assessment and challenge suites carry a `rule`
 or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
 array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
@@ -352,8 +353,8 @@ specific to that case.
 
 ## Every suite refuses something
 
-Each of the fourteen suites the table above lists carries at least one case whose stated verdict is a refusal,
-and every code those cases name is one [error-codes.md](error-codes.md) lists. The fourteen are that table's
+Each of the fifteen suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The fifteen are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
 a refused one, drawn from the same

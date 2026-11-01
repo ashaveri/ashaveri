@@ -343,6 +343,38 @@ function payloadForV2(
   return { ...payloadFor(shape, over), v: 2, enc: over.enc ?? { sch: 'none' } };
 }
 
+/**
+ * The challenge a version 2 document states, as the row that publishes the document states it.
+ *
+ * `data/challenge-v1.json` is the family that pins this arithmetic for every reader; this column is the same
+ * fact at the row it belongs to, so the two published files cross-check rather than each carrying its own
+ * copy of the rule's answer. The pre-image is laid out here again, in this file, rather than imported from
+ * that suite: a column that called the same helper the vector file calls could not disagree with it, and a
+ * column that cannot disagree proves nothing.
+ */
+function challengeColumn(payload: ReceiptPayloadV2): {
+  rule: string;
+  parts: string[];
+  preImageBase64Url: string;
+  digestHex: string;
+} {
+  const sessionKey = payload.enc.sch === 'none' ? null : payload.enc.pk;
+  const parts = sessionKey === null ? [payload.nce, payload.req] : [payload.nce, sessionKey, payload.req];
+  let preImage = new Uint8Array(0);
+  for (const part of parts) {
+    const joined = new Uint8Array(preImage.length + part.length);
+    joined.set(preImage, 0);
+    joined.set(part, preImage.length);
+    preImage = joined;
+  }
+  return {
+    rule: sessionKey === null ? 'sha256(nce || req)' : 'sha256(nce || pk || req)',
+    parts: sessionKey === null ? ['nce', 'req'] : ['nce', 'enc.pk', 'req'],
+    preImageBase64Url: toBase64Url(preImage),
+    digestHex: toHex(sha256(preImage)),
+  };
+}
+
 /** The columns a row states about the document it publishes. */
 interface RowColumns {
   [key: string]: unknown;
@@ -358,6 +390,7 @@ interface RowColumns {
   readonly sd?: { name: string; unc?: number | null };
   readonly cva?: { col: { p: string; d?: string; r?: string }; val: { p: string; d?: string; r?: string } };
   readonly enc?: { sch: string; pkBase64Url?: string };
+  readonly challenge?: { rule: string; parts: string[]; preImageBase64Url: string; digestHex: string };
   readonly handover?: Array<{ minAnchorSlotsHeld: number | null; verdict: string }>;
   readonly stampSource?: Array<{ maxTimeUncertaintySeconds: number | null; verdict: string }>;
   readonly fault?: { at: string; member?: string; states: string };
@@ -590,6 +623,25 @@ function main(): void {
   const markedSentinelStamps = itemStamps(markedSentinel);
 
   /** The acceptances, each over a response this package already publishes. */
+  /**
+   * The two documents whose `enc` arm decides a challenge, each built once.
+   *
+   * Both the issued bytes and the published `challenge` column come off one payload, so the row cannot state
+   * an arithmetic that its own document contradicts, and neither of them comes off the vector suite that
+   * publishes the same rule, which is what makes the two published files a cross-check rather than a copy.
+   */
+  const encPlainPayload = payloadForV2(markedStream, {
+    sd: MEASURED_SOURCE,
+    cva: ANCHOR_HELD_BOTH,
+    itm: markedStreamStamps,
+  });
+  const encSessionPayload = payloadForV2(body, {
+    sd: MEASURED_SOURCE,
+    cva: ANCHOR_HELD_AND_ABSENT,
+    itm: bodyStamps,
+    enc: { sch: 'x25519-aes-256-gcm-v1', pk: labeled(SESSION_KEY_SEED) },
+  });
+
   const accepted: Array<{ row: Omit<PublishedRow, 'bytes' | 'twin'>; payload: ReceiptPayload }> = [
     {
       row: {
@@ -704,11 +756,12 @@ function main(): void {
             stamps: markedStreamStamps,
             enc: { sch: 'none' },
           }),
+          challenge: challengeColumn(encPlainPayload),
           handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
           stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
-      payload: payloadForV2(markedStream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: markedStreamStamps }),
+      payload: encPlainPayload,
     },
     {
       row: {
@@ -723,16 +776,12 @@ function main(): void {
             stamps: bodyStamps,
             enc: { sch: 'x25519-aes-256-gcm-v1', pk: labeled(SESSION_KEY_SEED) },
           }),
+          challenge: challengeColumn(encSessionPayload),
           handover: handoverFor(['verify-ok', 'verify-ok', 'ANCHOR_SLOT_NOT_HELD']),
           stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
         },
       },
-      payload: payloadForV2(body, {
-        sd: MEASURED_SOURCE,
-        cva: ANCHOR_HELD_AND_ABSENT,
-        itm: bodyStamps,
-        enc: { sch: 'x25519-aes-256-gcm-v1', pk: labeled(SESSION_KEY_SEED) },
-      }),
+      payload: encSessionPayload,
     },
   ];
 
@@ -1035,6 +1084,8 @@ function main(): void {
             sd: 'The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source\'s statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.',
             cva: 'The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.',
             enc: 'The arm of `enc` the payload carries: the label that decides which member list stands behind the map, and the key spelled in unpadded base64url only on the arm that names one. A row states this column exactly where its bytes carry the member, which is every row at the newer version except the one published to state that the member is missing, and the row at the older number that carries it anyway. A refusal row states the arm its own bytes hold, label and all, so the answer these bytes get is checkable against what they carry rather than against what a reader would have written.',
+            challenge:
+              'The attestation challenge this document states, as the document itself states it: which rule the `enc` arm selects, the parts it reads out of the signed payload in the order they are concatenated, the pre-image those bytes give, and the digest that pre-image hashes to. A receipt that names a session key binds that key to the measurement its own evidence quotes, because the value the platform was asked to attest is sha256(nce || pk || req) with all three parts read out of this document; a receipt that states the plain arm names no key and the value stays sha256(nce || req), which is what shipped before a key existed to fold. The column is stated on the rows whose arm decides a challenge and on no others, and `data/challenge-v1.json` publishes the same arithmetic beside the refusals a reader owes it: this file writes it out again rather than calling that suite, because two publications that share a helper cannot disagree, and a cross-check that cannot fail checks nothing.',
             handover:
               'What the shipped client path answers for this document under each posture `minAnchorSlotsHeld` can take, three entries in the order `null`, `1`, `2`: the policy that names no demand, a demand of one held slot, a demand of both. Each entry is that policy field\'s own name beside the number an operator would write and the verdict the client gives the bytes under it, read off `verifyCompletionReceipt` with the fixture\'s issuer pinned, the clock at the instant the document names, and nothing else named, so the only thing the three readings differ in is the demand. The `null` entry repeats the row\'s `expected` rather than claiming a second answer, because what the field promises is that a demand nobody stated moves no verdict. A row states this column where this file publishes the row\'s own per-member columns: a refusal row states none because the format reader answers it before a policy is weighed at all, and the entries this suite began with state none because they carry no per-member column at all. Every document a reader accepts states an anchor with both of its halves, because every version the format declares requires the anchor, so the client reaches two slots on every accepted row. Whether a slot stating `held` still resolves is not this column and not this suite: it is answered outside the document.',
             stampSource:

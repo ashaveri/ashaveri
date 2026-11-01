@@ -899,6 +899,67 @@ export function loadRetentionAssessmentVectors(): RetentionAssessmentVectorFile 
 }
 
 /**
+ * One accepted challenge row: the triple a published receipt states, the pre-image the rule builds from it,
+ * and the digest that pre-image hashes to.
+ *
+ * The parts are published as bytes as well as by name, because the order is the fact a port has to get right
+ * and a sentence about an order is not checkable against an implementation that read it differently.
+ */
+export interface ChallengeVector {
+  name: string;
+  note: string;
+  /** The published receipt row the triple is read out of, as `<file>#<row>`. */
+  document: string;
+  arm: string;
+  parts: string[];
+  nonceBase64Url: string;
+  /** Present on the arm that names a key and absent on the one that states there is none. */
+  sessionKeyBase64Url?: string;
+  requestDigestHex: string;
+  preImageBase64Url: string;
+  preImageByteLength: number;
+  digestHex: string;
+  digestByteLength: number;
+}
+
+/** One wrong reading of the same document, the digest it presents, and the code the client path owes it. */
+export interface ChallengeRefusal {
+  name: string;
+  note: string;
+  document: string;
+  wrongReading: string;
+  presentedPreImageBase64Url: string;
+  presentedDigestHex: string;
+  statedDigestHex: string;
+  code: string;
+  notCode: string;
+}
+
+export interface ChallengeVectorFile {
+  version: number;
+  description: string;
+  layout: {
+    format: string;
+    twin: string;
+    reader: string;
+    arms: string[];
+    partOrder: string;
+    challengeNonceIsNotTheSealNonce: string;
+    owedPlatformCapture: string;
+    encodings: string;
+    verdictFields: string[];
+    rowNamingFields: string[];
+  };
+  vectors: ChallengeVector[];
+  refusals: ChallengeRefusal[];
+}
+
+/** The attestation challenge a receipt states, published as pre-image bytes and the digest they give. */
+export function loadChallengeVectors(): ChallengeVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'challenge-v1.json'), 'utf8')) as ChallengeVectorFile;
+}
+
+/**
  * The estate's synthetic vendor: the certificates, the signed documents and the served answer its suites build
  * rather than capture. It is exported from this entry rather than left inside one package's test directory,
  * because the collateral cases, this package's own pack generator and the CLI's offline proof each reach it from

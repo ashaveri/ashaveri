@@ -34,6 +34,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
     "generate": "node scripts/generate.ts",
+    "generate:challenge": "node scripts/challenge-vectors.ts",
     "generate:pop": "node scripts/pop-vectors.ts",
     "generate:req": "node scripts/req-vectors.ts",
     "generate:res": "node scripts/res-vectors.ts",
