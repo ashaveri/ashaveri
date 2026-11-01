@@ -11,7 +11,7 @@
     "byteRule": "every byte string inside a record is unpadded base64url in the one spelling this reader's own writer reproduces, and its digest and length are recomputed over what decodes: an original's at the layout's own edge, and every held slot's where the reading runs over them. Four rows state what that buys. An issuer-chain header in the other spelling that decodes to it is refused by the layout, and a detached signature written the same way is refused by the reading. A COSE_Sign1 whose four elements are untouched and whose framing a second encoder wrote is refused where the record still states the digest of the document the source produced, and those same bytes stated as their own original are refused by the format's verifier: a capture whose bytes passed through an encoder is a capture of that encoder's output.",
     "absenceRule": "every piece of context a record may hold states which of three things became of it: held, never produced by the source, or not taken in. The last two name a reason and carry no bytes, and both are statements; a context member that is simply not mentioned is refused, because a reader cannot tell a record that said nothing from one whose thing never existed. `absences` on an accepted row carries the slot, the state and the reason the record gave, and `not-taken-in` reaches `unassessed` where `absent-at-source` reaches `qualified`.",
     "collateralRule": "a held collateral slot states the eight facts about the answer its bytes are, and no other slot owes them. Eight rows state one of them missing and each refusal names which; two more state the chain's two halves apart from each other, one states a chain digest that is not the digest of the header beside it, and one states the header in a second spelling. A row states an identity of `null` as an acceptance and a row refuses an address of one byte more than a reference carries, which is the pair the bound is measured by.",
-    "originals": "the bytes every row states as its original are `data/receipts/receipt-valid-v1.cbor`: the receipt `issueReceipt` writes for the fixture payload under the key `data/keys/receipt-key-v1.json` publishes. Four rows name other bytes and say which: one states the deployment manifest as its original, one states that receipt with one bit changed inside it, and the pair beside it states one envelope of that receipt with its four elements untouched and its framing written by a second encoder. The generator stops unless the receipt this suite captures is byte for byte the document data/receipts publishes, so this file captures evidence the repository already seals rather than a stand-in for it, and the manifest a held slot carries is read by `parseManifest`, which the generator asks.",
+    "originals": "the bytes every row states as its original are `data/receipts/receipt-valid-v1.cbor`: the receipt `issueReceipt` writes for the fixture payload under the key `data/keys/receipt-key-v1.json` publishes. Five rows name other bytes and say which: one states the deployment manifest as its original, one states that receipt with one bit changed inside it, the pair beside it states one envelope of that receipt with its four elements untouched and its framing written by a second encoder, and `payload-version-two-original-repeated` states the version 2 receipt `data/receipts/receipt-enc-plain-v2.cbor` publishes with its `check.receiptFormatVersion` stating 2, which is the row that makes a version 2 claim checkable in this package rather than a claim nothing exercises. That row's bytes are read out of the published file rather than issued again, because a capture of a copy is a capture of the copy. The generator stops unless the receipt this suite captures is byte for byte the document data/receipts publishes, unless the version 2 row states its file byte for byte with the digest and length of exactly those bytes, unless the shipped reader takes those bytes at version 2 as the plain arm over the deployment and instance the record names, and unless the format's verifier runs the signature leg over them at the clock the row hands, so this file captures evidence the repository already seals rather than a stand-in for it, and the manifest a held slot carries is read by `parseManifest`, which the generator asks.",
     "keyMaterial": [
       {
         "id": "receipt-fixture-key",
@@ -173,6 +173,135 @@
       "absences": [],
       "qualifications": [],
       "recordKey": "2f7c4692a1d41d8250b097c3945bb92be214fed3b123601a177dd54f5f3d810d"
+    },
+    {
+      "name": "payload-version-two-original-repeated",
+      "note": "A record whose original bytes are the version 2 receipt `data/receipts/receipt-enc-plain-v2.cbor` publishes, read out of that file rather than issued again here, and whose `check.receiptFormatVersion` states 2: the first capture record of a payload version 2 document this estate hands a collector. The plain arm is the one captured and the session arm is not, and the reason is what this reader's own leg reaches. The leg repeats the signature over the stored bytes under the caller's pin, and the plain arm's one statement about transmission is `enc: { sch: \"none\" }`, which names no key and asks nothing outside the document. `receipt-enc-session-v2` carries `enc.pk`, and as `docs/receipt-spec.md` section 3.4 states of that arm, the receipt names the key and does not bind it: `att` states a digest, an instant and a route, and no member states what that evidence's report data carried, so the binding belongs to a second document and no shipped route serves it today. A capture row over that document would publish this suite's strongest word `repeated` beside a claim the capture reader is written to say nothing about, and a conformance set is not the place to blur which word covers what. When a shipped route binds a session key to a measurement, the row beside this one is what says the capture covers it. The issuer, the instance, the signing key, the manifest and every clock are the ones `exact-original-bytes-repeated` states, and the deployment and instance the captured document names are those same two, so what moves between the two records is the version the check read and the bytes it read it over, and the leg runs at the version the record states rather than at a reader's default.",
+      "record": {
+        "v": 1,
+        "original": {
+          "sourceKind": "receipt",
+          "sourceId": "cvm-i-047f2a",
+          "bytes": "0oRYOKMBJwNwYXNoYXZlcmkvcmVjZWlwdARYIDUBOm4AC41dylHEvVwdufKGAoNgbHau7uqO5ytyteFeoFkDUrJhdgJibWuiYWRYIFurgoUcQkorzzeawylQehaBu0beRK8C4ZcOaJcDtfHOY3NjaG1wcm92ZW5hbmNlLXYxYnNkomN1bmMBZG5hbWV4GnB0cC1kaXNjaXBsaW5lZCBob3N0IGNsb2NrY2F0dKNhZFggTIzc8fD_ByKwAq3J2DI80xS1D1egHD3jArGzobZkqdtidHMaaZ6SxGN1cmx4LWh0dHBzOi8vaW5mZXJlbmNlLmFzaGF2ZXJpLmNvbS92MS9hdHRlc3RhdGlvbmNjdmGiY2NvbKJhZFgghwHLPFuJmR1pOljsWSM0IvYnIAvjHI1WirQb3ocQyjRhcGRoZWxkY3ZhbKJhZFggD5ffypGHD04UL2vCdZRfxKyjohu94ZJN_BgQhuCwPvlhcGRoZWxkY2VuY6Fjc2NoZG5vbmVjZXBrAWNpYXQaaZ6TAGNpbnNsY3ZtLWktMDQ3ZjJhY2lzc2xkcGwtOWYyYTQxYzNjaXRthaJhZFggithVJDh_izPXHWyCW0CYln1YKkklWpzl05mk3PguNN5hdBppnpL7omFkWCArkY2IsjoeRgGpaYaHyUFAkW2NRFV0buQsMCnjMxly9GF0GmmekvyiYWRYILYxemO0oHn-KCNDtcoMCJKAy84RBCrNXwq9dttOpUjCYXQaaZ6S_aJhZFggY7N0mESAwfCttIe3U7nLOsK3MrtnSff2hyQ6775cHKJhdBppnpL-omFkWCANGbNaacjGzD5wdRDntG0Zrn3NvveXFZZGFddP3QqrK2F0Gmmekv9jbWRseCBtZXRhLWxsYW1hL0xsYW1hLTMuMS04Qi1JbnN0cnVjdGNuY2VQW2aHPT3Mn8lv2aFDQbwbLmNyZXFYIK6LdZlo9XShxCNEXgD05z7iqg1Py4idedau2Hf8bZp5Y3Jlc1ggO6ACk3uohZtq-i3iOIvjauEyFOreV_7jhac-OzuqRdFjdG9romFjGEBhcBiAY3d0c1ggJolXCuz1BUKEsG1gIlVPuXlCytCndNXbyTCLLQR32bVkbWVhc6JhbVgwvXZhNn6nwPoCcpW0laN9jERelYicCda3vrbtQFJxnjDxbwUHgn4tAElJtVLx5VHyY3RlZWlzbnArZ3B1Y2NYQCw08wTxzHvCTdKVI9_CE43fEGhTnoDchrBLUXoMODLvOvYIgD7gthBrbQRtFg-ewa1RhxSCKJbRAt3Ylo037AU",
+          "sha256": "dd4b5ac7e71c83834b5189ccbcf5cae7ba4a976e15d0aee21a285d498968dd6d",
+          "byteCount": 980,
+          "signedBySource": true,
+          "signatureEmbedded": true
+        },
+        "acquired": {
+          "at": 1772000030,
+          "sourceStatedAt": 1771999940
+        },
+        "manifests": {
+          "deployment": {
+            "presence": "held",
+            "bytes": "eyJ2IjoxLCJpc3MiOiJkcGwtOWYyYTQxYzMiLCJpbnMiOiJjdm0taS0wNDdmMmEiLCJlcGsiOjEsImtleXMiOlt7ImtpZCI6IjM1MDEzYTZlMDAwYjhkNWRjYTUxYzRiZDVjMWRiOWYyODYwMjgzNjA2Yzc2YWVlZWVhOGVlNzJiNzJiNWUxNWUiLCJhbGciOiJFZDI1NTE5IiwicHVibGljS2V5IjoiRTZ1TzBlZDNfem0tSXgzMmxMdThqNVo5VzNlZXQ4cTFXSFlzdFUtV0N3VSJ9XSwibW9kZWxzIjpbeyJpZCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4xLThCLUluc3RydWN0Iiwid3RzIjoiMjY4OTU3MGFlY2Y1MDU0Mjg0YjA2ZDYwMjI1NTRmYjk3OTQyY2FkMGE3NzRkNWRiYzkzMDhiMmQwNDc3ZDliNSJ9XSwibWVhcyI6eyJ0ZWUiOiJzbnArZ3B1Y2MiLCJtIjoiYmQ3NjYxMzY3ZWE3YzBmYTAyNzI5NWI0OTVhMzdkOGM0NDVlOTU4ODljMDlkNmI3YmViNmVkNDA1MjcxOWUzMGYxNmYwNTA3ODI3ZTJkMDA0OTQ5YjU1MmYxZTU1MWYyIn19",
+            "sha256": "db86f7bf71d02a7f035eccb6d9345b4b275ebb8a038dba80757af3f7b730a8e1",
+            "byteCount": 471
+          }
+        },
+        "check": {
+          "policyVersion": 1,
+          "policyDigest": "d22930c994e3f68527029d1ca01d044ec5f6929dc96c947d8442b37f0f90b5a4",
+          "receiptFormatVersion": 2,
+          "verifierVersion": "0.1.0",
+          "appraisedAt": 1772000040
+        },
+        "context": {
+          "collateral": {
+            "presence": "held",
+            "bytes": "dGhlIHZlbmRvciBjb2xsYXRlcmFsIGFuc3dlciB0aGVzZSB2ZWN0b3JzIGhvbGQ",
+            "sha256": "b5f382a3655f304e2160e4ac07016ecd388c9db474b1cb568ae2825b406f72b3",
+            "byteCount": 47,
+            "origin": "intel-tcb-info",
+            "request": "https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=00906f000200",
+            "identity": {
+              "cpuType": "00906f000200",
+              "vendorStatus": "UpToDate"
+            },
+            "observedAt": 1772000020,
+            "sourceUncertaintySeconds": 2,
+            "chainSha256": "31e2d7cc35b02ba95255398a1cd0c233eb87b491f4998f77da44834ad6e141df",
+            "chainBytes": "VENCLUluZm8tSXNzdWVyLUNoYWluOiAtLS0tLUJFR0lOIENFUlRJRklDQVRFLS0tLS0",
+            "weighedBy": "served",
+            "window": {
+              "from": 1735689600,
+              "to": 1798761600
+            },
+            "cacheKey": "origin=intel-tcb-info|platform=sgx|cpuType=00906f000200|level=tcb-date=2024-05-15T00:00:00Z"
+          },
+          "validity": {
+            "presence": "held",
+            "bytes": "dGhlIHZhbGlkaXR5IGNvbnRleHQgdGhlIGFwcHJhaXNhbCByZWNvcmRlZA",
+            "sha256": "9622a705f7de753071beca9f8609314b51e0aa6b6165f06e75ebc0f1bd6df258",
+            "byteCount": 43
+          }
+        },
+        "trust": {
+          "roots": [
+            {
+              "family": "intelSgxRoots",
+              "digest": "4f068cac6c6e0ffc30ac8c85645f457ccdc8ebc56d8ecffbc20fc557fd7f09c7"
+            }
+          ],
+          "limits": {
+            "maxReceiptAgeSeconds": 300,
+            "maxEvidenceAgeSeconds": 900
+          }
+        }
+      },
+      "read": {
+        "policy": {
+          "keys": {
+            "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU"
+          }
+        },
+        "anchors": {
+          "intelSgxRoots": [
+            "YSBwaW5uZWQgdmVuZG9yIHJvb3QgZm9yIHRoZXNlIHZlY3RvcnM"
+          ]
+        },
+        "atMillis": 1772000040000
+      },
+      "status": "repeated",
+      "stated": {
+        "sourceKind": "receipt",
+        "sourceId": "cvm-i-047f2a",
+        "acquiredAt": 1772000030,
+        "sourceStatedAt": 1771999940,
+        "sha256": "dd4b5ac7e71c83834b5189ccbcf5cae7ba4a976e15d0aee21a285d498968dd6d",
+        "byteCount": 980,
+        "assertsSignature": true,
+        "collateral": {
+          "origin": "intel-tcb-info",
+          "request": "https://api.trustedservices.intel.com/sgx/certification/v4/tcb?fmspc=00906f000200",
+          "identity": {
+            "cpuType": "00906f000200",
+            "vendorStatus": "UpToDate"
+          },
+          "observedAt": 1772000020,
+          "sourceUncertaintySeconds": 2,
+          "weighedBy": "served",
+          "window": {
+            "from": 1735689600,
+            "to": 1798761600
+          },
+          "cacheKey": "origin=intel-tcb-info|platform=sgx|cpuType=00906f000200|level=tcb-date=2024-05-15T00:00:00Z",
+          "chainBytes": "VENCLUluZm8tSXNzdWVyLUNoYWluOiAtLS0tLUJFR0lOIENFUlRJRklDQVRFLS0tLS0",
+          "chainSha256": "31e2d7cc35b02ba95255398a1cd0c233eb87b491f4998f77da44834ad6e141df"
+        }
+      },
+      "repeated": {
+        "sha256": "dd4b5ac7e71c83834b5189ccbcf5cae7ba4a976e15d0aee21a285d498968dd6d",
+        "signatureVerifiedWithOwnPins": true,
+        "signingKid": "35013a6e000b8d5dca51c4bd5c1db9f2860283606c76aeeeea8ee72b72b5e15e",
+        "rootsMatched": [
+          "intelSgxRoots"
+        ]
+      },
+      "absences": [],
+      "qualifications": [],
+      "recordKey": "103c20ca482c8c93c241071d084f92c09a4a46da38553612661a992bcfb19651"
     },
     {
       "name": "collateral-absent-at-source-qualified",
@@ -5355,8 +5484,8 @@
       "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.policyVersion names version 2, and this reader implements 1 and does not read it as one of them"
     },
     {
-      "name": "receipt-version-two",
-      "note": "A record stating that the check read a receipt at version 2, which is a payload number the format retired. The bytes beside it frame a version 1 document, and the reader answers the version the record named rather than re-reading those bytes at a version no reader of this build opens.",
+      "name": "receipt-version-three",
+      "note": "A record stating that the check read a receipt at version 3, which is a number this format declares no payload map for. The refusal is of a version the format does not parse, measured against the list this reader implements and never against the arithmetic: a reader answers the version the record named rather than re-reading those bytes at the nearest version inside the list, and the bytes beside this row frame a version 1 document. The number this row used to state is one the format defines and every reader of this build parses, so it is no longer a refusal this suite states.",
       "record": {
         "v": 1,
         "original": {
@@ -5383,7 +5512,7 @@
         "check": {
           "policyVersion": 1,
           "policyDigest": "d22930c994e3f68527029d1ca01d044ec5f6929dc96c947d8442b37f0f90b5a4",
-          "receiptFormatVersion": 2,
+          "receiptFormatVersion": 3,
           "verifierVersion": "0.1.0",
           "appraisedAt": 1772000040
         },
@@ -5445,7 +5574,7 @@
       },
       "stage": "layout",
       "code": "UNSUPPORTED_VERSION",
-      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.receiptFormatVersion names version 2, and this reader implements 1 and does not read it as one of them"
+      "message": "receipt payload declares a version this package cannot parse or is not configured to accept: check.receiptFormatVersion names version 3, and this reader implements 1, 2 and does not read it as one of them"
     },
     {
       "name": "claiming-a-served-signature-and-carrying-none",

@@ -7,6 +7,7 @@ import {
   SdkError,
   assessCapture,
   captureRecordKey,
+  decodeReceipt,
   fromBase64Url,
   parseCaptureRecord,
   toBase64Url,
@@ -328,7 +329,7 @@ describe('data/capture-v1.json', () => {
       'the honest row pins no key under the kid its own header names',
     ).toBe(toBase64Url(publicKey));
     // And the claim is not the honest row's alone: every published row states that document as its original unless
-    // it names the bytes it states instead, which is what the four below do and what the document counts. The count
+    // it names the bytes it states instead, which is what the five below do and what the document counts. The count
     // is taken back out of the sentence rather than kept here, so a row that quietly began to state other bytes
     // moves the document or fails this run, and a suite that gained an unremarked original fails it too.
     const statedBytes = (record: Record<string, unknown>): string => String(originalOf(record)['bytes']);
@@ -339,6 +340,7 @@ describe('data/capture-v1.json', () => {
     ).toEqual([
       'manifest-original-claiming-no-signature',
       'one-bit-changed-inside-the-original',
+      'payload-version-two-original-repeated',
       'reserialized-envelope-against-the-stated-digest',
       'reserialized-envelope-stated-as-its-own-original',
     ]);
@@ -346,6 +348,25 @@ describe('data/capture-v1.json', () => {
       countInBullet(/every row but ([0-9]+) are the document/u, 'the rows stating another original'),
       'the document counts a different number of rows stating another original than the rows do',
     ).toBe(apart.length);
+    // The one row that names a document other than the version 1 receipt names a real one: the version 2 receipt
+    // this package publishes, byte for byte, at the version the row states and under the same published key. A
+    // row that stated bytes this repository seals nowhere would make the suite's version 2 claim the thing it
+    // exists to prove, so the bytes are read out of the file and the format's own verifier is asked of them here.
+    const atTwo = acceptedNamed('payload-version-two-original-repeated');
+    const publishedV2 = new Uint8Array(readFileSync(join(DATA, 'receipts', 'receipt-enc-plain-v2.cbor')));
+    expect(
+      toHex(bytes(statedBytes(atTwo.record))),
+      'the version 2 row states bytes other than the document data/receipts publishes',
+    ).toBe(toHex(publishedV2));
+    expect(atTwo.record['check'], 'the version 2 row states a record that names no version 2').toMatchObject({
+      receiptFormatVersion: 2,
+    });
+    expect(decodeReceipt(publishedV2, { acceptedVersions: [2] }).payload.v).toBe(2);
+    expect(() =>
+      verifyReceipt(publishedV2, { publicKey, acceptedVersions: [2], nowSeconds: Math.floor(atTwo.read.atMillis / 1_000) }),
+    ).not.toThrow();
+    expect(atTwo.repeated.signingKid).toBe(key.kid);
+    expect(parseCaptureRecord(atTwo.record).check.receiptFormatVersion).toBe(2);
   });
 
   it('hands back the stored bytes unchanged on every accepted row', () => {
