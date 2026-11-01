@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js';
+import type { Encryption } from '@ashaveri/receipt';
 import { decodeAttestation } from './decode.js';
 import { fail } from './errors.js';
 import { equalBytes, fromHex, replayRtmr3, validateEventLog } from './events.js';
@@ -333,6 +334,43 @@ export function platformMeasurement(result: VerificationResult): Uint8Array {
     return result.tdx.quote.mrTd;
   }
   return fail('UNSUPPORTED_PLATFORM', 'the verified result carries no platform measurement');
+}
+
+/**
+ * The report data a quote for one request has to carry.
+ *
+ * Two arms, chosen by the document and by nothing else. Where a payload's `enc` names a session key, the
+ * value the platform quote is bound to is `sha256(nce || pk || req)`: this request's nonce, the session
+ * public key the signed payload itself carries, and the digest of the exact request bytes, concatenated in
+ * that order and no other. Where `enc` states the plain arm, or where the document is a version that names
+ * no arm at all, there is no key to fold and the value is `sha256(nce || req)`, byte for byte what this rule
+ * shipped before a key was folded into it. The parts come out of the signed payload rather than in beside
+ * it, so an auditor holding one receipt and the evidence that receipt names needs nothing else to recompute
+ * the binding that ties the key to the measurement.
+ *
+ * One spelling, read by both ends: the gateway's mint calls it on the members it is about to sign, and the
+ * reader calls it on the members it has just verified. A second copy anywhere would be the drift this
+ * function exists to prevent, because each copy agrees with itself and neither sees the other's run.
+ * Recomputing the value rather than trusting one off the wire is what makes the evidence unforgeable and
+ * non-replayable: only that instance, at that moment, could have quoted it. The nonce folded here is `nce`,
+ * the request's challenge nonce; it is not the AES-256-GCM nonce the session arm's seal is opened with, and
+ * the two must never be conflated.
+ */
+export function evidenceReportData(
+  nonce: Uint8Array,
+  requestHash: Uint8Array,
+  encryption?: Encryption,
+): Uint8Array {
+  const sessionKey = encryption === undefined || encryption.sch === 'none' ? null : encryption.pk;
+  const bound = new Uint8Array(nonce.length + requestHash.length + (sessionKey === null ? 0 : sessionKey.length));
+  bound.set(nonce, 0);
+  if (sessionKey === null) {
+    bound.set(requestHash, nonce.length);
+  } else {
+    bound.set(sessionKey, nonce.length);
+    bound.set(requestHash, nonce.length + sessionKey.length);
+  }
+  return sha256(bound);
 }
 
 /**
