@@ -1,4 +1,4 @@
-import { claimsConfidentialDevice, decodeReceipt, type VerifiedReceipt } from '@ashaveri/receipt';
+import { claimsConfidentialDevice, decodeReceipt, type ReceiptVersion, type VerifiedReceipt } from '@ashaveri/receipt';
 import { fromBase64Url, toHex } from './b64.js';
 import {
   deviceReports,
@@ -45,6 +45,11 @@ export interface VerifyReceiptedParams {
    * runs this client is the one place the material can arrive from a file.
    */
   readonly anchorReadings?: readonly AnchorSlotReading[];
+  /**
+   * Which receipt payload versions this call reads, forwarded to the pre-read decode and to the client verify,
+   * which both read the one set. Absent means every version the package parses.
+   */
+  readonly acceptedVersions?: readonly ReceiptVersion[];
 }
 
 export interface VerifyCompletionOptions extends VerifyReceiptedParams {
@@ -164,7 +169,7 @@ export class GatewaySession {
   }
 
   async verifyReceipted(params: VerifyReceiptedParams): Promise<VerifiedReceipt> {
-    const decoded = decodeReceipt(params.receiptBytes);
+    const decoded = decodeReceipt(params.receiptBytes, { acceptedVersions: params.acceptedVersions });
     const verifyKey = await this.resolveKey(decoded.header.kid, {
       kid: toHex(decoded.header.kid),
       epoch: decoded.payload.epk,
@@ -180,6 +185,7 @@ export class GatewaySession {
       policy: this.options.policy,
       nowMillis: params.nowMillis,
       anchorReadings: params.anchorReadings,
+      acceptedVersions: params.acceptedVersions,
     });
   }
 

@@ -6,6 +6,7 @@ import {
   verifyReceipt,
   type Marking,
   type ReceiptPayload,
+  type ReceiptVersion,
   type VerifiedReceipt,
 } from '@ashaveri/receipt';
 import { toHex } from './b64.js';
@@ -64,6 +65,11 @@ export interface VerifyCompletionParams {
    * caller that hands readings to a policy that asks nothing of them is handed the same verdict it always was.
    */
   readonly anchorReadings?: readonly AnchorSlotReading[];
+  /**
+   * Which receipt payload versions this call reads, handed straight to the format reader. Absent means every
+   * version the package parses, the default `verifyReceipt` carries.
+   */
+  readonly acceptedVersions?: readonly ReceiptVersion[];
 }
 
 /**
@@ -149,6 +155,7 @@ export function verifyCompletionReceipt(params: VerifyCompletionParams): Verifie
     nowSeconds,
     freshnessSeconds: receiptWindow,
     evidenceFreshnessSeconds: evidenceWindow,
+    acceptedVersions: params.acceptedVersions,
   });
   const payload = verified.payload;
   if (!equalBytes(payload.req, params.requestHash)) {

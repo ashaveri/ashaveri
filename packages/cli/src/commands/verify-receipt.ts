@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { keyId, type CollateralValidityAnchor } from '@ashaveri/receipt';
+import { keyId, type CollateralValidityAnchor, type ReceiptVersion } from '@ashaveri/receipt';
 import { appraiseCarriedCollateral, type CollateralOutcome } from '@ashaveri/collateral';
 import {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
@@ -131,6 +131,8 @@ export interface VerifyReceiptFlags {
   'collateral-cpu-type'?: string[];
   'collateral-level'?: string[];
   now?: string;
+  /** Payload versions this run reads, one whole number per flag; absent means the library default. */
+  'accept-version'?: string[];
   json?: boolean;
 }
 
@@ -195,6 +197,26 @@ export function designatedKeys(values: readonly string[] | undefined, flag: stri
     byKid.set(designation.kid, designation);
   }
   return [...byKid.values()];
+}
+
+/**
+ * The payload versions this run reads, or undefined where it named none and the default stands.
+ *
+ * Each token is a whole number handed to the format reader as part of the set, which is the one place that names
+ * which numbers are versions, so this file writes no list of them. A number outside the versions the format parses
+ * is answered by the reader's own refusal, naming the set this run asked for.
+ */
+export function acceptedVersionsOf(values: VerifyReceiptFlags): readonly ReceiptVersion[] | undefined {
+  const given = values['accept-version'];
+  if (given === undefined) return undefined;
+  const seen = new Set<number>();
+  for (const token of given) {
+    if (!/^[0-9]+$/u.test(token)) {
+      throw new UsageError(`--accept-version must be a whole payload version number, not ${JSON.stringify(token)}`);
+    }
+    seen.add(Number.parseInt(token, 10));
+  }
+  return [...seen] as unknown as readonly ReceiptVersion[];
 }
 
 /**
@@ -919,6 +941,9 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   // Refused here rather than at the check itself: an argument that is not a key is a typing mistake,
   // and it is one before this run has read a byte of anybody's material.
   const designations = designatedKeys(values['manifest-key'], MANIFEST_KEY_FLAG);
+  // A version token that is not a whole number is the operator's typing, refused here before any document is read,
+  // the same way a mistyped key is. Absent means the library default, so the flag cannot disagree with the client.
+  const acceptedVersions = acceptedVersionsOf(values);
   // The anchor pairs are parsed, and their roots and designations read, before any document is opened: a slot that
   // is not a slot, a header with no body beside it and an origin with no platform are the caller's typing to fix,
   // and none of them becomes a verdict about a receipt.
@@ -945,7 +970,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   let anchor: readonly AnchorWeighing[] = [];
   let anchorReadings: readonly AnchorSlotReading[] = [];
   try {
-    const opened = decodeReceipt(receiptBytes);
+    const opened = decodeReceipt(receiptBytes, { acceptedVersions });
     if (digests.responseBytes === null) {
       throw new UsageError(
         'this receipt names a marking attesting one region inside the response bytes, so --response-body is required and --response-hash cannot carry that check',
@@ -982,6 +1007,7 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
       // The client's own demand reads these, which is the only reason they are handed at all: a policy naming no
       // demand never looks at them, and a run that named no pair hands an empty list and is answered as unreached.
       anchorReadings,
+      acceptedVersions,
     });
     const manifest = await session.manifest();
     const authentication = await session.manifestAuthentication();

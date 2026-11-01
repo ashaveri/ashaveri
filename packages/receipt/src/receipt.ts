@@ -413,7 +413,10 @@ function claimedVersion(value: unknown, accepted: readonly ReceiptVersion[]): Re
     throw new ReceiptError('UNSUPPORTED_VERSION', `receipt payload version ${value} is not a format this package reads`);
   }
   if (!accepted.includes(value)) {
-    throw new ReceiptError('UNSUPPORTED_VERSION', `receipt payload version ${value} is not in acceptedVersions`);
+    throw new ReceiptError(
+      'UNSUPPORTED_VERSION',
+      `receipt payload version ${value} is not in acceptedVersions [${accepted.map((one) => String(one)).join(', ')}]`,
+    );
   }
   return value;
 }

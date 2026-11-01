@@ -844,6 +844,26 @@ describe('ashaveri verify-receipt', () => {
     // from their count in the header above, where the children's deadlines are added.
   });
 
+  it('refuses a version 2 receipt when --accept-version narrows it away, and takes it by default and at [2]', () => {
+    // The published `receipt-enc-plain-v2` row is the same shape the drive-every-vector case already reads to
+    // verify-ok, so the only thing these three runs move is the set the caller names. The refusal is owed by the
+    // pre-read decode, which reads the payload's number before any policy, manifest or window is reached, so it is
+    // a refusal of the version and nothing else.
+    const v2 = receiptJson('receipt-enc-plain-v2');
+    const base: RunOptions = { receipt: receiptPath('receipt-enc-plain-v2'), requestDigest: v2.payload.req };
+    const defaulted = runCli(argsFor(base));
+    expect(defaulted.status).toBe(0);
+    expect(verdictOf(defaulted).payloadVersion).toBe(2);
+    const widened = runCli(argsFor({ ...base, extra: ['--accept-version=2'] }));
+    expect(widened.status).toBe(0);
+    expect(verdictOf(widened).payloadVersion).toBe(2);
+    const refused = runCli(argsFor({ ...base, extra: ['--accept-version=1'] }));
+    expect(refused.status).toBe(1);
+    const verdict = verdictOf(refused);
+    expect(verdict.code).toBe('UNSUPPORTED_VERSION');
+    expect(String(verdict.message)).toContain('receipt payload version 2 is not in acceptedVersions [1]');
+  });
+
   it('refuses a receipt whose measurement is not the one the policy pins', () => {
     const policy = policyFile({ measurements: { [SOFTWARE.payload.meas.tee]: [WRONG_SOFTWARE] } });
     const result = runCli(argsFor({ receipt: receiptPath('receipt-software-v1'), policy }));
