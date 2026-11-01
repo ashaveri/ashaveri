@@ -47,7 +47,8 @@
     "generate:epoch-inventory": "node scripts/epoch-inventory-vectors.ts",
     "generate:capture": "node scripts/capture-vectors.ts",
     "generate:import": "node scripts/import-vectors.ts",
-    "generate:retention-assessment": "node scripts/retention-assessment-vectors.ts"
+    "generate:retention-assessment": "node scripts/retention-assessment-vectors.ts",
+    "generate:scan-allowlist": "node scripts/derive-scan-allowlist.ts"
   },
   "dependencies": {
     "@ashaveri/receipt": "workspace:*",
