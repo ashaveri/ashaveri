@@ -70,7 +70,9 @@ describe('data/challenge-v1.json', () => {
     const pieces: Record<string, Uint8Array> = {
       nce: payload.nce,
       req: payload.req,
-      ...(payload.enc.sch === 'none' ? {} : { 'enc.pk': payload.enc.pk }),
+      ...(payload.enc.sch === 'none'
+        ? {}
+        : { 'enc.pk': payload.enc.pk, 'keyId(enc.pk)': sha256(payload.enc.pk) }),
     };
     expect(row.parts.map((each) => pieces[each]!)).toHaveLength(row.parts.length);
     expect(toHex(concat(...row.parts.map((each) => pieces[each]!)))).toBe(
@@ -85,7 +87,10 @@ describe('data/challenge-v1.json', () => {
       expect(row.digestHex).toBe(toHex(sha256(concat(payload.nce, payload.req))));
     } else {
       expect(toHex(payload.enc.pk)).toBe(toHex(fromBase64Url(row.sessionKeyBase64Url!)));
-      expect(row.digestHex).toBe(toHex(sha256(concat(payload.nce, payload.enc.pk, payload.req))));
+      expect(toHex(sha256(payload.enc.pk))).toBe(toHex(fromBase64Url(row.keyIdentifierBase64Url!)));
+      expect(row.digestHex).toBe(
+        toHex(sha256(concat(payload.nce, payload.enc.pk, sha256(payload.enc.pk), payload.req))),
+      );
     }
   });
 
@@ -97,7 +102,9 @@ describe('data/challenge-v1.json', () => {
     expect(plain.nonceBase64Url).toBe(session.nonceBase64Url);
     expect(plain.requestDigestHex).toBe(session.requestDigestHex);
     expect(plain.digestHex).not.toBe(session.digestHex);
-    expect(plain.preImageByteLength + 32).toBe(session.preImageByteLength);
+    // The session row is the plain row plus the point and its identifier, 32 bytes each, so the width
+    // difference is two parts and not one.
+    expect(plain.preImageByteLength + 64).toBe(session.preImageByteLength);
   });
 
   it('states each refusal as a value the accepted row does not produce', () => {
@@ -121,7 +128,12 @@ describe('data/challenge-v1.json', () => {
         `${row.document} states one digest twice, so a row beside it refuses nothing`,
       ).toBe(1 + file.refusals.filter((each) => each.document === row.document).length);
     }
-    expect(file.refusals).toHaveLength(3);
+    expect(file.refusals.map((each) => each.name)).toEqual([
+      'session-arm-read-as-plain',
+      'plain-arm-folded-a-key',
+      'parts-in-another-order',
+      'identifier-omitted',
+    ]);
   });
 
   it('states the same arithmetic the receipt manifest publishes for the same document', () => {
@@ -143,7 +155,9 @@ describe('data/challenge-v1.json', () => {
       expect(stated!.digestHex, `${rowName}: the manifest and the vector suite disagree on one digest`).toBe(row.digestHex);
       expect(stated!.preImageBase64Url).toBe(row.preImageBase64Url);
       expect(stated!.parts).toEqual(row.parts);
-      expect(stated!.rule).toBe(row.arm === 'none' ? 'sha256(nce || req)' : 'sha256(nce || pk || req)');
+      expect(stated!.rule).toBe(
+        row.arm === 'none' ? 'sha256(nce || req)' : 'sha256(nce || pk || keyId(pk) || req)',
+      );
     }
     const statedElsewhere = manifest.fixtures.filter((each) => each.challenge !== undefined).map((each) => each.name);
     expect(statedElsewhere, 'the challenge column is stated on rows other than the two arms it decides').toEqual([

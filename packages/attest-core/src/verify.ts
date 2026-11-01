@@ -1,5 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2.js';
-import type { Encryption } from '@ashaveri/receipt';
+import { keyId, type Encryption } from '@ashaveri/receipt';
 import { decodeAttestation } from './decode.js';
 import { fail } from './errors.js';
 import { equalBytes, fromHex, replayRtmr3, validateEventLog } from './events.js';
@@ -340,13 +340,20 @@ export function platformMeasurement(result: VerificationResult): Uint8Array {
  * The report data a quote for one request has to carry.
  *
  * Two arms, chosen by the document and by nothing else. Where a payload's `enc` names a session key, the
- * value the platform quote is bound to is `sha256(nce || pk || req)`: this request's nonce, the session
- * public key the signed payload itself carries, and the digest of the exact request bytes, concatenated in
- * that order and no other. Where `enc` states the plain arm, or where the document is a version that names
- * no arm at all, there is no key to fold and the value is `sha256(nce || req)`, byte for byte what this rule
- * shipped before a key was folded into it. The parts come out of the signed payload rather than in beside
- * it, so an auditor holding one receipt and the evidence that receipt names needs nothing else to recompute
- * the binding that ties the key to the measurement.
+ * value the platform quote is bound to is `sha256(nce || pk || keyId(pk) || req)`: this request's nonce, the
+ * session public key the signed payload itself carries, that key's identifier as the receipt computes it
+ * (`sha256(pk)`, the same 32 bytes a header `kid` and `epk` state), and the digest of the exact request bytes,
+ * concatenated in that order and no other. Where `enc` states the plain arm, or where the document is a
+ * version that names no arm at all, there is no key to fold and the value is `sha256(nce || req)`, byte for
+ * byte what this rule shipped before a key was folded into it. The parts come out of the signed payload
+ * rather than in beside it, so an auditor holding one receipt and the evidence that receipt names needs
+ * nothing else to recompute the binding that ties the key to the measurement.
+ *
+ * The identifier is in the digest because it is the half a reader can already reach: the raw point inside the
+ * sealed value says a key took part, and the same value carrying `sha256(pk)` says which key the quote spoke
+ * of, in the form the receipt header states. What the binding establishes travels with its edge, which is
+ * that the machine sealing the quote held that key at that moment; that the key was generated inside that
+ * machine is not established here and no reading of a passing check may claim it.
  *
  * One spelling, read by both ends: the gateway's mint calls it on the members it is about to sign, and the
  * reader calls it on the members it has just verified. A second copy anywhere would be the drift this
@@ -362,13 +369,12 @@ export function evidenceReportData(
   encryption?: Encryption,
 ): Uint8Array {
   const sessionKey = encryption === undefined || encryption.sch === 'none' ? null : encryption.pk;
-  const bound = new Uint8Array(nonce.length + requestHash.length + (sessionKey === null ? 0 : sessionKey.length));
-  bound.set(nonce, 0);
-  if (sessionKey === null) {
-    bound.set(requestHash, nonce.length);
-  } else {
-    bound.set(sessionKey, nonce.length);
-    bound.set(requestHash, nonce.length + sessionKey.length);
+  const parts = sessionKey === null ? [nonce, requestHash] : [nonce, sessionKey, keyId(sessionKey), requestHash];
+  const bound = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+  let offset = 0;
+  for (const part of parts) {
+    bound.set(part, offset);
+    offset += part.length;
   }
   return sha256(bound);
 }

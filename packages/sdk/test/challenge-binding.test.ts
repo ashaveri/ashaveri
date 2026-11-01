@@ -19,8 +19,8 @@ import { GatewaySession, SdkError, evidenceReportData, verifyCompletionEvidence 
  * The challenge a receipt states, and the two ways a reader can get it wrong.
  *
  * The rule is one line and no signature test catches it: a session receipt binds the quote to
- * `sha256(nce || pk || req)`, a plain one to `sha256(nce || req)`, and all three parts are read out of the
- * signed payload rather than handed in beside it. What is held here is therefore what a stranger's
+ * `sha256(nce || pk || keyId(pk) || req)`, a plain one to `sha256(nce || req)`, and every part is read out
+ * of the signed payload rather than handed in beside it. What is held here is therefore what a stranger's
  * implementation can disagree about and still produce a document that parses: which arm decides, where the
  * key comes from, and in which order the parts are concatenated.
  *
@@ -66,7 +66,13 @@ const NONCE = new Uint8Array(16).fill(9);
 const REQUEST_HASH = hashRequest(utf8('{"model":"m","messages":[]}'));
 const SESSION_KEY = new Uint8Array(32).fill(17);
 const TWO_PART = sha256(concat(NONCE, REQUEST_HASH));
-const THREE_PART = sha256(concat(NONCE, SESSION_KEY, REQUEST_HASH));
+// The key identifier the composite carries: `sha256(pk)`, the same 32 bytes a reader computes for a
+// header `kid`, so the value inside the sealed digest is a value reachable from the receipt alone.
+const KEY_ID = sha256(SESSION_KEY);
+const FOUR_PART = sha256(concat(NONCE, SESSION_KEY, KEY_ID, REQUEST_HASH));
+// The composite as it read before the identifier joined it. It is not a rule any arm states, so it
+// belongs to the refused set: a quote sealed under the older order must not bind a current receipt.
+const LEGACY_THREE_PART = sha256(concat(NONCE, SESSION_KEY, REQUEST_HASH));
 const PLAIN: Encryption = { sch: 'none' };
 const SESSION: Encryption = { sch: 'x25519-aes-256-gcm-v1', pk: SESSION_KEY };
 
@@ -188,7 +194,7 @@ function refusalCode(run: () => unknown): string {
 describe('the challenge a receipt states', () => {
 
   it('asks the evidence route with the composite the session arm names', async () => {
-    const receiptBytes = issued(receiptPayload({ enc: SESSION, attested: attestedFor(THREE_PART) }));
+    const receiptBytes = issued(receiptPayload({ enc: SESSION, attested: attestedFor(FOUR_PART) }));
     const served = serving();
     const code = await refusal(() =>
       served.session.verifyCompletion({
@@ -201,7 +207,7 @@ describe('the challenge a receipt states', () => {
         nowMillis: IAT * 1000,
       }),
     );
-    expect(challengesAsked(served.urls)).toEqual([toHex(THREE_PART)]);
+    expect(challengesAsked(served.urls)).toEqual([toHex(FOUR_PART)]);
     // The digest check above passed, because the route minted for the very value the receipt commits to, so
     // the refusal is the next step and these bytes are no platform document. The challenge in the URL is
     // therefore the client's own and not one the deployment handed it.
@@ -229,7 +235,7 @@ describe('the challenge a receipt states', () => {
     // Nothing in the call names a key: `verifyCompletion` is handed a nonce, a request digest, a response and
     // bytes. The value both runs asked for is the composite over the key inside the document, so an auditor
     // holding one receipt recomputes what the client asked without holding anything the client held.
-    const payload = receiptPayload({ enc: SESSION, attested: attestedFor(THREE_PART) });
+    const payload = receiptPayload({ enc: SESSION, attested: attestedFor(FOUR_PART) });
     const receiptBytes = issued(payload);
     const asked: string[][] = [];
     for (const _ of [0, 1]) {
@@ -251,11 +257,11 @@ describe('the challenge a receipt states', () => {
     const stated = decodeReceipt(receiptBytes).payload;
     if (stated.v !== 2 || stated.enc.sch === 'none') throw new Error('this case issues a session-arm document');
     expect(toHex(stated.enc.pk)).toBe(toHex(SESSION_KEY));
-    expect(asked[0]).toEqual([toHex(sha256(concat(NONCE, SESSION_KEY, REQUEST_HASH)))]);
+    expect(asked[0]).toEqual([toHex(sha256(concat(NONCE, SESSION_KEY, KEY_ID, REQUEST_HASH)))]);
   });
 
   it('gives the device route the same composite it gave the platform route', async () => {
-    const receiptBytes = issued(receiptPayload({ enc: SESSION, attested: attestedFor(THREE_PART), tee: 'tdx+gpucc' }));
+    const receiptBytes = issued(receiptPayload({ enc: SESSION, attested: attestedFor(FOUR_PART), tee: 'tdx+gpucc' }));
     const served = serving();
     await refusal(() =>
       served.session.verifyCompletion({
@@ -271,7 +277,7 @@ describe('the challenge a receipt states', () => {
     const asked = challengesAsked(served.urls);
     expect(asked).toHaveLength(2);
     expect(new Set(asked).size, `the two routes were asked ${asked.join(' and ')}`).toBe(1);
-    expect(asked[0]).toBe(toHex(THREE_PART));
+    expect(asked[0]).toBe(toHex(FOUR_PART));
   });
 });
 
@@ -287,14 +293,14 @@ describe('the two rules refuse each other', () => {
     {
       name: 'a session receipt handed the document minted for the two-part value',
       enc: SESSION,
-      attested: THREE_PART,
+      attested: FOUR_PART,
       stale: TWO_PART,
     },
     {
       name: 'a plain receipt handed the document minted for the composite',
       enc: PLAIN,
       attested: TWO_PART,
-      stale: THREE_PART,
+      stale: FOUR_PART,
     },
   ];
 
@@ -337,8 +343,9 @@ describe('the two rules refuse each other', () => {
     const payload = decodeReceipt(issued(receiptPayload({ enc: SESSION, attested }))).payload;
     const ask = (expected: Uint8Array): string =>
       refusalCode(() => verifyCompletionEvidence({ document: INTEL_DOCUMENT, expectedReportData: expected, payload, nowMillis: NOW }));
-    expect(ask(THREE_PART)).toBe('EVIDENCE_REPORT_DATA_MISMATCH');
+    expect(ask(FOUR_PART)).toBe('EVIDENCE_REPORT_DATA_MISMATCH');
     expect(ask(TWO_PART)).toBe('EVIDENCE_REPORT_DATA_MISMATCH');
+    expect(ask(LEGACY_THREE_PART)).toBe('EVIDENCE_REPORT_DATA_MISMATCH');
     expect(ask(sha256(concat(NONCE, REQUEST_HASH, SESSION_KEY)))).toBe('EVIDENCE_REPORT_DATA_MISMATCH');
     // The pairing: this document, this receipt, and the value the field actually carries. The three refusals
     // above are the binding step and nothing else, because the same call with that value returns evidence.
@@ -352,12 +359,14 @@ describe('the two rules refuse each other', () => {
   });
 
   it('keeps the rules apart on one triple, so no document can answer both', () => {
-    expect(toHex(TWO_PART)).not.toBe(toHex(THREE_PART));
-    expect(toHex(evidenceReportData(NONCE, REQUEST_HASH, SESSION))).toBe(toHex(THREE_PART));
+    expect(toHex(TWO_PART)).not.toBe(toHex(FOUR_PART));
+    expect(toHex(evidenceReportData(NONCE, REQUEST_HASH, SESSION))).toBe(toHex(FOUR_PART));
     expect(toHex(evidenceReportData(NONCE, REQUEST_HASH, PLAIN))).toBe(toHex(TWO_PART));
     expect(toHex(evidenceReportData(NONCE, REQUEST_HASH))).toBe(toHex(TWO_PART));
-    // The order is the wire fact the published vector pins: the same three members concatenated the other way
-    // round are a value neither arm states, and nothing but a vector disagrees with it.
-    expect(toHex(sha256(concat(NONCE, REQUEST_HASH, SESSION_KEY)))).not.toBe(toHex(THREE_PART));
+    // The order is the wire fact the published vector pins: the same four members in another order, the
+    // identifier omitted, or the identifier first are values neither arm states, and a vector each.
+    expect(toHex(sha256(concat(NONCE, REQUEST_HASH, SESSION_KEY, KEY_ID)))).not.toBe(toHex(FOUR_PART));
+    expect(toHex(LEGACY_THREE_PART)).not.toBe(toHex(FOUR_PART));
+    expect(toHex(sha256(concat(NONCE, KEY_ID, REQUEST_HASH)))).not.toBe(toHex(FOUR_PART));
   });
 });
