@@ -87,9 +87,11 @@ sample count beside every percentile; the same bytes at the same rate over its o
 spread each number carries. Read those numbers as a statement about the host that printed them.
 
 **A format change carries the format's own documents.** `packages/receipt/receipt.cddl` is normative
-for the wire format and `packages/receipt/schemas/receipt-v1.schema.json` describes the JSON
-projection of the same payload, which `packages/receipt/test/schema.test.ts` checks against what the
-codec emits. A format change is therefore one change covering the CDDL, the schema, the codec,
+for the wire format, and the JSON projection of the same payload is described per version:
+`packages/receipt/schemas/receipt-v1.schema.json` for `v: 1` and
+`packages/receipt/schemas/receipt-v2.schema.json` for `v: 2`, which
+`packages/receipt/test/schema.test.ts` checks against what the codec emits for each of them. A format
+change is therefore one change covering the CDDL, the twin of every version it declares, the codec,
 `docs/receipt-spec.md` and the vectors, and `docs/receipt-spec.md` section 6 is the rule for when `v`
 itself has to move.
 
@@ -119,8 +121,9 @@ source. If they would not, it is decided on its own merits.
 On the public side, and staying there:
 
 - the receipt format, normatively in `packages/receipt/receipt.cddl` with its JSON projection in
-  `packages/receipt/schemas/receipt-v1.schema.json`, because every implementation is measured against
-  both;
+  `packages/receipt/schemas/receipt-v1.schema.json` and `packages/receipt/schemas/receipt-v2.schema.json`,
+  one twin per version the format declares, because every implementation is measured against the CDDL and
+  against the twin of the version it reads;
 - the verification path, which is `@ashaveri/attest-core`, `@ashaveri/sdk` and `@ashaveri/cli`;
 - the gateway that signs receipts, `@ashaveri/signerd`. Anything that signs, seals or changes what a
   verdict means is open in source and in its published form permanently, and the gateway is one of

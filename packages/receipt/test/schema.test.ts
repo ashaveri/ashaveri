@@ -19,6 +19,7 @@ import {
   MEASUREMENT_BYTES,
   receiptToJson,
   toHex,
+  type Encryption,
   type Marking,
   type Measurement,
   type ReceiptPayload,
@@ -27,10 +28,12 @@ import * as receiptParser from '../src/receipt.js';
 import * as coseCodec from '../src/cose.js';
 
 const schemaPath = fileURLToPath(new URL('../schemas/receipt-v1.schema.json', import.meta.url));
+const schemaV2Path = fileURLToPath(new URL('../schemas/receipt-v2.schema.json', import.meta.url));
 const specPath = fileURLToPath(new URL('../../../docs/receipt-spec.md', import.meta.url));
 const threatModelPath = fileURLToPath(new URL('../../../docs/threat-model.md', import.meta.url));
 const errorCodesPath = fileURLToPath(new URL('../../../docs/error-codes.md', import.meta.url));
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
+const schemaV2 = JSON.parse(readFileSync(schemaV2Path, 'utf8')) as object;
 
 /** An object schema of the kind this file nests under `properties`. */
 interface ObjectSchema {
@@ -64,30 +67,71 @@ interface SchemaShape {
 }
 
 const shape = schema as SchemaShape;
+const shapeV2 = schemaV2 as SchemaShape;
 
-/** One `$defs` entry, read as the payload branch its name says it is. */
-function branchSchema(name: string): PayloadBranch {
-  return required(shape.$defs[name] as PayloadBranch, `the twin declares no ${name} branch`);
+/**
+ * One twin, read whole: the payload branch it describes, the document this file builds for it, its parsed
+ * shape and its compiled reader. The four travel together because a twin's prose, its member lists and its
+ * refusals are one document's claims about one version, and a matrix that read a branch out of one file while
+ * validating the document against another would compare a shape with a stranger's bytes.
+ */
+interface Twin {
+  readonly branch: string;
+  readonly document: ReceiptPayload;
+  readonly shape: SchemaShape;
+  readonly validate: ValidateFunction<unknown>;
+}
+
+/** The branch one twin declares, read out of that twin's own file. */
+function branchOf(one: Twin): PayloadBranch {
+  return required(one.shape.$defs[one.branch] as PayloadBranch, `${one.branch} is no branch of the twin that names it`);
 }
 
 /**
- * The definition one payload member's value is checked against, following a `$ref` where the branch
- * points at a shared definition rather than naming its members itself. The `mk` map is one definition
- * the payload reaches through that `$ref`, and a twin that spelled its two members out in two places
- * is two twins.
+ * The definition one payload member's value is checked against, followed through a `$ref` inside the twin
+ * that holds the member. The `mk` map is one definition the payload reaches through that `$ref`, and a twin
+ * that spelled its two members out in two places is two twins.
  */
-function deref(definition: ObjectSchema | undefined): ObjectSchema | undefined {
+function derefIn(one: Twin, definition: ObjectSchema | undefined): ObjectSchema | undefined {
   if (definition?.$ref === undefined) return definition;
   const name = definition.$ref.replace(/^#\/\$defs\//u, '');
-  return shape.$defs[name] as ObjectSchema | undefined;
+  return one.shape.$defs[name] as ObjectSchema | undefined;
+}
+
+/**
+ * The definition a nested member points at, in the twin that declares it. A member only one branch names
+ * sits on that branch; the members every branch shares sit under `payloadFields`, which each of them reaches
+ * through their `allOf`. Searched rather than switched on by name, so a map the format gains is looked for in
+ * the same places without an edit here.
+ */
+function definitionIn(one: Twin, key: string): ObjectSchema {
+  const found = derefIn(one, branchOf(one).properties[key]) ?? derefIn(one, one.shape.$defs.payloadFields.properties[key]);
+  return required(found, `the ${one.branch} twin declares no definition for the nested member ${key}`);
+}
+
+/**
+ * The twin's side of one payload version the parser reads: the file that describes it and the document this
+ * file builds for it. Looked up off the version the walk names rather than beside a roster typed out here, so
+ * a version the walk gains has to be answered for in this file before a matrix below can quietly test one
+ * document fewer, and a number the walk does not name has no twin here to answer with.
+ */
+function twinForVersion(version: string): Twin {
+  if (version === '1') return { branch: 'payloadV1', document: payloadOf('software', DIGEST), shape, validate };
+  if (version === '2') return { branch: 'payloadV2', document: atVersionTwo(payloadOf('software', DIGEST)), shape: shapeV2, validate: validateV2 };
+  throw new Error(`this file has no twin or document for payload version ${version}`);
 }
 
 /** The maps the closure walk enforces, read off the module that walks them rather than restated. */
 const definedMaps = receiptParser.DEFINED_MAPS;
 
+/** The twins this file reads, in the order the parser's version set states them. */
+function allTwins(): Twin[] {
+  return Object.keys(definedMaps).map((version) => twinForVersion(version));
+}
+
 /**
- * The nested members a document can carry: all six of them, because the format declares one version
- * and that version names every map it nests.
+ * The nested members a document can carry: the six every version of this format nests, because both
+ * payload versions name the same maps below their own list.
  * This is the roster every matrix below sweeps, so it is read out of the structure the parser walks
  * rather than typed here: a roster of this file's own would go on asking the twin about a map the walk
  * does not enter, and the lists the parser exports would still match the CDDL rule by rule.
@@ -96,41 +140,19 @@ const NESTED_KEYS: string[] = [...new Set(
   Object.values(definedMaps).flatMap((defined) => Object.keys(defined.nested ?? {})),
 )];
 
-/** The twin's one branch per payload version, newest first, which is the order a lookup searches. */
-const PAYLOAD_BRANCHES = Object.keys(shape.$defs)
-  .filter((name) => /^payloadV\d+$/u.test(name))
-  .sort()
-  .reverse();
-
 /**
- * The definition one nested member points at, wherever this file happens to hold it. A member only
- * one branch names, such as `sd`, has its definition on that branch; the members every branch shares
- * sit under `payloadFields`, which each of them reaches through their `allOf`. A branch that points at
- * a shared definition through `$ref` is followed to it, because which members a map names is the same
- * question whichever branch asked it. Searched rather than switched on by name, so a map the format
- * gains is looked for in the same places without an edit here.
- */
-function nestedDefinition(key: string): ObjectSchema {
-  for (const branch of [...PAYLOAD_BRANCHES, 'payloadFields']) {
-    const found = deref(branchSchema(branch).properties[key]);
-    if (found !== undefined) return found;
-  }
-  throw new Error(`the twin declares no definition for the nested member ${key}`);
-}
-
-/**
- * The definition that closes a nested member's value. A member the format makes an array of maps
+ * The definition that closes a nested member's value in one twin. A member the format makes an array of maps
  * closes at its elements rather than at the array, exactly as the parser does, so this is where the
  * two readings meet: the same call answers for `att` and for `itm`.
  */
-function closureDefinition(definition: ObjectSchema): ObjectSchema {
+function closureDefinition(one: Twin, definition: ObjectSchema): ObjectSchema {
   if (definition.type !== 'array') return definition;
-  return required(deref(definition.items), 'the twin declares an array of maps with no element definition');
+  return required(derefIn(one, definition.items), 'the twin declares an array of maps with no element definition');
 }
 
 /** The members one nested definition names, in the order it names them. */
-function definitionMembers(definition: ObjectSchema): string[] {
-  return Object.keys(closureDefinition(definition).properties ?? {});
+function definitionMembers(one: Twin, definition: ObjectSchema): string[] {
+  return Object.keys(closureDefinition(one, definition).properties ?? {});
 }
 
 /**
@@ -313,6 +335,7 @@ function compile(s: object): ValidateFunction<unknown> {
 }
 
 const validate = compile(schema);
+const validateV2 = compile(schemaV2);
 
 const DIGEST = new Uint8Array(32).fill(2);
 
@@ -321,9 +344,10 @@ const DIGEST = new Uint8Array(32).fill(2);
  * signature and kid are placeholders here: this suite checks the schema against the same kind-to-width
  * table the codec enforces, and the schema only constrains their shape.
  *
- * One document, because the format declares one version. Every case below moves a member of this payload
- * or its measurement, and a document naming another number is answered by `twinForVersion`, which has one
- * branch to name and no document to build for any other.
+ * This is the version 1 document, because version 1 is the shape every case below moves a member of. The
+ * other version's document is this one with the one member its number requires, written by `atVersionTwo`,
+ * and a case that wants the other version reaches it through `twinForVersion` rather than by editing `v`
+ * here, which would leave a document naming `2` with no `enc` and let a refusal stand in for either defect.
  */
 function payloadOf(tee: string, m: Uint8Array, mk: Marking = { sch: 'none', d: DIGEST }): ReceiptPayload {
   return {
@@ -354,16 +378,17 @@ function payloadOf(tee: string, m: Uint8Array, mk: Marking = { sch: 'none', d: D
 const HELD_COLLATERAL = new Uint8Array(32).fill(6);
 const ITEM_DIGEST = new Uint8Array(32).fill(8);
 
+/** The key a session arm states, at the width the format bounds it to. */
+const SESSION_KEY = new Uint8Array(32).fill(12);
+
 /**
- * The twin's side of one payload version the parser reads: the branch that describes it and the
- * document this file builds for it. Both are looked up off the version the walk names rather than
- * beside a roster typed out here, so a version the walk gains has to be answered for in this file
- * before a matrix below can quietly test one document fewer, and a number the walk does not name has
- * no branch here to answer with.
+ * The same document at version 2, with the member the number exists for. `enc` is the only difference
+ * between the two, so every case this file runs at version 1 can be asked of the other version's twin by
+ * moving this one member and nothing else, and a twin that accepted the one document at both numbers would
+ * be caught by the branch each version's own file requires.
  */
-function twinForVersion(version: string): { branch: string; document: ReceiptPayload } {
-  if (version === '1') return { branch: 'payloadV1', document: payloadOf('software', DIGEST) };
-  throw new Error(`this file has no branch or document for payload version ${version}`);
+function atVersionTwo(payload: ReceiptPayload, enc: Encryption = { sch: 'none' }): ReceiptPayload {
+  return { ...payload, v: 2 as const, enc };
 }
 
 function twin(payload: ReceiptPayload): unknown {
@@ -406,8 +431,14 @@ function rewrittenNested(
   return document;
 }
 
+/** One twin's answer about a document: the failures it found, or nothing. */
+function outcomeIn(one: Twin, value: unknown): string | null {
+  return one.validate(value) ? null : JSON.stringify(one.validate.errors);
+}
+
+/** The version 1 twin's answer, which is the reader every case this file states at one version takes. */
 function outcome(value: unknown): string | null {
-  return validate(value) ? null : JSON.stringify(validate.errors);
+  return outcomeIn(twinForVersion('1'), value);
 }
 
 describe('the receipt JSON Schema', () => {
@@ -489,28 +520,79 @@ describe('the receipt JSON Schema', () => {
     ).not.toBeNull();
   });
 
+  it('holds the version 2 twin to its eighteen members and closes both arms of enc', () => {
+    const two = twinForVersion('2');
+    expect(outcomeIn(two, twin(two.document))).toBeNull();
+    // The member the number exists for is required of the twin as it is of the parser, and each half is
+    // refused by the file that describes it rather than by the other's: a document naming `2` and holding
+    // the seventeen names of the older branch is malformed at the twin exactly as it is at the reader, and
+    // neither is left to read it as the nearest shape inside.
+    expect(outcomeIn(two, rewritten(two.document, (members) => { delete members.enc; })), 'a v2 document with no enc').not.toBeNull();
+    expect(outcomeIn(two, rewritten(two.document, (members) => { members.enc = { sch: 'none' }; }))).toBeNull();
+    expect(
+      outcomeIn(two, rewritten(two.document, (members) => { members.enc = { sch: 'x25519-aes-256-gcm-v1', pk: toHex(SESSION_KEY) }; })),
+      'a session arm at its width',
+    ).toBeNull();
+
+    // Each arm refuses the other's member, because the label chooses a list and a document holding both
+    // claims states neither. This is the pair no single member list behind `enc` could answer for, which is
+    // why the twin reaches it through `oneOf` rather than through a list of members.
+    expect(
+      outcomeIn(two, rewritten(two.document, (members) => { members.enc = { sch: 'none', pk: toHex(SESSION_KEY) }; })),
+      'a plaintext arm carrying a key',
+    ).not.toBeNull();
+    expect(
+      outcomeIn(two, rewritten(two.document, (members) => { members.enc = { sch: 'x25519-aes-256-gcm-v1' }; })),
+      'a session arm with no key',
+    ).not.toBeNull();
+    expect(
+      outcomeIn(two, rewritten(two.document, (members) => { members.enc = { sch: 'none', surprise: 'x' }; })),
+      'an arm carrying a member neither arm names',
+    ).not.toBeNull();
+    expect(
+      outcomeIn(two, rewritten(two.document, (members) => { members.enc = { sch: 'x25519-aes-256-gcm-v1', pk: toHex(new Uint8Array(31).fill(3)) }; })),
+      'a key of thirty-one bytes',
+    ).not.toBeNull();
+
+    // A label no arm states is refused here as a document of neither shape, and the reader answers the same
+    // bytes with `UNSUPPORTED_ENCRYPTION_SCHEME`: the twin says the document has no form this version
+    // declares, and the reader says which registry it weighed the label against. Two true sentences about
+    // one document, from two places that cannot each say the other's.
+    expect(outcomeIn(two, rewritten(two.document, (members) => { members.enc = { sch: 'unknown-to-this-format' }; }))).not.toBeNull();
+
+    // And the older twin keeps its own shape, with the one name that differs between the two being the one
+    // that moves: `enc` beside version 1 is a member that branch does not name, and a document at the newer
+    // number is not read through the older branch at all.
+    expect(outcome(rewritten(payloadOf('software', DIGEST), (members) => { members.enc = { sch: 'none' }; }))).not.toBeNull();
+    expect(outcome(twin(atVersionTwo(payloadOf('software', DIGEST))))).not.toBeNull();
+  });
+
   it('refuses an undefined member inside each nested map, where the keyword is the only thing that does', () => {
     // Every case is a pair. The unedited document validates and the edited one does not, and the only
     // difference is a member no map names, so a refusal here cannot have arrived for any other
     // reason. Delete a nested `additionalProperties` and the second half of each pair goes red; the
     // first half keeps green, which is the point: the case tests the keyword, not the document.
     //
-    // One case per map, read off the structure the walk enforces: `meas`, `att` and `tok` are declared
-    // once, below the one branch, through their `allOf`. The arrays the format declares join the
-    // same roster, read out of the blocks that name them rather than written beside them here, because
-    // an element map is closed by a keyword sitting one level deeper than the member names it.
+    // One case per map per version, read off the structure the walk enforces: `meas`, `att` and `tok` are
+    // declared under `payloadFields`, which each branch reaches through its `allOf`, and the rest sit on the
+    // branch. The arrays the format declares join the same roster, read out of the blocks that name them
+    // rather than written beside them here, because an element map is closed by a keyword sitting one level
+    // deeper than the member names it. Each case is validated by the twin of its own version, since the two
+    // files close the same maps in their own copies and a document at one number is not the other's bytes.
     const cddl = readCddl();
-    const cases: Array<[ReceiptPayload, string]> = Object.entries(definedMaps).flatMap(
-      ([version, defined]) =>
-        [...Object.keys(defined.nested ?? {}), ...arrayMembers(cddl, Number(version))].map(
-          (key): [ReceiptPayload, string] => [twinForVersion(version).document, key],
-        ),
+    const cases: Array<[Twin, string]> = Object.entries(definedMaps).flatMap(
+      ([version, defined]) => {
+        const one = twinForVersion(version);
+        return [...Object.keys(defined.nested ?? {}), ...arrayMembers(cddl, Number(version))].map(
+          (key): [Twin, string] => [one, key],
+        );
+      },
     );
-    for (const [payload, key] of cases) {
-      expect(outcome(twin(payload)), `${key} on a document that names only what the format does`).toBeNull();
+    for (const [one, key] of cases) {
+      expect(outcomeIn(one, twin(one.document)), `${key} on a ${one.branch} document that names only what the format does`).toBeNull();
       expect(
-        outcome(rewrittenNested(payload, key, (members) => { members.surprise = 'x'; })),
-        `${key} carrying a member the format does not name`,
+        outcomeIn(one, rewrittenNested(one.document, key, (members) => { members.surprise = 'x'; })),
+        `${key} carrying a member the ${one.branch} twin does not name`,
       ).not.toBeNull();
     }
   });
@@ -528,13 +610,21 @@ describe('the receipt JSON Schema', () => {
     expect(membersOf(1)).toHaveLength(17);
     expect(membersOf(1).slice(0, 13)).toEqual(['v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok']);
     expect(membersOf(1).slice(13)).toEqual(['mk', 'sd', 'cva', 'itm']);
-    const twinMembers = (branch: string): string[] => [
-      ...Object.keys(shape.$defs.payloadFields.properties),
-      ...Object.keys(branchSchema(branch).properties),
+    // Version 2 is version 1's list with one name appended, and the pins say that rather than a count: the
+    // first seventeen of the newer block are the older block whole, and the eighteenth is the one the number
+    // exists for. A count alone would stay true if the new name had been interleaved among the twelve every
+    // receipt carries, which is the difference `receipt.cddl` states as the reason the two lists are one
+    // appended name apart.
+    expect(membersOf(2)).toHaveLength(18);
+    expect(membersOf(2).slice(0, 17), 'version 2 is version 1 with one name appended').toEqual(membersOf(1));
+    expect(membersOf(2).slice(17)).toEqual(['enc']);
+    const twinMembers = (one: Twin): string[] => [
+      ...Object.keys(one.shape.$defs.payloadFields.properties),
+      ...Object.keys(branchOf(one).properties),
     ];
     for (const version of versions) {
-      const { branch } = twinForVersion(String(version));
-      expect(twinMembers(branch).sort(), `the twin's ${branch} members`).toEqual([...membersOf(version)].sort());
+      const one = twinForVersion(String(version));
+      expect(twinMembers(one).sort(), `the ${one.branch} twin's members`).toEqual([...membersOf(version)].sort());
     }
 
     // The CDDL's closure is the absence of `...` in the payload blocks, said out loud so a port
@@ -548,31 +638,35 @@ describe('the receipt JSON Schema', () => {
     }
 
     // One level down the same two things have to hold, and neither is shown by a type expression.
-    // Each block carries no `...`, which is the format saying it closes, and the twin declares the
+    // Each block carries no `...`, which is the format saying it closes, and every twin declares the
     // same member names the block does: a twin that named a member the block does not would validate
     // a document the format refuses, and one that dropped a name would refuse a document the format
     // admits. Either drift is invisible to a case built out of the twin's own members, which is why
     // the maps here are the ones the walk enters and each one's rule name is read off the payload
-    // block that names the member, neither of them written a second time in this file.
+    // block that names the member, neither of them written a second time in this file. The sweep runs
+    // against both twins because each holds its own copy of these definitions, and a copy is the thing
+    // that goes stale.
     const rulePerKey = nestedRuleNames(cddl);
-    for (const key of NESTED_KEYS) {
-      const rule = required(
-        rulePerKey.get(key),
-        `the walk enters a map at ${key} that no payload block names a rule for`,
-      );
-      const definition = nestedDefinition(key);
-      expect(cddlRule(cddl, rule).includes('...'), `${rule} closes`).toBe(false);
-      expect(
-        definitionMembers(definition),
-        `the twin's ${key} members`,
-      ).toEqual(cddlMembers(cddl, rule));
-      // That the closing keyword sits there is the assertion; that it binds is the case earlier in
-      // this file, which hands `validate` the same document with one unnamed member added. A keyword
-      // this schema did not define would have failed to compile at all, which is the other guard.
-      expect(
-        closureDefinition(definition).additionalProperties,
-        `${key} names its members as the whole of it`,
-      ).toBe(false);
+    for (const one of allTwins()) {
+      for (const key of NESTED_KEYS) {
+        const rule = required(
+          rulePerKey.get(key),
+          `the walk enters a map at ${key} that no payload block names a rule for`,
+        );
+        const definition = definitionIn(one, key);
+        expect(cddlRule(cddl, rule).includes('...'), `${rule} closes`).toBe(false);
+        expect(
+          definitionMembers(one, definition),
+          `the ${one.branch} twin's ${key} members`,
+        ).toEqual(cddlMembers(cddl, rule));
+        // That the closing keyword sits there is the assertion; that it binds is the case earlier in
+        // this file, which hands the twin the same document with one unnamed member added. A keyword
+        // this schema did not define would have failed to compile at all, which is the other guard.
+        expect(
+          closureDefinition(one, definition).additionalProperties,
+          `${one.branch} names ${key}'s members as the whole of it`,
+        ).toBe(false);
+      }
     }
 
     // The member the walk cannot enter by name, which is every payload member the CDDL binds to a
@@ -581,16 +675,18 @@ describe('the receipt JSON Schema', () => {
     // a non-empty list, and the element definition names the two members and no more.
     const arrayKeys = [...new Set(versions.flatMap((version) => arrayMembers(cddl, version)))];
     expect(arrayKeys, 'payload members closed at their elements rather than at the member').toEqual(['itm']);
-    for (const key of arrayKeys) {
-      const definition = nestedDefinition(key);
-      expect(definition.type, `${key} is the array the format writes`).toBe('array');
-      expect(definition.minItems, `${key} is never empty`).toBe(1);
-      const rule = required(rulePerKey.get(key), `${key} is bound to no rule`);
-      expect(definitionMembers(definition), `the twin's ${key} element members`).toEqual(cddlMembers(cddl, rule));
-      expect(
-        closureDefinition(definition).additionalProperties,
-        `${key} closes its elements`,
-      ).toBe(false);
+    for (const one of allTwins()) {
+      for (const key of arrayKeys) {
+        const definition = definitionIn(one, key);
+        expect(definition.type, `${key} is the array the ${one.branch} twin writes`).toBe('array');
+        expect(definition.minItems, `${key} is never empty`).toBe(1);
+        const rule = required(rulePerKey.get(key), `${key} is bound to no rule`);
+        expect(definitionMembers(one, definition), `the ${one.branch} twin's ${key} element members`).toEqual(cddlMembers(cddl, rule));
+        expect(
+          closureDefinition(one, definition).additionalProperties,
+          `${one.branch} closes ${key}'s elements`,
+        ).toBe(false);
+      }
     }
 
     saidOnce('the CDDL closure note', prose, "That rule is the format's, not one map's");
@@ -649,33 +745,36 @@ describe('the receipt JSON Schema', () => {
     expect(specProse).not.toMatch(/\bare open\b/u);
     expect(specProse).not.toContain('stops at the payload map');
 
-    // The twin says the same thing. The root description is the one place that speaks below the
-    // payload map, and it names every nested key and says which keyword closes each level; the
+    // Each twin says the same thing about closure. The root description is the one place that speaks below
+    // the payload map, and it names every nested key and says which keyword closes each level; the
     // branch descriptions close their own map and name nothing inside it, so a reader never takes
-    // a claim about one level from a sentence about another.
-    saidOnce('the twin', shape.description, 'The branch is closed');
-    saidOnce('the twin', shape.description, 'Closure is not one level');
-    saidOnce('the twin', shape.description, 'the six nested inside it');
-    saidOnce('the twin', shape.description, 'the nested definitions through `additionalProperties`');
-    // The signed header's projection says of itself that no keyword closes it, and that is the one claim
-    // in that paragraph a keyword could not carry: what closes that map is the parser refusing a label by
-    // number, which happens upstream of anything this file describes. The two assertions below hold the
-    // sentence and the artifact against each other, so the prose cannot drift into naming a keyword that
-    // is not there, and an `additionalProperties` added to the definition has to arrive with the sentence
-    // rewritten rather than quietly contradicting it.
-    expect(
-      shape.properties.protectedHeader.additionalProperties,
-      'the projection of the signed header carries an `additionalProperties`, which its description says it does not',
-    ).toBeUndefined();
-    saidOnce('the twin', shape.description, 'this definition carries no closure keyword');
-    for (const key of NESTED_KEYS) {
-      expect(shape.description.includes(`\`${key}\``), `the twin names ${key}`).toBe(true);
-    }
-    for (const branch of PAYLOAD_BRANCHES) {
-      const doc = branchSchema(branch).description;
-      saidOnce(`the twin's ${branch} description`, doc, 'The map is closed');
+    // a claim about one level from a sentence about another. The pair is swept rather than the one file,
+    // because two twins that both close the same maps have to both say so, and a copy whose prose was never
+    // asked says whatever it likes.
+    for (const one of allTwins()) {
+      const where = `the ${one.branch} twin`;
+      saidOnce(where, one.shape.description, 'The branch is closed');
+      saidOnce(where, one.shape.description, 'Closure is not one level');
+      saidOnce(where, one.shape.description, 'the six nested inside it');
+      saidOnce(where, one.shape.description, 'the nested definitions through `additionalProperties`');
+      // The signed header's projection says of itself that no keyword closes it, and that is the one claim
+      // in that paragraph a keyword could not carry: what closes that map is the parser refusing a label by
+      // number, which happens upstream of anything this file describes. The two assertions below hold the
+      // sentence and the artifact against each other, so the prose cannot drift into naming a keyword that
+      // is not there, and an `additionalProperties` added to the definition has to arrive with the sentence
+      // rewritten rather than quietly contradicting it.
+      expect(
+        one.shape.properties.protectedHeader.additionalProperties,
+        `the ${where} projection of the signed header carries an \`additionalProperties\`, which its description says it does not`,
+      ).toBeUndefined();
+      saidOnce(where, one.shape.description, 'this definition carries no closure keyword');
+      for (const key of NESTED_KEYS) {
+        expect(one.shape.description.includes(`\`${key}\``), `${where} names ${key}`).toBe(true);
+      }
+      const doc = branchOf(one).description;
+      saidOnce(`${where} branch description`, doc, 'The map is closed');
       for (const key of [...NESTED_KEYS, ...arrayKeys]) {
-        expect(doc.includes(`\`${key}\``), `the twin's ${branch} description stops at its own map`).toBe(false);
+        expect(doc.includes(`\`${key}\``), `the ${where} branch description stops at its own map`).toBe(false);
       }
     }
   });
@@ -870,18 +969,19 @@ describe("the parser's member lists", () => {
     const rulePerKey = nestedRuleNames(cddl);
     const readers = new Map<string, Array<{ version: string; key: string; members: readonly string[] }>>();
     for (const [version, defined] of Object.entries(definedMaps)) {
+      const one = twinForVersion(version);
       const nested = required(defined.nested, `the closure walk enters no map below a version ${version} payload`);
       const twinMaps = [
-        ...Object.entries(shape.$defs.payloadFields.properties),
-        ...Object.entries(branchSchema(twinForVersion(version).branch).properties),
+        ...Object.entries(one.shape.$defs.payloadFields.properties),
+        ...Object.entries(branchOf(one).properties),
       ]
         // A branch that reaches a definition through `$ref` declares a map all the same, so the
         // dereference comes before the question about its type.
-        .filter(([, declaration]) => deref(declaration)?.type === 'object')
+        .filter(([, declaration]) => derefIn(one, declaration)?.type === 'object')
         .map(([key]) => key);
       expect(
         [...Object.keys(nested)].sort(),
-        `the maps version ${version} enters are not the payload members the twin declares as maps`,
+        `the maps version ${version} enters are not the payload members the ${one.branch} twin declares as maps`,
       ).toEqual([...twinMaps].sort());
       for (const [key, map] of Object.entries(nested)) {
         const rule = required(rulePerKey.get(key), `no payload block names a rule for the map version ${version} enters at ${key}`);

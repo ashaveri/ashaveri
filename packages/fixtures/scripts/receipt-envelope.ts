@@ -1,7 +1,7 @@
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import { labeled } from './seed.ts';
-import { emptyRegion, hashRequest, type ReceiptPayload, type SigningKey } from '@ashaveri/receipt';
+import { emptyRegion, hashRequest, type ReceiptPayloadV1, type SigningKey } from '@ashaveri/receipt';
 
 /**
  * The receipt document every published vector that needs one is built from, held beside the fixtures
@@ -43,9 +43,9 @@ export function fixtureKey(): SigningKey {
  * a declared absence rather than a silence. A suite whose bytes say something else overrides the member at
  * its own call site, beside the bytes that make the answer true.
  */
-export function fixturePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload {
+export function fixturePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayloadV1 {
   const res = hashRequest(FIXTURE_RESPONSE);
-  const base: ReceiptPayload = {
+  const base: ReceiptPayloadV1 = {
     v: 1,
     iss: 'dpl-9f2a41c3',
     ins: 'cvm-i-047f2a',

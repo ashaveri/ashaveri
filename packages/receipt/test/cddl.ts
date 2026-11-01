@@ -87,12 +87,15 @@ export function labeledMembers(block: string): string[] {
  * The blocks of a rule written as a map, or a choice between maps. `Measurement` is two blocks that
  * name the same members at different widths, and the second one is invisible to `cddlRule`, which
  * stops at the first closing brace: a member arriving in one arm alone would be a map no list stands
- * behind. A block that never closes throws rather than reading as an empty one.
+ * behind. A rule written as a choice of other rule names, `CollateralSlot` and `Encryption`, owns no
+ * block itself, so its arms are the arms of the names on its line: a reader that stopped at the choice
+ * would see no member list at all behind a position the format closes. A block that never closes throws
+ * rather than reading as an empty one.
  */
 export function cddlRuleArms(cddl: string, rule: string): string[] {
   // Named by the rule, not by a path: see `cddlRule`.
   const start = cddl.indexOf(`${rule} = {`);
-  if (start < 0) throw new Error(`${rule} is not declared in the CDDL text it was handed`);
+  if (start < 0) return cddlChoiceArms(cddl, rule).flatMap((arm) => cddlRuleArms(cddl, arm));
   const arms: string[] = [];
   let current: string[] = [];
   for (const line of cddl.slice(start).split('\n')) {
@@ -110,6 +113,39 @@ export function cddlRuleArms(cddl: string, rule: string): string[] {
   throw new Error(`${rule} never closes in the CDDL text it was handed`);
 }
 
+/**
+ * The rule names one choice stands between, read off the line that spells it: `EncryptionPlain /
+ * EncryptionSession` are the two maps `Encryption` is, and a comment beside that line is the format
+ * speaking rather than declaring an arm. An empty list says the line names no map, which is what the
+ * reader above refuses rather than reading as a rule with no arms.
+ */
+export function cddlChoiceArms(cddl: string, rule: string): string[] {
+  // Named by the rule, not by a path: see `cddlRule`.
+  const start = cddl.indexOf(`${rule} = `);
+  if (start < 0) throw new Error(`${rule} is not declared in the CDDL text it was handed`);
+  const line = required(cddl.slice(start).split('\n')[0], `${rule} declares nothing on the line that opens it`);
+  const declaration = required(line.split('=').slice(1).join('='), `${rule} declares nothing on the line that opens it`);
+  const arms = declaration
+    .split(';')[0]!
+    .split('/')
+    .map((arm) => arm.trim())
+    .filter((arm) => /^[A-Z][A-Za-z0-9_-]*$/u.test(arm));
+  if (arms.length === 0) {
+    throw new Error(`${rule} opens no map and names no rule that does, in the CDDL text it was handed`);
+  }
+  return arms;
+}
+
+/**
+ * Whether this rule opens a block of its own. `Encryption = EncryptionPlain / EncryptionSession` opens
+ * none, and that is the fact a reader of a payload member needs before it asks which member list answers
+ * for the position: a rule that chooses between other rules has no single list standing behind it, so the
+ * map it names is closed by the reader that resolves the label inside it.
+ */
+export function cddlOpensBlock(cddl: string, rule: string): boolean {
+  return cddl.indexOf(`${rule} = {`) >= 0;
+}
+
 /** One map the CDDL defines and the list that stands behind it. */
 export interface ListBinding {
   readonly map: string;
@@ -117,16 +153,19 @@ export interface ListBinding {
 }
 
 /**
- * Which list stands behind which map. There is one payload block in this format and it binds to the
- * one list that names all seventeen of its members.
+ * Which list stands behind which map. There are two payload blocks in this format, seventeen members
+ * under the first and eighteen under the second, and each binds to the one list that names all of
+ * them.
  * `MARKING_MEMBERS` stands behind the map `mk`'s value is, which is why it appears once and not
- * inside the payload's list. The two collateral slot lists and the item list's element list stand
- * behind maps the closure walk reaches through a reader rather than through a member name, because a
- * slot's shape is decided by the label inside it and an array has no member to point at, so the
- * binding below is the only place the format's side of those three maps is written down.
+ * inside the payload's list. The two collateral slot lists, the two encryption arm lists and the item
+ * list's element list stand behind maps the closure walk reaches through a reader rather than through a
+ * member name, because a slot's shape and an arm's shape are each decided by the label inside them and an
+ * array has no member to point at, so the binding below is the only place the format's side of those five
+ * maps is written down.
  */
 export const LIST_FOR_MAP: readonly ListBinding[] = [
   { map: 'Ashaveri-Receipt-Payload-v1', list: 'PAYLOAD_MEMBERS' },
+  { map: 'Ashaveri-Receipt-Payload-v2', list: 'PAYLOAD_V2_MEMBERS' },
   { map: 'Marking', list: 'MARKING_MEMBERS' },
   { map: 'Measurement', list: 'MEASUREMENT_MEMBERS' },
   { map: 'EvidenceRef', list: 'EVIDENCE_REF_MEMBERS' },
@@ -135,6 +174,8 @@ export const LIST_FOR_MAP: readonly ListBinding[] = [
   { map: 'CollateralValidityAnchor', list: 'COLLATERAL_ANCHOR_MEMBERS' },
   { map: 'CollateralHeld', list: 'COLLATERAL_HELD_MEMBERS' },
   { map: 'CollateralAbsent', list: 'COLLATERAL_ABSENT_MEMBERS' },
+  { map: 'EncryptionPlain', list: 'ENCRYPTION_PLAINTEXT_MEMBERS' },
+  { map: 'EncryptionSession', list: 'ENCRYPTION_SESSION_MEMBERS' },
   { map: 'ItemStamp', list: 'ITEM_STAMP_MEMBERS' },
 ];
 
@@ -144,7 +185,8 @@ export const LIST_FOR_MAP: readonly ListBinding[] = [
  * reader parses is what keeps that set stated once: `receipt.cddl` names them, `receipt.ts` reads them,
  * and a version that arrived in one of the two and not the other would otherwise be a document the
  * format defines and no reader can open, or a reader that accepts a document no version of the format
- * grants. Today the rule has one alternative, and that is the whole of what this format declares.
+ * grants. The order the alternatives are written in is the order the tie below compares them in, so a
+ * number entering the format's list out of order is a finding rather than a passing equality.
  */
 export function cddlPayloadVersions(cddl: string): number[] {
   const found = /^Ashaveri-Receipt-Payload = (.+)$/mu.exec(cddl);

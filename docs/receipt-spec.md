@@ -1,12 +1,12 @@
 # Ashaveri Receipt Specification
 
-Status: Draft, payload version 1. The binary format is normatively defined by
+Status: Draft, payload versions 1 and 2. The binary format is normatively defined by
 [`packages/receipt/receipt.cddl`](../packages/receipt/receipt.cddl) and the golden conformance
 vectors in `@ashaveri/fixtures`. Which suites and fixtures are published, and which payload version
 each of the receipt fixtures carries, is stated once in the inventory in
 [vectors.md](vectors.md) rather than restated file by file here. This document specifies the format
 together with the HTTP protocol used to deliver receipts, and the algorithm clients follow to
-verify them. Section 6 says which payload version a verifier reads.
+verify them. Section 6 says which payload versions a verifier reads.
 
 ## 1. Overview
 
@@ -96,7 +96,7 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 
 | Field | Type | Meaning |
 |---|---|---|
-| `v` | int | Payload version, and the member that says which shape the rest of the map is. The format declares one payload version, `1`, and it states the seventeen members of this table: the twelve fields every receipt carries beside `v`, then a required `mk`, `sd`, `cva` and `itm`, as [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which numbers a call reads is section 6's rule, and the map is closed, so a member a document carries that the version it names does not define is a malformed payload rather than one the reader leaves out. |
+| `v` | int | Payload version, and the member that says which shape the rest of the map is. The format declares two payload versions, and this table states the members of both: the twelve fields every receipt carries beside `v`, then a required `mk`, `sd`, `cva` and `itm` at either number, and `enc` required of the newer one alone, as [`receipt.cddl`](../packages/receipt/receipt.cddl) defines. Which numbers a call reads is section 6's rule, and the map is closed, so a member a document carries that the version it names does not define is a malformed payload rather than one the reader leaves out. |
 | `iss` | tstr | Issuing deployment identity. |
 | `ins` | tstr | Issuing instance identity. |
 | `iat` | int | Issuance time, Unix seconds: the instant this deployment's declared time source read when it signed, and the instant a verifier's receipt window is measured from. What it proves is bounded by what it is: the moment a signing process believed, and the source it believed it from, and nothing about how far that source can stand from the truth. Absent a source a deployment wired, that is the host's own clock at an uncertainty nobody measured, so an unstamped deployment signs a host claim and a verifier reads it as one. The payload carries the source and its bound beside the instant in `sd`, so a verifier never has to go outside the document for that pair and never reads the instant as a claim about a clock the receipt does not name. Where no source was wired the disclosure states that rather than omitting itself, and `unc: null` is the sentence "nobody measured how far this stands from the truth". The map is closed, and the bytes at one instant are the same bytes whatever the clock of the host that wrote them turned out to be. |
@@ -113,6 +113,7 @@ countersignature variants (RFC 9338), if ever needed, would be a new format vers
 | `sd` | map | `{ name, unc }`: where the issuance instant came from, and what that source declares about itself. `name` is what the source's owner calls the thing this process reads, and `unc` is the number of seconds it admits a reading can be away from the instant it names, or `null` where nobody measured. The two are one field with two values and not one field with an escape: zero is a source claiming it is right, `null` is a source saying nothing here knows whether it is, and a policy that demands a bound refuses the second rather than trusting it, which is the same pair `maxTimeUncertaintySeconds` and its refusal already treat. Both members are required, because a disclosure that could be left out is a silence and this version exists to refuse one. Nothing here carries a second timestamp: the instant is `iat`, and two owners of one signed fact is one too many. The shape is `StampDisclosure` in `packages/receipt/src/disclosure.ts`, and which label holds which field is the `StampDisclosure` block of [`receipt.cddl`](../packages/receipt/receipt.cddl) and nothing else. |
 | `cva` | map | `{ col, val }`: the collateral and the validity context the appraisal of the evidence ran on, captured as they were taken in and read offline ever after. Each half is one of two shapes, told apart by the label in its `p`, and the three labels are the capture record's `CapturePresence`: `held`, `absent-at-source`, `not-taken-in`. A held slot carries `d`, sha256 of those bytes exactly as they arrived; either absence carries `r`, the collector's own sentence for why there are no bytes, and no digest, because a digest of bytes nobody held is a statement about nothing. The two absences are two labels because one is a statement about the world and the other about this collector, and a record that could not tell them apart could not be read as either. Both halves are required and neither defaults: an anchor that reads a missing half as a pass is not an anchor. No arm of either carries a verdict of any kind, because whether the collateral verifies is a question a reader asks with its own pins, and a signed document that printed the conclusion would turn custody of bytes into verification of them. The shape is `CollateralValidityAnchor` in the same file, and its mapping to these labels is that block of the CDDL and nothing else. A verifier's standards reach both counts here: `minAnchorSlotsHeld` on the client's policy names how many of the two slots must state that their material was taken in, and a document stating fewer is refused with `ANCHOR_SLOT_NOT_HELD` beside its own reasons. `minAnchorSlotsWeighed` on the same policy names how many a reader must reach and find standing as their own signed statement at the instant the record claims, and the two ways that goes unanswered keep their own codes: `ANCHOR_MATERIAL_UNREACHED` for a digest nothing reached, and `ANCHOR_MATERIAL_NOT_STANDING` for material reached that does not answer for that instant. Both weighings happen where a deployment hands the receipt over, and not in this reader, which weighs nothing a policy asked for and has to keep answering the same way for an auditor holding no policy and no date. Whether a slot stating `held` still resolves is the second question, answered by the reader and by nothing in these bytes: a payload states a digest and no bytes, and what answers for the digest depends on the container it travelled in. A pack seals the answer inside itself, in the `carried` list whose rule and refusals are below, so a reader holding one pack and reaching no vendor endpoint resolves each held slot out of the bytes the pack carries; a receipt fetched from a deployment on its own arrives with no such list beside it, and there the material is whatever the verifier holds. |
 | `itm` | array | `{ t, d }` once per response item, in the order the response put its items in, and never empty. `d` is sha256 of exactly one item's bytes and of none of the framing around them; `t` is the whole number of Unix seconds the source named by `sd` read when those bytes were framed, the same source that read `iat` and the same unit. The reading is one per item and taken in the order the items were framed, so a stamp states something about an item and a source and nothing about how the bytes reached a socket: an implementation that hands a body over in one write and one that hands the same body over a frame at a time are to state the same list, because the number of readings a response consumes is fixed by its items. What the two values say about the passage of time is bounded by that source's declared uncertainty and by the second, and a reader that wants the order of the items has the array, not the difference between two of them. What an item is, where its bytes end, and which of the payload's digests covers which span is section 3.1. Chain order is this array's order and stamp order is `t`, and a reader refuses a receipt where the two disagree (`ITEM_STAMP_OUT_OF_ORDER`), which is section 5's last paragraph. `t` is never above `iat`: an item of a response cannot be dated after the document attesting that response, and a codec checking the order of a list cannot see that bound, so it is a rule a producer keeps. Where the source steps back inside one response, a producer holding its list readable has to hold the stepped-back stamp at that ceiling too, and what the reader then meets is an item dated at `iat`, or a run of items dated at the same instant, which is the reading the step back leaves behind and not a claim about the ordering of the bytes. A response that was not streamed is one entry holding the whole body, which may be no bytes at all; a stream that sent no data frame is a refusal at issuance rather than a list of none, because a run of nothing states nothing and makes the walk over it vacuous. |
+| `enc` | map | Required of version 2 and named by no other version: what the bodies whose digests are `req` and `res` were on the wire. One map, two shapes, told apart by the label at `sch`: `none` states that both legs were transmitted as they came and carries no further member, and `x25519-aes-256-gcm-v1` states that both legs were sealed under the key its `pk` names. That key is 32 bytes. Nothing in this document ties it to a measurement: `att` names an attestation by its digest, its instant and the route it came from, and states no report data, so the binding a reader weighs lives in the evidence the deployment's key route serves beside the key, fetched for the key rather than for the request. A reader holding only the ciphertext still has both digest checks to run against the bytes it holds. A label outside those two is refused with `UNSUPPORTED_ENCRYPTION_SCHEME`, naming the label the reader could not interpret: the registry is closed, weighing bytes under a construction this package does not know is the confusion that answer exists for, and it is a different question from `mk.sch`'s, so it keeps a code of its own. An absent `enc` at version 2 is `BAD_PAYLOAD` naming the member, because the plain reading is a value and not a silence: a reader that took a missing member as "in the clear" would verify a document that never said so, which is the failure `mk` exists to refuse at either number. The algorithm and the key exchange are folded into the one label rather than carried as two members that have to agree with each other and with nothing else. No shipped gateway signs the newer number: the deployment path writes the older one, and what this package does at version 2 is read a document a caller states and encode one it is handed. Which labels `enc.sch` draws on, and what each one makes `req` and `res` digests of, is section 3.4. |
 
 **There is no shorter receipt to fall back to.** A gateway signs `v: 1` and nothing else, and the condition
 that decides whether it signs at all is one test of the response's bytes rather than of the deployment that
@@ -312,6 +313,38 @@ around it, which is why the pair is checked together and why neither half is the
 And what a verifier needs is the bytes: a reader holding the words alone, pasted out of a chat window
 or retyped, has no region to look for, which section 6 of [threat-model.md](threat-model.md) states as
 a limit rather than as a gap on a roadmap.
+
+### 3.4 Encryption schemes
+
+`enc.sch` is a label from this table and from nothing else, at the payload version that names the
+member. A label names a whole construction rather than two of its parts, because a reader that was handed
+an algorithm and a key exchange separately would still have to decide whether the pair was ever meant to
+be read together, and a document whose meaning is assembled by its reader from two members is a document
+whose meaning depends on which release wrote it.
+
+| `enc.sch` | What it declares | What a verifier weighs |
+|---|---|---|
+| `"none"` | Both bodies this receipt digests were transmitted as they came, which the document states rather than leaving a reader to read an absent member as a statement | `req` and `res` are digests of the request and the response as section 3 describes them, over the bytes the client held |
+| `"x25519-aes-256-gcm-v1"` | Both bodies were sealed under the key the arm's `pk` names, from an X25519 shared secret, with AES-256-GCM on each leg | `req` and `res` are digests of the ciphertext as it was transmitted, and `pk` is a 32-byte key this document names but does not bind |
+
+Two absences, each refused in its own way. A version 2 payload with no `enc` is a malformed document
+(`BAD_PAYLOAD`, naming the member and the version that requires it), because the plain reading is the value
+`"none"` and a member a reader could leave out is a silence the reader would have to guess at, which is the
+same reason `mk` is required and the reason section 6 states both together. A label outside these two rows
+is `UNSUPPORTED_ENCRYPTION_SCHEME`, which is a different answer from `UNSUPPORTED_SCHEME`: a reader able to
+look for a mark is not therefore able to look for a cipher, and which registry a label was weighed against
+is the fact a deployment has to act on.
+
+The session arm carries `pk` and the plain arm carries nothing beside its label, so which member list stands
+behind `enc` is decided by `enc.sch`, and no single list answers for both. That is the same closure the two
+halves of `cva` are read under, and the refusal names the position it reached.
+
+What this table does not do is prove a key. `att` states a digest, an instant and a route, and no member of
+a payload states what that evidence's report data carried, so a session document names a key and leaves its
+binding elsewhere: the attestation a deployment's key route serves for that key is the document that answers
+for it. A reader that wants the key tied to a measurement asks that second document, and a reader holding
+only ciphertext can still weigh both digests against the bytes it was handed, which is the whole of what a
+receipt claims about either leg.
 
 ## 4. HTTP protocol
 
@@ -1439,21 +1472,30 @@ and has no neighbours to compare it with.
 
 ## 6. Versioning
 
-The payload has one version, `v: 1`, and it states seventeen members: section 3's twelve fields beside
-`v`, then a required `mk`, `sd`, `cva` and `itm`. A version says what a receipt attests rather than
-which software wrote it, so each of those four names is required rather than optional: a reader that
-left one out would verify a receipt missing that claim and read its own silence as the deployment's. A
-payload map is closed, so a member the format does not define is a malformed payload (`BAD_PAYLOAD`)
+The payload has two versions. Version 1 states seventeen members: section 3's twelve fields beside
+`v`, then a required `mk`, `sd`, `cva` and `itm`. Version 2 states those seventeen and `enc`, one name
+appended to that list, and `enc` is why the number exists. Under a session `req` and `res` are digests of
+the ciphertext that was actually transmitted, so both keep their name, their type and their width while
+what they attest moves, and a reader written before the change would recompute them over the plaintext it
+held, match both, and report a verified receipt for a document attesting other bytes under the same names.
+That is the failure a version member catches and no member beside it can, because every field such a
+document carries is well-formed read on its own. A version says what a receipt attests rather than
+which software wrote it, so each of those four names is required rather than optional at either number: a reader that
+left one out would verify a receipt missing that claim and read its own silence as the deployment's. `enc`
+is required of the newer number for the same reason once more: the plain reading is the value
+`sch: "none"`, and a member a reader could leave out would be readable as a statement the document never
+made. Version 1 is frozen in content, and every document signed under it is read exactly as it was written.
+A payload map is closed, so a member the version a document names does not define is a malformed payload (`BAD_PAYLOAD`)
 rather than a member the reader
 agrees to leave out: that is what makes "every receipt names an `mk`" a fact of the format rather than an
 expectation about it, and the same fact about `sd`, `cva` and `itm`. The rule
 is not the payload map's alone: the six maps nested inside it, `meas`, `att`, `tok`, `mk`, `sd` and
 `cva`, carry no `...` in the normative CDDL either, and `@ashaveri/receipt`
 refuses an undefined member of any of them with `BAD_PAYLOAD` rather than reading what it names there
-and dropping the rest. The element of `itm` is closed by the reader that walks it and a collateral
-slot's arm by the reader that resolves the label in it, because no single member list answers for both
-arms of a choice or reaches inside an array, and each refusal names the position it reached: `cva.col`,
-or `itm[2]`. The signed `Ashaveri-Protected-Header` closes with them, and a label its three
+and dropping the rest. The element of `itm` is closed by the reader that walks it, and a collateral slot's
+arm and an `enc` arm by the reader that resolves the label in it, because no single member list answers for
+both arms of a choice or reaches inside an array, and each refusal names the position it reached: `cva.col`,
+`enc`, or `itm[2]`. The signed `Ashaveri-Protected-Header` closes with them, and a label its three
 do not name is refused there with `BAD_PROTECTED_HEADER`, before any of the three is read. A reader
 that rebuilt a nested value from only the members it knows would
 leave its holder no way to tell a receipt that attested one thing from one that attested that thing
@@ -1462,7 +1504,7 @@ would find nothing about a mark, and verify a receipt over an unmarked response 
 over a marked one. `sd`, `cva` and `itm` are required for the same reason each on its own would: a
 receipt whose stamp names no source, whose appraisal recorded no context, and whose response holds no
 items is three silences a verifier cannot see from inside the document. The deployment manifest is a different document, and it still
-carries the one version, `v: 1`, for a reason that is not the receipt's.
+carries a single version, `v: 1`, for a reason that is not the receipt's.
 
 A deployment manifest's parser reads the members it names and leaves the rest, at the top level and inside each entry
 of `keys[]`, which is the opposite trade to the closed payload map above and is made for the opposite

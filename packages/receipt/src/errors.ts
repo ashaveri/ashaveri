@@ -19,6 +19,11 @@ export type ReceiptErrorCode =
   | 'UNSUPPORTED_VERSION'
   | 'BAD_PAYLOAD'
   | 'UNSUPPORTED_SCHEME'
+  // Not `UNSUPPORTED_SCHEME` under another name: that sentence is about `mk.sch`, and a reader able to look
+  // for a mark is not therefore able to look for a cipher. Which registry a label is weighed against is the
+  // fact a caller acts on, and two registries answering one string would leave a log line that cannot say
+  // which of the two a deployment has to widen.
+  | 'UNSUPPORTED_ENCRYPTION_SCHEME'
   | 'MARK_MISMATCH'
   | 'ITEM_STAMP_OUT_OF_ORDER'
   | 'FRAMER_REUSED'
@@ -121,6 +126,9 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   UNSUPPORTED_VERSION: 'receipt payload declares a version this package cannot parse or is not configured to accept',
   BAD_PAYLOAD: 'payload does not match the CDDL schema for its receipt version',
   UNSUPPORTED_SCHEME: 'marking scheme is not in the registry this package can interpret',
+  // The other registry, weighed at the position `enc` names rather than the one `mk` does, and answered at
+  // both entry points that read a payload and at the writer that settles which member list the label picks.
+  UNSUPPORTED_ENCRYPTION_SCHEME: 'encryption scheme is not in the registry this package can interpret',
   MARK_MISMATCH: 'the marked region does not hash to the digest the receipt carries in mk.d',
   // The two orders one payload states about its own items, compared. Chain order is the array's
   // order and stamp order is `t`, so a receipt whose later item carries an earlier instant is one

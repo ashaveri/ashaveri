@@ -53,6 +53,13 @@ export interface ReceiptFixtureRow {
   sd?: { name: string; unc?: number | null };
   cva?: { col: ReceiptAnchorSlotColumn; val: ReceiptAnchorSlotColumn };
   /**
+   * The arm of `enc` the document carries: the label that decides which member list stands behind the map,
+   * and the key the arm that names one holds, spelled in unpadded base64url. Present on a row exactly where
+   * its bytes carry the member, which is every row at the newer version except the one published to state
+   * that the member is missing, and the one row at the older number that carries it anyway.
+   */
+  enc?: { sch: string; pkBase64Url?: string };
+  /**
    * The verdict the shipped client path gives this document under each posture the policy field
    * `minAnchorSlotsHeld` can take, stated in the order `null`, `1`, `2`: no demand named, a demand of one
    * held slot, a demand of both. Present on a row exactly where the client reaches the anchor its document

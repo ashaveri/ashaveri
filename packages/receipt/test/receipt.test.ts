@@ -19,8 +19,10 @@ import {
 } from '../src/index.js';
 import type {
   CollateralSlot,
+  Encryption,
   Marking,
   ReceiptPayload,
+  ReceiptPayloadV1,
   SigningKey,
   StampDisclosure,
 } from '../src/index.js';
@@ -38,13 +40,13 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { Tag, encode, defaultEncodeOptions, encodedNumber } from 'cbor2';
 import { sortCoreDeterministic } from 'cbor2/sorts';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
-import { cddlIntegerPositions, cddlRule, cddlRuleArms, cddlTextPositions, memberDeclarations, nestedRuleNames, readCddl } from './cddl.js';
+import { cddlIntegerPositions, cddlOpensBlock, cddlRule, cddlRuleArms, cddlTextPositions, memberDeclarations, nestedRuleNames, readCddl } from './cddl.js';
 
 // FIXED_NOW is whole seconds since the Unix epoch, the receipt format's own unit: it is assigned to
 // `iat` below and handed to `verifyReceipt` as `nowSeconds`, both of which compare against seconds.
 const FIXED_NOW = 1_772_000_000;
 
-function samplePayload(overrides: Partial<ReceiptPayload> = {}): ReceiptPayload {
+function samplePayload(overrides: Partial<ReceiptPayloadV1> = {}): ReceiptPayload {
   return {
     v: 1,
     iss: 'dpl-9f2a41',
@@ -617,6 +619,21 @@ function stampedPayload(): ReceiptPayload {
 }
 
 /**
+ * A version 2 document: the fullest one version 1 carries, at the newer number, with the member the number
+ * exists for. The plain reading is the default, because stating that nothing was encrypted is what makes the
+ * member required: a v2 document that held `enc` back would be stating nothing at all, which is the silence
+ * version 2 was opened to refuse.
+ */
+function encryptedPayload(enc: Encryption = { sch: 'none' }): ReceiptPayload {
+  return { ...stampedPayload(), v: 2 as const, enc };
+}
+
+/** The session arm, at the width `receipt.cddl` bounds `pk` to. */
+function sessionPayload(pk: Uint8Array = new Uint8Array(32).fill(11)): ReceiptPayload {
+  return encryptedPayload({ sch: 'x25519-aes-256-gcm-v1', pk });
+}
+
+/**
  * The members the corpus carries as an array of maps rather than as a map. Read off the bytes the
  * writer builds rather than written out beside them, because the index a refusal names for an element
  * is the reader's own spelling and this file quotes it.
@@ -671,6 +688,17 @@ function membersOf(payload: ReceiptPayload): Map<string, unknown> {
     ['cva', new Map<string, unknown>([['col', slot(payload.cva.collateral)], ['val', slot(payload.cva.validity)]])],
     ['itm', payload.itm.map((one) => new Map<string, unknown>([['t', one.t], ['d', one.d]]))],
   );
+  // The arm spelling is written out here rather than taken from the codec, for the reason the whole map is:
+  // a session carries a key and the plain reading carries no key member at all, and the two agreeing on that
+  // with `encodePayload` is what it means for nothing to have been added, dropped or reordered.
+  if (payload.v === 2) {
+    members.push([
+      'enc',
+      payload.enc.sch === 'none'
+        ? new Map<string, unknown>([['sch', payload.enc.sch]])
+        : new Map<string, unknown>([['sch', payload.enc.sch], ['pk', payload.enc.pk]]),
+    ]);
+  }
   return new Map<string, unknown>(members);
 }
 
@@ -740,32 +768,52 @@ describe('the receipt payload and the versions a call accepts', () => {
     expect(failure.message).toContain("marking scheme 'provenance-v2'");
   });
 
-  it('refuses a document bearing a retired version and names the number it read', () => {
+  it('refuses a document bearing a number outside the set it reads and names the number it read', () => {
     const key = generateSigningKey();
-    // The retired numbers get a version answer, not a structural one: these bytes carry every member
-    // the format defines and move only the `v`, so a refusal here that named a member would say the
-    // document was incomplete when what it says is that this build reads no such version. Each number
-    // arrives in the message, and neither reading of the document is left to fall through.
-    for (const retired of [2, 3]) {
-      const members = membersOf(stampedPayload());
-      members.set('v', retired);
-      const bytes = signMembers(members, key);
-      const failure = expectFailure(
-        () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
-        'UNSUPPORTED_VERSION',
-      );
-      expect(failure.message).toContain(`receipt payload version ${retired} is not a format this package reads`);
-      expectErrorCode(() => decodeReceipt(bytes), 'UNSUPPORTED_VERSION');
-    }
+    // The retired number gets a version answer, not a structural one: these bytes carry every member the
+    // format defines under `v: 1` and move only the `v`, so a refusal here that named a member would say the
+    // document was incomplete when what it says is that this build reads no such version. The number arrives
+    // in the message, and both ways of opening the bytes answer with it, because which of the two a caller
+    // used is not a fact about the document.
+    const members = membersOf(stampedPayload());
+    members.set('v', 3);
+    const bytes = signMembers(members, key);
+    const failure = expectFailure(
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
+      'UNSUPPORTED_VERSION',
+    );
+    expect(failure.message).toContain('receipt payload version 3 is not a format this package reads');
+    expectErrorCode(() => decodeReceipt(bytes), 'UNSUPPORTED_VERSION');
+  });
+
+  it('reads a second version, so a seventeen-member document claiming it is a payload failure not a version', () => {
+    // The witness that the version set widened, and the one a retired number cannot give: this document
+    // carries exactly version 1's member set and moves only `v`, so it is no longer refused as a number this
+    // package cannot read, which is what it was while the set held one version. Nor is it read with the
+    // missing member dropped. It is refused for the member version 2 requires, named, beside the number the
+    // document itself stated. Which of those three answers a caller hears is the whole of the difference
+    // between a format that gained a version, one that never did, and one that quietly finished a document it
+    // cannot state.
+    const key = generateSigningKey();
+    const members = membersOf(stampedPayload());
+    members.set('v', 2);
+    const bytes = signMembers(members, key);
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
+    expect(failure.message).toContain('v2 requires an enc member');
+    expect(failure.message).not.toContain('is not a format this package reads');
+    expect(expectFailure(() => decodeReceipt(bytes)).message).toContain("the plain reading is enc.sch \"none\"");
   });
 
   it('refuses any member the payload version does not define, not only the marking one', () => {
     const key = generateSigningKey();
     // One list per version rather than a case per name, so the check that fires for one name fires
     // for every other: an extra member that looks like it could belong to this format, and one that
-    // plainly does not belong to any version of it.
+    // plainly does not belong to any version of it. `envelope` is the second of those, the word an outside
+    // implementation reaches for when it means what `enc` says, and a name no version of this format
+    // defines: `enc` itself names an arm of version 2 now, so it belongs to the pair of cases that holds one
+    // version's member set against the other's, not to a sweep of names the format has never used.
     for (const [name, value] of [
-      ['enc', new Uint8Array(32).fill(9)],
+      ['envelope', new Uint8Array(32).fill(9)],
       ['not_a_member', 'x'],
     ] as Array<[string, unknown]>) {
       const members = membersOf(markedPayload());
@@ -926,6 +974,186 @@ describe('the receipt payload and the versions a call accepts', () => {
       'UNSUPPORTED_VERSION',
     );
     expect(refusal.message).toContain('is not projected as another version');
+  });
+});
+
+/**
+ * Version 2 is version 1's member list with the one name the number exists for, so every case here is asked
+ * twice: of the bytes, that the member arrives and leaves as it was stated, and of the two directions, that a
+ * document at one number is held to that number's list and not to the other's.
+ */
+describe('payload version 2 and the enc member it requires', () => {
+  it('encodes, decodes and verifies a v2 document stating that nothing was encrypted', () => {
+    const key = generateSigningKey();
+    const payload = encryptedPayload();
+    // The bytes are the layout this file spells out beside the CDDL, member for member. The comparison is
+    // what says the writer wrote the member: a document that lost `enc` inside the encoder would still be
+    // refused on the way back by a reader who owed nothing to the writer, and only the bytes show which of
+    // the two made the document.
+    expect(equalBytes(encodePayload(payload), encodeCanonical(membersOf(payload)))).toBe(true);
+    const bytes = issueReceipt(payload, key);
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
+    if (verified.payload.v !== 2) throw new Error(`a v2 document was read as version ${verified.payload.v}`);
+    expect(verified.payload.enc).toEqual({ sch: 'none' });
+    expect(equalBytes(encodePayload(verified.payload), verified.cose.payloadBytes)).toBe(true);
+    expect(decodeReceipt(bytes).payload).toEqual(verified.payload);
+    // The seventeen positions the number inherits arrive unchanged, because version 2 is one appended name
+    // rather than a second document.
+    expect(verified.payload.mk).toEqual(payload.mk);
+    expect(verified.payload.sd).toEqual(payload.sd);
+    expect(verified.payload.cva).toEqual(payload.cva);
+    expect(verified.payload.itm).toEqual(payload.itm);
+    expect(verified.payload.iss).toBe(payload.iss);
+  });
+
+  it('refuses a v2 document with no enc, naming the member and the version it read', () => {
+    const key = generateSigningKey();
+    const members = membersOf(encryptedPayload());
+    members.delete('enc');
+    const bytes = signMembers(members, key);
+    // The detail is the assertion: every other member of this document is present and well-typed, so the code
+    // alone would also be what a wrong width at `nce` answers with, and only the sentence says the refusal was
+    // reached for the one member the version exists to carry.
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
+    expect(failure.message).toContain('v2 requires an enc member');
+    expect(expectFailure(() => decodeReceipt(bytes)).message).toContain('the plain reading is enc.sch');
+  });
+
+  it('refuses enc on a version 1 document, because the name belongs to the other list', () => {
+    const key = generateSigningKey();
+    const members = membersOf(stampedPayload());
+    members.set('enc', new Map<string, unknown>([['sch', 'none']]));
+    const bytes = signMembers(members, key);
+    const failure = expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
+    expect(failure.message).toContain("payload carries a member version 1 does not define: 'enc'");
+    expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+
+    // The writer answers the same document with the reader's sentence, so a caller that cast cannot sign what
+    // no version of this format states: the name is refused against the list the payload's own number
+    // selects, which is the one fact `enc` costs a version to carry.
+    const handBuilt = { ...stampedPayload(), enc: { sch: 'none' } } as unknown as ReceiptPayload;
+    expect(expectFailure(() => encodePayload(handBuilt)).message).toContain(
+      "payload carries a member version 1 does not define: 'enc'",
+    );
+  });
+
+  it('verifies a session arm and refuses a key at another width', () => {
+    const key = generateSigningKey();
+    for (const width of [31, 33]) {
+      const members = membersOf(sessionPayload());
+      members.set('enc', new Map<string, unknown>([['sch', 'x25519-aes-256-gcm-v1'], ['pk', new Uint8Array(width).fill(1)]]));
+      const failure = expectFailure(() => decodeReceipt(signMembers(members, key)));
+      expect(failure.message, `a pk of ${width} bytes`).toContain('enc.pk must be a 32-byte bstr');
+    }
+
+    // The arm at its width, through the signature and back out. `pk` is the key the evidence the same
+    // document names binds, so a reader that lost it would lose the only tie between the receipt and a
+    // measurement, and a writer that reordered the two members would change the bytes the signature covers.
+    const bytes = issueReceipt(sessionPayload(), key);
+    const verified = verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW });
+    if (verified.payload.v !== 2) throw new Error('a v2 document was read as another version');
+    expect(verified.payload.enc.sch).toBe('x25519-aes-256-gcm-v1');
+    if (verified.payload.enc.sch !== 'x25519-aes-256-gcm-v1') throw new Error('the session arm came back as the other one');
+    expect(equalBytes(verified.payload.enc.pk, new Uint8Array(32).fill(11))).toBe(true);
+    expect(equalBytes(encodePayload(verified.payload), encodeCanonical(membersOf(sessionPayload())))).toBe(true);
+  });
+
+  it('closes each arm of enc at the position the member sits at', () => {
+    const key = generateSigningKey();
+    // The label decides which list stands behind the member, so a document holding one arm's claim and the
+    // other arm's member is refused for the member, at the position, exactly as the two slot arms are.
+    const plaintextWithKey = membersOf(encryptedPayload());
+    plaintextWithKey.set('enc', new Map<string, unknown>([['sch', 'none'], ['pk', new Uint8Array(32).fill(1)]]));
+    expect(expectFailure(() => decodeReceipt(signMembers(plaintextWithKey, key))).message).toContain(
+      "enc carries a member a plaintext arm does not define: 'pk'",
+    );
+
+    const sessionWithoutKey = membersOf(sessionPayload());
+    sessionWithoutKey.set('enc', new Map<string, unknown>([['sch', 'x25519-aes-256-gcm-v1']]));
+    expect(expectFailure(() => decodeReceipt(signMembers(sessionWithoutKey, key))).message).toContain(
+      'enc.pk must be a 32-byte bstr',
+    );
+
+    // And the writer meets both documents at the same position before a byte is signed, so the caller that
+    // assembled an arm wrongly is told which arm it named rather than handed bytes to issue.
+    const handPlaintext = { ...encryptedPayload(), enc: { sch: 'none', pk: new Uint8Array(32).fill(1) } } as unknown as ReceiptPayload;
+    expect(expectFailure(() => encodePayload(handPlaintext)).message).toContain(
+      "enc carries a member a plaintext arm does not define: 'pk'",
+    );
+    const handSession = { ...encryptedPayload(), enc: { sch: 'x25519-aes-256-gcm-v1' } } as unknown as ReceiptPayload;
+    expect(expectFailure(() => encodePayload(handSession)).message).toContain(
+      "enc is missing 'pk', which a session arm requires",
+    );
+  });
+
+  it('answers an encryption label outside the registry, at every way in and out, and names the label', () => {
+    const key = generateSigningKey();
+    const members = membersOf(encryptedPayload());
+    members.set('enc', new Map<string, unknown>([['sch', 'x25519-aes-256-gcm-v2'], ['pk', new Uint8Array(32).fill(1)]]));
+    const bytes = signMembers(members, key);
+    // A label one step on from a construction this package has never been told about, taken at both ways of
+    // opening the bytes. This is a code of its own rather than `BAD_PAYLOAD` or the marking registry's
+    // `UNSUPPORTED_SCHEME`: the document is well-formed and it is the construction it names that the reader
+    // cannot look for, and a refusal that named neither registry would leave an operator widening the wrong
+    // table.
+    const failure = expectFailure(
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }),
+      'UNSUPPORTED_ENCRYPTION_SCHEME',
+    );
+    expect(failure.message).toContain("encryption scheme 'x25519-aes-256-gcm-v2'");
+    expect(expectFailure(() => decodeReceipt(bytes), 'UNSUPPORTED_ENCRYPTION_SCHEME').message).toContain(
+      "encryption scheme 'x25519-aes-256-gcm-v2'",
+    );
+
+    // The writer settles the label before it settles the members, because the label is what says which member
+    // list applies: an arm this format does not know has no list to check a document against, and guessing
+    // one would sign a statement the format never made.
+    const handBuilt = { ...encryptedPayload(), enc: { sch: 'aes-128-gcm' } } as unknown as ReceiptPayload;
+    expect(expectFailure(() => encodePayload(handBuilt), 'UNSUPPORTED_ENCRYPTION_SCHEME').message).toContain(
+      "encryption scheme 'aes-128-gcm' is not one this package can interpret",
+    );
+  });
+
+  it('refuses a caller a v2 document it can state but not sign, and narrows with the second sentence', () => {
+    const key = generateSigningKey();
+    // The member is required of the writer as it is of the reader, read off the same list `DEFINED_MAPS`
+    // holds, so the sweep that takes each version's members away one at a time reaches `enc` on the day it
+    // joined the list. This is the same refusal `issueReceipt` meets, before a key is consulted.
+    const failure = expectFailure(() => encodePayload(givenWithoutMember(encryptedPayload(), 'enc')));
+    expect(failure.message).toContain("payload is missing 'enc', which version 2 requires");
+    expectFailure(() => issueReceipt(givenWithoutMember(encryptedPayload(), 'enc'), key), 'BAD_PAYLOAD');
+
+    // Two distinct answers under one code, which the widened set has to keep: a number the format does not
+    // define is answered as the format, and a number the caller declined is answered as the caller. A
+    // deployment that means to read version 1 bytes only writes the narrow set, and the sentence it hears
+    // says that it was the one that declined.
+    const bytes = issueReceipt(encryptedPayload(), key);
+    expect(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload.v).toBe(2);
+    const declined = expectFailure(
+      () => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW, acceptedVersions: [1] }),
+      'UNSUPPORTED_VERSION',
+    );
+    expect(declined.message).toContain('receipt payload version 2 is not in acceptedVersions');
+    expect(expectFailure(() => decodeReceipt(bytes, { acceptedVersions: [1] }), 'UNSUPPORTED_VERSION').message).toContain(
+      'is not in acceptedVersions',
+    );
+    // And a reader that named nothing takes both, because the default is the parsed set: the older document
+    // still verifies exactly as it did, so widening what is read moved nothing a caller had already accepted.
+    expect(verifyReceipt(issueReceipt(stampedPayload(), key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload.v).toBe(1);
+  });
+
+  it('projects a v2 document with the one member appended, in the order the format lists it', () => {
+    const twin = receiptToJson(encryptedPayload(), new Uint8Array(64).fill(3), new Uint8Array(32).fill(4));
+    expect(Object.keys(twin.payload)).toEqual([
+      'v', 'iss', 'ins', 'iat', 'nce', 'req', 'res', 'mdl', 'wts', 'meas', 'att', 'epk', 'tok',
+      'mk', 'sd', 'cva', 'itm', 'enc',
+    ]);
+    if (twin.payload.v !== 2) throw new Error(`the projection wrote version ${twin.payload.v} for a v2 payload`);
+    expect(twin.payload.enc).toEqual({ sch: 'none' });
+
+    const session = receiptToJson(sessionPayload(), new Uint8Array(64).fill(3), new Uint8Array(32).fill(4));
+    if (session.payload.v !== 2) throw new Error('the projection wrote the wrong version for a session document');
+    expect(session.payload.enc).toEqual({ sch: 'x25519-aes-256-gcm-v1', pk: toHex(new Uint8Array(32).fill(11)) });
   });
 });
 
@@ -1245,13 +1473,16 @@ describe('the four members a receipt states about itself and the order of its it
   it('refuses a member the format does not define at the payload level, whichever document carries it', () => {
     const key = generateSigningKey();
     // The closed map is one rule stated one way, so the name that crosses no boundary is the one it
-    // answers: a document carrying a name this format never defines is refused rather than read with
+    // answers: a document carrying a name no version of this format defines is refused rather than read with
     // the member dropped, which is the silence the closed map exists to refuse. Three documents,
-    // because the refusal must not depend on which of the four members about itself a payload states.
+    // because the refusal must not depend on which of the four members about itself a payload states. The
+    // name is `envelope`, the one an outside implementation hands over for a confidentiality claim and the
+    // one this format has no version that defines; `enc` is a member of version 2's list and belongs to the
+    // cases that weigh one version against the other.
     const cases: Array<[ReceiptPayload, string, string]> = [
       [samplePayload(), 'surprise', "payload carries a member version 1 does not define: 'surprise'"],
       [markedPayload(), 'not_a_member', "payload carries a member version 1 does not define: 'not_a_member'"],
-      [stampedPayload(), 'enc', "payload carries a member version 1 does not define: 'enc'"],
+      [stampedPayload(), 'envelope', "payload carries a member version 1 does not define: 'envelope'"],
     ];
     for (const [payload, member, sentence] of cases) {
       const members = membersOf(payload);
@@ -1293,9 +1524,14 @@ function editedNested(
   return members;
 }
 
-/** A document of the payload version the closure walk names, which is the whole corpus here. */
+/**
+ * A document of the payload version the closure walk names. Every version the walk gains has to be answered
+ * for here with a document of its own, because the sweeps below read the versions out of `DEFINED_MAPS`: a
+ * version that joined the walk with no document here stops the run rather than covering one case fewer.
+ */
 function payloadForVersion(version: string): ReceiptPayload {
   if (version === '1') return stampedPayload();
+  if (version === '2') return encryptedPayload();
   throw new Error(`this corpus has no document for payload version ${version}`);
 }
 
@@ -1328,13 +1564,14 @@ interface ClosureCase {
 }
 
 /**
- * The maps a payload version reaches that the closure walk cannot enter by member name, read out of
- * the block that declares them: a member bound to a rule through an array (`itm`) is closed at
- * its element, and a member whose rule names members that are rules of their own (`cva.col` and
- * `cva.val`, the two arms the label inside a slot selects) is closed one level below the map the walk
- * enters. Neither kind is written out here, and neither is asked of the walk's own `nested`, because a
- * hand-written list of positions is the copy that stays green the day the format gains a third map of
- * this shape and nothing starts refusing at it.
+ * The maps a payload version reaches that the closure walk cannot enter by member name, read out of the
+ * block that declares them: a member bound to a rule through an array (`itm`) is closed at its element, a
+ * member bound to a rule that opens no block of its own (`enc`, which is a choice between two maps) is
+ * closed at the member's own position by the reader that resolves the label inside it, and a member whose
+ * rule names members that are rules of their own (`cva.col` and `cva.val`, the two arms the label inside a
+ * slot selects) is closed one level below the map the walk enters. None of the three is written out here,
+ * and none is asked of the walk's own `nested`, because a hand-written list of positions is the copy that
+ * stays green the day the format gains a third map of this shape and nothing starts refusing at it.
  */
 function casesBeyondTheWalk(cddl: string, version: number, payload: ReceiptPayload): ClosureCase[] {
   const rules = nestedRuleNames(cddl);
@@ -1344,6 +1581,10 @@ function casesBeyondTheWalk(cddl: string, version: number, payload: ReceiptPaylo
     if (rule === undefined) continue;
     if (member.type.startsWith('[+')) {
       cases.push({ payload, route: member.name, position: positionOf(member.name) });
+      continue;
+    }
+    if (!cddlOpensBlock(cddl, rule)) {
+      cases.push({ payload, route: member.name, position: member.name });
       continue;
     }
     for (const arm of cddlRuleArms(cddl, rule)) {
@@ -1475,13 +1716,15 @@ function givenWithoutMember(payload: ReceiptPayload, name: string): ReceiptPaylo
 describe('what the writer refuses to make, and what it makes anyway', () => {
   it('refuses a member the format does not define, and names the member and the version it read', () => {
     // The writer answers with the reader's sentence and the reader's code, so the names it refuses are
-    // the ones no block of this format defines. `enc` is a name an outside implementation might hand
-    // over for an encryption marker, and the four members a receipt states about itself are the ones a
-    // caller is most likely to move: each is spelled here as an extra one, because a writer that trimmed
-    // in silence is the defect this walk was placed in front of.
+    // the ones no block of either version defines. `envelope` is a name an outside implementation might hand
+    // over for a confidentiality marker, and it is one this format has no version that uses: `enc` is a
+    // member of version 2's list, so the pair of cases that keeps the two lists apart states it below. The
+    // four members a receipt states about itself are the ones a caller is most likely to move, so each is
+    // spelled here as an extra one, because a writer that trimmed in silence is the defect this walk was
+    // placed in front of.
     const cases: Array<[string, ReceiptPayload]> = [
       ['surprise', givenWithMember(samplePayload(), 'payload', 'surprise', 'x')],
-      ['enc', givenWithMember(markedPayload(), 'payload', 'enc', { alg: 'none' })],
+      ['envelope', givenWithMember(markedPayload(), 'payload', 'envelope', { alg: 'none' })],
       ['extra', givenWithMember(stampedPayload(), 'payload', 'extra', [{ t: FIXED_NOW, d: sha256(new TextEncoder().encode('x')) }])],
     ];
     for (const [member, payload] of cases) {

@@ -1,7 +1,7 @@
 import { ReceiptError } from './errors.js';
 import type { CollateralSlot, StampDisclosure } from './disclosure.js';
 import { isReceiptVersion } from './receipt.js';
-import type { ItemStamp, Marking, ReceiptPayload } from './receipt.js';
+import type { Encryption, ItemStamp, Marking, ReceiptPayload } from './receipt.js';
 import { decodeReceipt } from './receipt.js';
 
 function toHex(bytes: Uint8Array): string {
@@ -9,9 +9,9 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /**
- * The twelve fields every payload carries, in the projection this file defines. `v` sits beside them in
- * the one shape below, because the version is what tells a reader which format these bytes were signed
- * under, and this build states one.
+ * The twelve fields every payload carries, in the projection this file defines. `v` sits beside them in the
+ * two shapes below, because the version is what tells a reader which format these bytes were signed under,
+ * and this build reads two.
  */
 interface ReceiptFieldsJson {
   iss: string;
@@ -31,20 +31,43 @@ interface ReceiptFieldsJson {
 /** The two arms of one anchor slot, spelled as the format spells them: a label, then a digest or a reason. */
 type CollateralSlotJson = { p: 'held'; d: string } | { p: 'absent-at-source' | 'not-taken-in'; r: string };
 
+/**
+ * The two arms of `enc`, spelled as the format spells them: a label, then the key only the session arm has a
+ * use for. `sch` is a registry label rather than an enumerated one here as it is in the twin schema, because
+ * which labels a reader can interpret is the registry's answer and not this projection's.
+ */
+type EncryptionJson = { sch: 'none' } | { sch: string; pk: string };
+
 /** The disclosure of one stamped instant, with its `null` kept as `null` rather than dropped. */
 interface StampDisclosureJson {
   name: string;
   unc: number | null;
 }
 
-/** The one payload this projection writes: the twelve shared fields, then the mark, the disclosure, the anchor and the items. */
-export interface ReceiptPayloadJson extends ReceiptFieldsJson {
-  v: 1;
+/** The members a version 1 payload states about its own issuance, in the order the format lists them. */
+interface StatedMembersJson {
   mk: { sch: string; d: string };
   sd: StampDisclosureJson;
   cva: { col: CollateralSlotJson; val: CollateralSlotJson };
   itm: Array<{ t: number; d: string }>;
 }
+
+/** Version 1's payload: the twelve shared fields, then the mark, the disclosure, the anchor and the items. */
+export interface ReceiptPayloadV1Json extends ReceiptFieldsJson, StatedMembersJson {
+  v: 1;
+}
+
+/**
+ * Version 2's payload: the same seventeen positions and `enc` appended, in the place the format lists it, so
+ * the difference between the two projections is the one member the version exists to carry.
+ */
+export interface ReceiptPayloadV2Json extends ReceiptFieldsJson, StatedMembersJson {
+  v: 2;
+  enc: EncryptionJson;
+}
+
+/** The one payload this projection writes, whichever version the document names. */
+export type ReceiptPayloadJson = ReceiptPayloadV1Json | ReceiptPayloadV2Json;
 
 export interface ReceiptJson {
   protectedHeader: { alg: string; kid: string; typ: string };
@@ -88,40 +111,47 @@ function itemStampToJson(one: ItemStamp): { t: number; d: string } {
   return { t: one.t, d: toHex(one.d) };
 }
 
+/** The `enc` map of a payload: the label, and the key spelled as the hex the wire carries it in. */
+function encryptionToJson(enc: Encryption): EncryptionJson {
+  return enc.sch === 'none' ? { sch: enc.sch } : { sch: enc.sch, pk: toHex(enc.pk) };
+}
+
 export function receiptToJson(payload: ReceiptPayload, signature: Uint8Array, kid: Uint8Array): ReceiptJson {
   const protectedHeader = { alg: 'EdDSA', kid: toHex(kid), typ: 'ashaveri/receipt' };
-  // One shape, spelling all seventeen members out rather than sharing one object built in two places,
-  // because a projection whose keys arrived in another order would be a different document to anything
-  // that compares these bytes, and a projection that dropped `mk`, `sd`, `cva` or `itm` would hand a
-  // reader of the JSON a receipt with nothing to show what it attests. The version check is the whole
-  // of the branching, and it is a refusal rather than a choice of shapes: `parsePayload` answers a
-  // number this format does not read before it hands this file a payload, and `assertEncodable` answers
-  // it for a payload a caller built by hand, so a projection with a branch per number would be a second
-  // place a version this build does not read gets a route through. No document read from bytes arrives
-  // here naming another number, because `parsePayload` answers it upstream; the caller with a route
-  // past that is the one holding a payload of its own making, and it is answered with the same code the
-  // reader and the writer use rather than with a projection of a version these members do not state.
+  // The members both versions state are spelled out here rather than shared with the version that adds one,
+  // because a projection whose keys arrived in another order would be a different document to anything that
+  // compares these bytes, and a projection that dropped `mk`, `sd`, `cva` or `itm` would hand a reader of
+  // the JSON a receipt with nothing to show what it attests. The version decides only whether `enc` is among
+  // them, and it is reached through a payload the reader named a version for, so no document gains a member
+  // at a number that does not define one.
+  //
+  // The refusal below is the other half, and it stays the whole of the branching over which versions exist:
+  // `parsePayload` answers a number this format does not read before it hands this file a payload, and
+  // `assertEncodable` answers it for a payload a caller built by hand, so a projection that fell through to
+  // a default shape instead would write one version's members under another number, which is where the
+  // cascade this replaced used to end. No document read from bytes arrives here naming another number; the
+  // caller with a route past that is the one holding a payload of its own making, and it is answered with the
+  // same code the reader and the writer use.
   if (!isReceiptVersion(payload.v)) {
     throw new ReceiptError(
       'UNSUPPORTED_VERSION',
       'a payload naming a version this projection has no members for is not projected as another version',
     );
   }
-  return {
-    protectedHeader,
-    payload: {
-      v: payload.v,
-      ...fieldsToJson(payload),
-      mk: markingToJson(payload.mk),
-      sd: stampDisclosureToJson(payload.sd),
-      cva: {
-        col: collateralSlotToJson(payload.cva.collateral),
-        val: collateralSlotToJson(payload.cva.validity),
-      },
-      itm: payload.itm.map(itemStampToJson),
+  const stated = {
+    ...fieldsToJson(payload),
+    mk: markingToJson(payload.mk),
+    sd: stampDisclosureToJson(payload.sd),
+    cva: {
+      col: collateralSlotToJson(payload.cva.collateral),
+      val: collateralSlotToJson(payload.cva.validity),
     },
-    signature: toHex(signature),
+    itm: payload.itm.map(itemStampToJson),
   };
+  const projected: ReceiptPayloadJson = payload.v === 2
+    ? { v: 2, ...stated, enc: encryptionToJson(payload.enc) }
+    : { v: 1, ...stated };
+  return { protectedHeader, payload: projected, signature: toHex(signature) };
 }
 
 export function receiptBytesToJson(bytes: Uint8Array): ReceiptJson {

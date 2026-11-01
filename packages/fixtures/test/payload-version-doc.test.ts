@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { readSourceFile, spelledNumber } from './doc-contract.js';
+import { declaredVersions, readSourceFile, spelledNumber } from './doc-contract.js';
 
 /**
- * The receipt payload has one version. `packages/receipt/receipt.cddl` declares it, and
+ * The receipt payload has two versions. `packages/receipt/receipt.cddl` declares them, and
  * `packages/receipt/src/receipt.ts` writes the set of versions its reader parses in one place, the list
  * `PARSED_VERSIONS`, which is what the exported `isReceiptVersion` answers from and what `ACCEPTED_BY_DEFAULT` is
  * read off rather than restated.
@@ -88,22 +88,6 @@ interface Claim {
   readonly kind: 'names' | 'counts';
   /** Which spelling carried the claim, so a refusal points at the sentence rather than at a bare figure. */
   readonly spelled: string;
-}
-
-/** The members of a `const <name> = [ ... ];` declaration, read as the numbers the source writes. */
-function declaredVersions(name: string, file: string): number[] {
-  const source = readSourceFile(file);
-  const declared = new RegExp(`const ${name}(?::[^=]+)? = \\[([^\\]]*)\\]`, 'u').exec(source);
-  if (declared === null) throw new Error(`${name} is not a bracketed list this reader can find in ${file}`);
-  const cells = (declared[1] ?? '')
-    .split(',')
-    .map((cell) => cell.trim())
-    .filter((cell) => cell.length > 0);
-  if (cells.length === 0) throw new Error(`${name} in ${file} declares no versions, so there is nothing to hold a document to`);
-  return cells.map((cell) => {
-    if (!/^[0-9]+$/u.test(cell)) throw new Error(`${name} in ${file} carries ${cell}, which is not a version number`);
-    return Number(cell);
-  });
 }
 
 /** A number spelled the way a document spells one, which is the word list the framing tests already read. */
@@ -266,7 +250,7 @@ function describeClaim(claim: Claim): string {
   return `${claim.file.slice(claim.file.lastIndexOf('/') + 1)}:${String(claim.line)} spells ${claim.spelled} in "${line.slice(0, 88)}"`;
 }
 
-describe('published documents state one receipt payload version', () => {
+describe('published documents state the receipt payload versions the reader parses', () => {
   it('reads the version set from the one declaration the reader is written over', () => {
     const source = readSourceFile(RECEIPT_SRC);
     expect(RECEIPT_VERSIONS.length, 'the set is written in the package, and this reads it rather than restating it').toBeGreaterThanOrEqual(1);

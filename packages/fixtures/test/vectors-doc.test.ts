@@ -5,7 +5,7 @@ import { decodeReceipt } from '@ashaveri/receipt';
 import { describe, expect, it } from 'vitest';
 import { decodeCanonical, decodeCoseSign1 } from '@ashaveri/receipt';
 import { DATA } from '../src/index.js';
-import { sectionBody, spelledNumber } from './doc-contract.js';
+import { sectionBody, spelledNumber, declaredVersions } from './doc-contract.js';
 
 /**
  * The suite inventory in `docs/vectors.md` is the index a port starts from: it names the file of each
@@ -23,6 +23,15 @@ const PKG = fileURLToPath(new URL('../', import.meta.url));
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 /** The header of the one table that lists the published suites, one row per suite. */
 const SUITES_TABLE = '| Suite | File | What it pins | Version field |';
+
+/**
+ * The payload versions the shipped reader parses, read out of the one declaration that holds them.
+ *
+ * The receipt fixtures are the published bytes this document counts, and the document's sentences about
+ * which versions they cover are true of that set and of nothing else. The set is read rather than written
+ * here because a copy kept beside the rows is the drift this file exists to catch.
+ */
+const PARSED_VERSIONS = declaredVersions('PARSED_VERSIONS', '../../receipt/src/receipt.ts');
 
 /** The backticked spans of a cell, which is how this document spells a name it means literally. */
 function named(cell: string): string[] {
@@ -538,7 +547,13 @@ describe('docs/vectors.md suite inventory', () => {
     }
     expect(counts.accepted + counts.refused, 'an entry is neither accepted nor refused').toBe(counts.entries);
     for (const one of receiptEntries()) {
-      expect(one.declares, `${one.name} declares a payload version the format defines no reader for`).toBe(1);
+      // The document's sentence may not count the entries by version, but the entries themselves are still
+      // asked which version they claim: a published receipt naming a number no reader parses is a row no
+      // port can be graded against, whatever the prose says the suite covers.
+      expect(
+        PARSED_VERSIONS,
+        `${one.name} declares a payload version the format defines no reader for`,
+      ).toContain(one.declares);
       // `mk` is a required member of the one version, so a published receipt that names none is a document
       // the shipped reader refuses. An acceptance without it would be a row the suite promises to verify
       // over bytes that cannot verify.
@@ -637,7 +652,12 @@ describe('docs/vectors.md account of the receipt fixtures', () => {
     // And the other direction: a row stating a version is a row the sentence does not count, so a suite
     // that grew one without moving the document is caught by the same number.
     expect(rows.filter((each) => each.v !== undefined).length).toBe(rows.length - without.length);
-    expect(new Set(rows.filter((each) => each.v !== undefined).map((each) => each.v))).toEqual(new Set([1]));
+    // The versions the rows state are the versions the reader parses, and nothing beside them: the suite
+    // publishes bytes at every number the format reads, so a row dropped from the generator leaves this
+    // short rather than leaving a document that still reads as a full census.
+    expect([...new Set(rows.filter((each) => each.v !== undefined).map((each) => each.v))].sort()).toEqual([
+      ...PARSED_VERSIONS,
+    ].sort());
   });
 
   it('counts the refusals that predate the position column, spelled in words', () => {

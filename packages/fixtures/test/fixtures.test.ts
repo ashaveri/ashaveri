@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
   ReceiptError,
+  decodeCanonical,
+  decodeCoseSign1,
   decodeReceipt,
   extractMarkedRegion,
   frameResponse,
@@ -259,7 +261,9 @@ describe('what a receipt row states about the bytes it attests', () => {
     expect(rows.length).toBeGreaterThan(0);
     for (const entry of rows) {
       const payload = decodeReceipt(loadReceiptFixture(entry.name).bytes).payload;
-      if (payload.v !== 1) throw new Error(`${entry.name} states items and is not a v1 document`);
+      // `itm` and `iat` are stated at either number, so this reads the list off whichever version the
+      // document claims and asks the same question of both: a row whose bytes name a version the list
+      // below is read under is a row the suite would otherwise be grading on a member it never states.
       let previous = -1;
       for (const [index, one] of payload.itm.entries()) {
         const stated = entry.items![index]!;
@@ -294,13 +298,14 @@ describe('what a receipt row states about the bytes it attests', () => {
     for (const entry of rows) {
       if (entry.expected !== 'verify-ok') continue;
       const payload = decodeReceipt(loadReceiptFixture(entry.name).bytes).payload;
-      if (payload.v !== 1) throw new Error(`${entry.name} states sd or cva and is not v1`);
+      // Both versions state the disclosure and the anchor, so neither of these readings asks which number
+      // the document wears: what matters to the row is that the twin projects the same members the bytes
+      // carry, at whatever version the bytes claim.
       expect(payload.sd.name, `${entry.name} sd.name`).toBe(entry.sd!.name);
       expect(payload.sd.uncertaintySeconds, `${entry.name} sd.unc`).toBe(entry.sd!.unc ?? null);
       const twin = loadReceiptFixture(entry.name).json;
       expect(twin, `${entry.name} has no twin to compare its columns against`).not.toBeNull();
       if (twin === null) continue;
-      if (twin.payload.v !== 1) throw new Error(`${entry.name} twin is not a v1 projection`);
       expect(twin.payload.sd).toEqual({ name: entry.sd!.name, unc: entry.sd!.unc ?? null });
       expect(twin.payload.cva).toEqual(entry.cva);
       expect(twin.payload.itm).toEqual(entry.items?.map((one) => ({ t: one.t, d: one.d })));
@@ -311,16 +316,19 @@ describe('what a receipt row states about the bytes it attests', () => {
 });
 
 describe('what a response frames, and what the document says about it', () => {
-  it('names the one version the format declares, and states an item list that follows the framing', () => {
-    // The version is not an answer about the bytes any more, because the format declares one. What the
-    // bytes do answer is the item list: a response that frames items yields one entry per item in
-    // framing order, and the entry digests are the shipped framer's own, read off these bytes rather
-    // than restated. A row whose bytes frame nothing has no accepted document beside it to compare.
+  it('names the version its own bytes claim, and states an item list that follows the framing', () => {
+    // The version is no longer an answer about which document the format declares, because the format
+    // declares two and both are published here. What the bytes do answer is the pair the row states: the
+    // number in the row's `v` column and the number the payload carries in its own `v` member are one
+    // fact, and a row whose column drifted from its bytes would point a port at the wrong member list.
+    // The second half is unchanged: a response that frames items yields one entry per item in framing
+    // order, and the entry digests are the shipped framer's own, read off these bytes rather than
+    // restated. A row whose bytes frame nothing has no accepted document beside it to compare.
     const issued = columned().filter((entry) => entry.expected === 'verify-ok');
     expect(issued.length).toBeGreaterThan(0);
     for (const entry of issued) {
       const payload = decodeReceipt(loadReceiptFixture(entry.name).bytes).payload;
-      expect(payload.v, `${entry.name} version against the one the format declares`).toBe(1);
+      expect(payload.v, `${entry.name} bytes against the version its row states`).toBe(entry.v);
       const framing = frameResponse(entry.contentType!, bytesOf(entry.responseBase64Url!));
       if (!framing.framed) continue;
       expect(
@@ -355,6 +363,118 @@ describe('what a response frames, and what the document says about it', () => {
     expect(bytesOf(marked.items![0]!.bytesBase64Url)).toEqual(markLine!.slice(prefix.length));
     const marked3 = decodeReceipt(marked.receipt).payload;
     expect(toHex(hashRequest(markLine!))).toBe(toHex(marked3.mk.d));
+  });
+});
+
+describe('the arm of `enc` a published row states', () => {
+  /**
+   * The rows this suite publishes for the newer version, by the name the family gives them.
+   *
+   * The list is written here because nothing else reads the six as a set: a row dropped from the generator
+   * leaves the suite publishing fewer states than the format can be in, and every other case below would
+   * still be true of the rows that survived.
+   */
+  const ENCRYPTION_ROWS = [
+    'receipt-enc-plain-v2',
+    'receipt-enc-session-v2',
+    'receipt-enc-missing-v2',
+    'receipt-enc-unknown-v2',
+    'receipt-enc-plaintext-key-v2',
+    'receipt-enc-at-v1',
+  ];
+
+  const encRows = (): ReceiptFixtureRow[] =>
+    loadManifest().fixtures.filter((entry) => entry.name.startsWith('receipt-enc-'));
+
+  it('publishes one row for each state the newer version can be in', () => {
+    expect(encRows().map((entry) => entry.name).sort()).toEqual([...ENCRYPTION_ROWS].sort());
+    // Both arms stated as values, which is the whole of what the member adds: a suite that lost either
+    // would still read as a version 2 family and would leave one arm unmeasured by any port.
+    const accepted = encRows().filter((entry) => entry.expected === 'verify-ok');
+    expect(accepted.map((entry) => entry.enc?.sch).sort()).toEqual(['none', 'x25519-aes-256-gcm-v1']);
+  });
+
+  it('states the arm its bytes carry, and the twin projects the same one', () => {
+    const key = loadFixtureKey();
+    for (const entry of encRows().filter((each) => each.expected === 'verify-ok')) {
+      const verified = verifyReceipt(loadReceiptFixture(entry.name).bytes, {
+        publicKey: key.publicKey,
+        nowSeconds: FIXED_NOW,
+      });
+      expect(verified.payload.v, `${entry.name} is not the version its row states`).toBe(entry.v);
+      if (verified.payload.v !== 2) throw new Error(`${entry.name} states no arm a version 1 document carries`);
+      expect(verified.payload.enc.sch, `${entry.name} enc.sch`).toBe(entry.enc?.sch);
+      const twin = loadReceiptFixture(entry.name).json;
+      expect(twin, `${entry.name} has no twin`).not.toBeNull();
+      if (twin?.payload.v !== 2) throw new Error(`${entry.name} twin is not a version 2 projection`);
+      expect(twin.payload.enc.sch, `${entry.name} twin arm`).toBe(entry.enc?.sch);
+      const handed = entry.enc?.pkBase64Url;
+      if (handed === undefined) {
+        // The plain arm carries no key at all, in the column, in the decoded payload or in the twin.
+        expect(verified.payload.enc, `${entry.name} states no key`).toEqual({ sch: entry.enc?.sch });
+        expect(twin.payload.enc, `${entry.name} twin states no key`).toEqual({ sch: entry.enc?.sch });
+        continue;
+      }
+      const read = verified.payload.enc;
+      if (read.sch === 'none') throw new Error(`${entry.name} states a key beside an arm that names none`);
+      expect(toBase64Url(read.pk), `${entry.name} enc.pk`).toBe(handed);
+      expect(read.pk, `${entry.name} key width`).toHaveLength(32);
+      // The twin is asked for the whole arm rather than for one member of it: the projection spells the key
+      // as lowercase hex where the column spells the same bytes in unpadded base64url, and a twin that
+      // dropped either half of the pair is refused by this line rather than by a reader of one of them.
+      expect(twin.payload.enc, `${entry.name} twin arm and key`).toEqual({
+        sch: read.sch,
+        pk: Array.from(bytesOf(handed), (one) => one.toString(16).padStart(2, '0')).join(''),
+      });
+    }
+  });
+
+  it('leaves the member unstated on the row whose bytes withhold it', () => {
+    // A column is published exactly where the document carries the member it describes, so the row that
+    // exists to state a missing `enc` states no `enc` column and its bytes carry no such member either.
+    const missing = encRows().find((entry) => entry.name === 'receipt-enc-missing-v2');
+    expect(missing, 'the suite publishes no row for a version 2 document with no enc').not.toBeUndefined();
+    expect(missing?.enc, 'the missing-member row states an arm its bytes do not carry').toBeUndefined();
+    const envelope = decodeCoseSign1(loadReceiptFixture('receipt-enc-missing-v2').bytes);
+    const payload = decodeCanonical(envelope.payloadBytes);
+    expect(payload instanceof Map && payload.get('enc') === undefined, 'these bytes carry an enc member').toBe(
+      true,
+    );
+  });
+
+  it('refuses the arm it cannot read at the position the row names', () => {
+    const key = loadFixtureKey();
+    for (const name of ['receipt-enc-unknown-v2', 'receipt-enc-plaintext-key-v2', 'receipt-enc-at-v1']) {
+      const entry = encRows().find((each) => each.name === name);
+      expect(entry, `${name} is not published`).not.toBeUndefined();
+      const given = refusal(() => verifyReceipt(loadReceiptFixture(name).bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
+      expect(`${name}: ${given.code}`, 'the code the published row promises').toBe(`${name}: ${entry?.expected}`);
+      expect(given.message, `${name} names no ${entry?.fault?.at}`).toContain(entry?.fault?.at ?? '');
+      if (entry?.fault?.member !== undefined) {
+        expect(given.message, `${name} quotes back no ${entry.fault.member}`).toContain(entry.fault.member);
+      }
+      expect(`${name}: ${errorCode(() => decodeReceipt(loadReceiptFixture(name).bytes))}`, 'the same answer with no key').toBe(
+        `${name}: ${entry?.keyless}`,
+      );
+    }
+  });
+
+  it('documents every column a row carries, and carries none the file leaves unexplained', () => {
+    const manifest = loadManifest();
+    const layout = manifest.layout;
+    expect(layout, 'the manifest publishes no layout to read its columns from').not.toBeUndefined();
+    const explained = new Set([
+      ...Object.keys(layout!.columns),
+      ...layout!.verdictFields,
+      ...Object.keys(layout!.readers),
+      'name',
+      'path',
+      'digestSha256',
+      'note',
+    ]);
+    const carried = [...new Set(manifest.fixtures.flatMap((entry) => Object.keys(entry)))];
+    const unexplained = carried.filter((column) => !explained.has(column));
+    expect(unexplained, `rows carry ${unexplained.join(', ')}, which no layout list explains`).toEqual([]);
   });
 });
 

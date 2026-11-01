@@ -1,11 +1,16 @@
 # Conformance vectors
 
-Status: current for format versions 1. The payload carries one version, and it states seventeen members:
+Status: current for format versions 1 and 2. The payload has two versions: the older states seventeen
+members, and the newer states those same seventeen with `enc` beside them, which is the one member the
+newer number exists for.
+The seventeen are
 the twelve every receipt has always carried, the metering of a call's tokens, the marking member, the
 disclosure of a stamped instant, the anchor of an appraisal context, and the item list of a response.
-The receipt fixtures under
-`data/receipts/` all carry that document, and `data/manifest.json` states beside each row the answer a
-reader owes it. The files named here are the
+The rows under
+`data/receipts/` each carry the document its own `v` member claims, and which versions the
+rows name and how many of them state no column at all is the arithmetic of the tests and the business of
+the manifest's own `layout` block, not this sentence's. `data/manifest.json` states beside each row the
+answer a reader owes it. The files named here are the
 contract a
 reimplementation is measured against, and this document says what each one states, how to consume it,
 and what a disagreement means. The formats themselves are specified in
@@ -67,7 +72,9 @@ specific to that case.
   with state no column beyond `expected` and the response bytes their documents digest; every row added
   since names the payload version its bytes
   claim in `v`, the marking setting its response came off in `marking`, the response bytes themselves, and
-  the item list as the shipped reader of a response body gives them. Which versions those rows name, and
+  the item list as the shipped reader of a response body gives them, and a row whose document carries `enc`
+  states which arm of it its bytes hold, the key in unpadded base64url only on the arm that names one.
+  Which versions those rows name, and
   how many of them state none, is the `layout` block's business and the tests' arithmetic, not this
   sentence's. Every row states its response bytes because every payload this format reads names a
   marking, and the region a marking attests is read out of the response rather than out of the document:
@@ -459,7 +466,7 @@ These vectors check bytes. They say nothing about trust:
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
   not be trusted at all.
 - A passing port is not a certified port. It is a reimplementation that agrees with this one on the
-  cases chosen here, which for the one payload version are the field set, the digests and the framing,
+  cases chosen here, which for the payload version these fixtures carry are the field set, the digests and the framing,
   the marking member, the disclosure of the source
   an instant came from, the anchor of the context an appraisal ran on, the list of items a response
   was made of, and the count of those anchor slots a client's policy demands be stated as taken in,
