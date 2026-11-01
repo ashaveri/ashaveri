@@ -8,6 +8,7 @@ import {
   decodeSealedDeploymentManifest,
   generateSigningKey,
   hashRequest,
+  isReceiptVersion,
   sealDeploymentManifest,
   toHex,
   type SigningKey,
@@ -842,6 +843,76 @@ describe('ashaveri verify-receipt', () => {
     }
     // One command per published row, and the rows are the suite: the window this case is given is read
     // from their count in the header above, where the children's deadlines are added.
+  });
+
+  it('refuses a version 2 receipt when --accept-version narrows it away, and takes it by default and at [2]', () => {
+    // The published `receipt-enc-plain-v2` row is the same shape the drive-every-vector case already reads to
+    // verify-ok, so the only thing these three runs move is the set the caller names. The refusal is owed by the
+    // pre-read decode, which reads the payload's number before any policy, manifest or window is reached, so it is
+    // a refusal of the version and nothing else.
+    const v2 = receiptJson('receipt-enc-plain-v2');
+    const base: RunOptions = { receipt: receiptPath('receipt-enc-plain-v2'), requestDigest: v2.payload.req };
+    const defaulted = runCli(argsFor(base));
+    expect(defaulted.status).toBe(0);
+    expect(verdictOf(defaulted).payloadVersion).toBe(2);
+    const widened = runCli(argsFor({ ...base, extra: ['--accept-version=2'] }));
+    expect(widened.status).toBe(0);
+    expect(verdictOf(widened).payloadVersion).toBe(2);
+    const refused = runCli(argsFor({ ...base, extra: ['--accept-version=1'] }));
+    expect(refused.status).toBe(1);
+    const verdict = verdictOf(refused);
+    expect(verdict.code).toBe('UNSUPPORTED_VERSION');
+    expect(String(verdict.message)).toContain('receipt payload version 2 is not in acceptedVersions [1]');
+  });
+
+  it('refuses a payload version the format does not parse as the typing it is, before reading a document', () => {
+    // A number outside the versions `@ashaveri/receipt` parses names no reading that package can take, so the
+    // set this line asks for holds nothing the reader could honour and the argument, not the document, is
+    // what is wrong. That is the same duty as refusing a mistyped signing key: answered as usage, with exit 2
+    // and no verdict printed. The number is one the format itself declines rather than one this file lists,
+    // so a third version joining the parsed set moves this case instead of quietly leaving it stale.
+    const published = Number(receiptJson('receipt-enc-plain-v2').payload.v);
+    let outside = published;
+    for (let step = 0; step < 16 && isReceiptVersion(outside); step += 1) outside += 1;
+    expect(isReceiptVersion(outside)).toBe(false);
+
+    const refused = runCli(argsFor({ extra: [`--accept-version=${String(outside)}`], json: false }));
+    expect(refused.status).toBe(2);
+    expect(refused.stderr).toContain(`--accept-version ${String(outside)} is not a payload version this package parses`);
+    expect(refused.stderr).not.toContain('UNSUPPORTED_VERSION');
+    expect(refused.stdout).toBe('');
+
+    // The refusal cannot be a blanket rejection of the flag: the number a published document states, read out
+    // of that document rather than typed here, is taken and reaches a verdict about that document.
+    const v2 = receiptJson('receipt-enc-plain-v2');
+    const taken = runCli(
+      argsFor({
+        receipt: receiptPath('receipt-enc-plain-v2'),
+        requestDigest: v2.payload.req,
+        extra: [`--accept-version=${String(published)}`],
+      }),
+    );
+    expect(taken.status).toBe(0);
+    expect(verdictOf(taken).payloadVersion).toBe(published);
+
+    // The two documents a reader meets before typing the flag carry both refusals, and nothing above reads
+    // them: the help entry this program prints, and the verb's one-line row in the README's table.
+    const help = runCli(['--help']).stdout;
+    const at = help.indexOf('  --accept-version <n>');
+    expect(at).toBeGreaterThan(-1);
+    const after = help.slice(at);
+    const nextOption = after.slice(3).search(/^\s{2}--/mu);
+    const entry = nextOption < 0 ? after : after.slice(0, nextOption + 3);
+    expect(entry).toContain('UNSUPPORTED_VERSION');
+    expect(entry).toContain('usage error');
+
+    const row = readFileSync(new URL('../../../README.md', import.meta.url), 'utf8')
+      .split('\n')
+      .find((line) => line.startsWith('| `verify-receipt <receipt>` |'));
+    if (row === undefined) throw new Error("the README's table has no verify-receipt row to check");
+    expect(row).toContain('`--accept-version <n>`');
+    expect(row).toContain('UNSUPPORTED_VERSION');
+    expect(row).toContain('usage error');
   });
 
   it('refuses a receipt whose measurement is not the one the policy pins', () => {

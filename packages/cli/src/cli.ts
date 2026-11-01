@@ -284,6 +284,14 @@ Receipt verification options:
                      report names every key it trusted and where it came from. Base64url includes a
                      dash in its alphabet, and an argument that starts with one is not read as this
                      option's value, so pass such a key as --manifest-key=<value>.
+  --accept-version <n>
+                     Which payload version this run reads, one number per flag, repeatable. Absent means
+                     every version the format parses, the default verifyReceipt and decodeReceipt carry, so
+                     this command and the client read one set by default. A document whose number falls
+                     outside the set named here is refused with UNSUPPORTED_VERSION, a sentence naming the
+                     set this run asked for and the number the document states; nothing is re-read at a
+                     second setting. A number the format does not parse names no reading it could take, so
+                     it is refused as a usage error before any document is opened.
   --nonce <hex>      The challenge this receipt is checked against, as the client that made the
                      request chose it. A receipt answers one challenge, so without this the verdict
                      would be about a request nobody named.
@@ -540,6 +548,7 @@ async function main(argv: string[]): Promise<number> {
         'response-hash': { type: 'string' },
         'anchor-file': { type: 'string', multiple: true },
         'anchor-chain': { type: 'string', multiple: true },
+        'accept-version': { type: 'string', multiple: true },
         now: { type: 'string' },
         'allow-debug': { type: 'boolean' },
         json: { type: 'boolean' },
