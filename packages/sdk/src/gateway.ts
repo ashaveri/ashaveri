@@ -192,7 +192,7 @@ export class GatewaySession {
    * mode, so a deployment claiming no hardware is rejected without a round trip.
    * The expected report data is recomputed from the client's own nonce, the client's
    * own request bytes, and the session key the decoded receipt names in its own `enc`
-   * arm — never from an argument beside the receipt — rather than read from the
+   * arm, never from an argument beside the receipt, rather than read from the
    * gateway, so the gateway cannot point the client at a quote for other work, and a
    * reader holding one document can reach the same value this line reaches.
    *

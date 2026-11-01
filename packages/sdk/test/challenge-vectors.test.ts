@@ -19,9 +19,9 @@ import { SdkError, evidenceReportData, verifyCompletionEvidence } from '../src/i
  * `data/challenge-v1.json` states the rule as bytes: for each arm, the triple a receipt this repository signs
  * carries, the concatenation the rule builds from it, and the digest that concatenation hashes to. This file
  * asks two questions of it. First, whether `evidenceReportData`, the function the client runs, gives each
- * published digest — that is what keeps the published arithmetic and the shipped code from drifting apart in
+ * published digest, which is what keeps the published arithmetic and the shipped code from drifting apart in
  * either direction. Second, whether each published refusal is the code the shipped verifier actually answers
- * when it is handed a document bound to the other reading — because a vector whose negative is a sentence is
+ * when it is handed a document bound to the other reading, because a vector whose negative is a sentence is
  * a vector a port can pass by refusing everything.
  *
  * What neither question can reach here is the platform's seal. A captured quote's report data is fixed by the
@@ -164,7 +164,7 @@ describe('data/challenge-v1.json refusals are the codes they state', () => {
       // unrelated step. Over a minted document, the value the receipt states walks past the digest check and
       // the only thing left to refuse is that these bytes are no platform document. Over the captured quote,
       // whose field is the host's own value rather than a digest of this file's choosing, the same call with
-      // that value returns verified evidence — and it is exactly that difference, a field no test here can
+      // that value returns verified evidence, and it is exactly that difference, a field no test here can
       // write, that the owed platform capture is about.
       if (digestMismatch) {
         expect(

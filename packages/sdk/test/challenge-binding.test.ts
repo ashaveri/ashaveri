@@ -131,7 +131,7 @@ const attestedFor = (reportData: Uint8Array): Uint8Array => sha256(mint(reportDa
 
 /**
  * A deployment that signs receipts under `KEY`, declares that key in its manifest, and answers each evidence
- * route with the document it mints for the value it was named — which is what the shipped route does, and the
+ * route with the document it mints for the value it was named, which is what the shipped route does and is the
  * fact that decides which code a skew lands on. Every URL it was asked for is recorded, so a case below reads
  * the client's own challenge out of the request rather than out of a return value.
  */
@@ -278,8 +278,8 @@ describe('the challenge a receipt states', () => {
 describe('the two rules refuse each other', () => {
   /**
    * One skew, in each direction: the receipt commits to the document minted under its own rule and the reader
-   * is handed the document the route minted for the *other* rule's value. The route answers 200 — it mints for
-   * any named value rather than looking one up — so the refusal lands on the receipt's own digest commitment.
+   * is handed the document the route minted for the *other* rule's value. The route answers 200, minting for
+   * any named value rather than looking one up, so the refusal lands on the receipt's own digest commitment.
    * A reader that answered `EVIDENCE_NOT_FOUND` here would be reporting an aged-out artifact, and a reader that
    * answered nothing would be binding one document for two rules.
    */
