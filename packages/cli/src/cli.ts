@@ -290,7 +290,8 @@ Receipt verification options:
                      this command and the client read one set by default. A document whose number falls
                      outside the set named here is refused with UNSUPPORTED_VERSION, a sentence naming the
                      set this run asked for and the number the document states; nothing is re-read at a
-                     second setting.
+                     second setting. A number the format does not parse names no reading it could take, so
+                     it is refused as a usage error before any document is opened.
   --nonce <hex>      The challenge this receipt is checked against, as the client that made the
                      request chose it. A receipt answers one challenge, so without this the verdict
                      would be about a request nobody named.

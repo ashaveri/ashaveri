@@ -104,8 +104,9 @@ export type ReceiptVersion = (typeof PARSED_VERSIONS)[number];
 /**
  * Whether a number is one of the versions above, which is the question every reader and writer of this
  * format answers before it reads a member. Exported for `json.ts`, the one other place a version is
- * settled, and not named by `index.ts`: the set of what this package reads is stated once, in the list
- * above, and every refusal of a number outside it is read off that list rather than restated.
+ * settled, and named by `index.ts` so that a caller taking a version number from outside the process
+ * asks it here rather than restating the list: the set of what this package reads is stated once, in the
+ * list above, and every refusal of a number outside it is read off that list.
  */
 export function isReceiptVersion(value: unknown): value is ReceiptVersion {
   return (PARSED_VERSIONS as readonly unknown[]).includes(value);

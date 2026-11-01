@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { keyId, type CollateralValidityAnchor, type ReceiptVersion } from '@ashaveri/receipt';
+import { isReceiptVersion, keyId, type CollateralValidityAnchor, type ReceiptVersion } from '@ashaveri/receipt';
 import { appraiseCarriedCollateral, type CollateralOutcome } from '@ashaveri/collateral';
 import {
   DEFAULT_MAX_EVIDENCE_AGE_SECONDS,
@@ -202,21 +202,28 @@ export function designatedKeys(values: readonly string[] | undefined, flag: stri
 /**
  * The payload versions this run reads, or undefined where it named none and the default stands.
  *
- * Each token is a whole number handed to the format reader as part of the set, which is the one place that names
- * which numbers are versions, so this file writes no list of them. A number outside the versions the format parses
- * is answered by the reader's own refusal, naming the set this run asked for.
+ * Each token is a whole number, and the one place naming which numbers are versions is the format, so this
+ * file writes no list of them and asks `isReceiptVersion` instead. A number outside that set names no reading
+ * this package can take, which makes the argument the caller's typing rather than a fact about a receipt: it
+ * is refused here, before a byte of anybody's material is opened, the way a mistyped signing key is.
  */
 export function acceptedVersionsOf(values: VerifyReceiptFlags): readonly ReceiptVersion[] | undefined {
   const given = values['accept-version'];
   if (given === undefined) return undefined;
-  const seen = new Set<number>();
+  const seen = new Set<ReceiptVersion>();
   for (const token of given) {
     if (!/^[0-9]+$/u.test(token)) {
       throw new UsageError(`--accept-version must be a whole payload version number, not ${JSON.stringify(token)}`);
     }
-    seen.add(Number.parseInt(token, 10));
+    const number = Number.parseInt(token, 10);
+    if (!isReceiptVersion(number)) {
+      throw new UsageError(
+        `--accept-version ${token} is not a payload version this package parses, so the set named here holds nothing it could read`,
+      );
+    }
+    seen.add(number);
   }
-  return [...seen] as unknown as readonly ReceiptVersion[];
+  return [...seen];
 }
 
 /**
@@ -941,8 +948,9 @@ export async function runVerifyReceipt(positionals: string[], values: VerifyRece
   // Refused here rather than at the check itself: an argument that is not a key is a typing mistake,
   // and it is one before this run has read a byte of anybody's material.
   const designations = designatedKeys(values['manifest-key'], MANIFEST_KEY_FLAG);
-  // A version token that is not a whole number is the operator's typing, refused here before any document is read,
-  // the same way a mistyped key is. Absent means the library default, so the flag cannot disagree with the client.
+  // A token that is not a whole number, and a whole number the format parses no document at, are both this
+  // line's typing: refused here, before any document is read, the same way a mistyped key is. Absent means
+  // the library default, so the flag cannot disagree with the client.
   const acceptedVersions = acceptedVersionsOf(values);
   // The anchor pairs are parsed, and their roots and designations read, before any document is opened: a slot that
   // is not a slot, a header with no body beside it and an origin with no platform are the caller's typing to fix,
