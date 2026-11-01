@@ -1,139 +1,74 @@
 title = "Ashaveri secret scan configuration"
 
-# The built-in rules do the detection and this file only extends them. That distinction
-# is load-bearing: a config that lists allowlists without useDefault replaces the built-in
-# rule set with an empty one, which reports nothing on a tree holding live credentials and
-# reads exactly like a clean repository. Measured on 8.30.1, deleting the two lines below
-# turned a repository holding a fabricated npm token into a scan that passed.
+# The rules that find candidates are gitleaks' own and this file only extends them. That distinction is
+# load-bearing: a config that lists allowlists without `useDefault` replaces the built-in rule set with an
+# empty one, which reports nothing on a tree holding live credentials and reads exactly like a clean
+# repository. Measured on 8.30.1, deleting the two lines below turned a repository holding a fabricated npm
+# token into a scan that passed.
+#
+# Each block below exempts the intersection of one value list and one path, and no two files share a block.
+# Measured on a copy of this repository: the PoP fixture's key held by the receipt fixture's file is
+# reported, and so is a third key planted inside either file, while two blocks joined into one exempt the
+# cross product of their values and their paths and let the first of those through. The value half of the
+# pairing is enforced when a scan reads commits, which is how CI runs it, and not when a scan reads a
+# working tree: on one tree, one config and 8.30.1 the commit scan reported a second key planted inside a
+# file named below and the working-tree scan reported nothing.
+#
+# This file is written, not copied. `pnpm -C packages/fixtures generate:scan-allowlist` produces it from
+# `packages/fixtures/scripts/derive-scan-allowlist.ts`, and the vectors job runs that command and refuses a
+# diff. A block is admitted only when the value it names is the digest of bytes this tree carries as
+# something published, and the run prints whose bytes; a value with no address to name is written in
+# `HAND_BLOCKS` inside that script instead, where it has to state what it is and where its bytes come from
+# before it exempts anything. A scan run with `--redact` never prints the value it found, so no line here is
+# authored out of a log.
+
 [extend]
 useDefault = true
 
-# Two deterministic test keys are published in the fixtures deliberately, each in the same
-# object as the public half it pairs with, so a scanner with no context has to be told they
-# are not credentials. Below, each value is exempted in its own block, paired with the one
-# file that carries it, so the exemption is the intersection rather than the cross product:
-# measured on a copy of this repository, the PoP fixture's key held by the receipt fixture's
-# file is reported, and so is a third key planted inside either file. Two blocks joined into
-# one would let the first of those through. Copying either value to any other path is
-# reported too, which is the reason each path below names a single file.
+# An identifier rather than a key. The inventory readers that answer a kid mismatch spell their refusal as
+# `header kid=<hex> key kid=<hex>`, and this suite publishes that sentence verbatim, so the built-in
+# generic-api-key rule reads the `key kid=` prefix and the sixty-four hex characters behind it as a
+# credential candidate. Every value admitted below is sha256 of a public half printed in this same file, in
+# the `layout.keyMaterial` row beside it, and the script takes that digest over those bytes before the line
+# naming it is written. What the block exempts is an address of a published key, and nothing secret is
+# named.
 #
-# A third block sits below for a different reason. It exempts the public half of the receipt
-# fixture's key at the one place a document prints it: the verify-pack example in README.md,
-# where the same bytes appear base64url rather than hex and the sentence under the example
-# names the file that publishes them. It is the verification key, not the signing key, so the
-# private half above is untouched by it. Measured on 8.30.1 against a clone of this
-# repository: the scan reports README.md's example with no block below, reports nothing with
-# it, and reports both a copy of that value placed in another file and a different key left
-# in README.md itself. The exemption is the intersection, so neither half of it is loose.
+# 1 value is admitted at this path, each one recomputed over bytes this tree publishes before the line
+# naming it is written. This file states each of them once, so the block names as many values as the file
+# states.
 #
-# One limit, measured rather than assumed: the value half of the pairing is enforced when a
-# scan reads commits, which is how CI runs it, and not when a scan reads a working tree. On
-# one tree, one config and gitleaks 8.30.1, the commit scan reported a second key planted
-# inside a file named below and the working-tree scan reported nothing. Both files named
-# below are generated from code, so a value pasted over a fixture's own slot also fails the
-# check that regenerates them.
-[[allowlists]]
-description = "The PoP fixture's signing key, in the file that publishes it"
-condition = "AND"
-regexTarget = "secret"
-regexes = [
-  '''^d1332ee54c62ab3f5336167d4d694944ed98509395a5529e165e043013de19dd$''',
-]
-paths = [
-  '''^packages/fixtures/data/pop-v1\.json$''',
-]
+# One further digest is recomputed here and reaches no block below: this file publishes it at no shape a
+# built-in rule reads, so an exemption naming it would be a permission with no finding under it.
 
 [[allowlists]]
-description = "The receipt fixture's signing key, in the file that publishes it"
+description = "The epoch inventory fixture's key identifiers, in the file that publishes them"
 condition = "AND"
 regexTarget = "secret"
 regexes = [
-  '''^83323642bdd8d84c58b3d208d07b4dfc7d84be7b4d670d2272a7ea328f2a06b7$''',
+  '''^acfdc127e917bc235da5153b4c65cb7c45fc755ab3c6aa2b299869925be19803$'''
 ]
 paths = [
-  '''^packages/fixtures/data/keys/receipt-key-v1\.json$''',
+  '''^packages/fixtures/data/epoch-inventory-v1\.json$'''
 ]
 
-[[allowlists]]
-description = "The receipt fixture's public verification key, in the README example that prints it"
-condition = "AND"
-regexTarget = "secret"
-regexes = [
-  '''^E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU$''',
-]
-paths = [
-  '''^README\.md$''',
-]
-
-# A fourth block, and it exempts a key identifier rather than a key. The epoch inventory suite publishes a
-# refusal message verbatim, and that message's shape is `header kid=<hex> key kid=<hex>` (the four readers
-# that answer a kid mismatch spell it that way, so the fixture quotes what the product prints). The built-in
-# generic-api-key rule reads the `key kid=` prefix and the 64 hex characters behind it as a credential
-# candidate. Both hexes are sha256 of a public half, printed beside that same public half in the file's own
-# `keyMaterial` rows, so nothing secret is named. The same value sits in two places in this one file, the
-# row and the message that quotes it, which is what a path-scoped value block covers.
+# An identifier rather than a key, in the same shape as the block above. Every accepted row of this suite
+# publishes `recordKey`, which is sha256 of that record under the domain prefix `captureRecordKey` states,
+# and the built-in generic-api-key rule reads the `"recordKey":` prefix plus the sixty-four hex characters
+# behind it as a credential candidate. Every value admitted below is the address of bytes the same row
+# already prints: the script runs the shipped `captureRecordKey` over the record beside each one and admits
+# only what it reproduces. A row whose stated key is not its record's digest is refused by the suite that
+# replays them, and by this script before a block carrying it is written.
 #
-# Measured on 8.30.1 against the history of this branch: the scan reports this file with no block below and
-# reports nothing with it. A different 64-hex value planted after the same `key kid=` prefix in this same
-# file is still reported, and this value copied into another file is still reported, because the exemption
-# is the intersection of the two lines below and not either one alone. The file is generated, so a hand
-# pasted over its slot also fails the job that regenerates it.
-[[allowlists]]
-description = "The epoch inventory fixture's key identifier, in the file that publishes it"
-condition = "AND"
-regexTarget = "secret"
-regexes = [
-  '''^acfdc127e917bc235da5153b4c65cb7c45fc755ab3c6aa2b299869925be19803$''',
-]
-paths = [
-  '''^packages/fixtures/data/epoch-inventory-v1\.json$''',
-]
+# 18 values are admitted at this path, each one recomputed over bytes this tree publishes before the line
+# naming it is written. This file states them 20 times, because rows that hold one record and state one key
+# share a value.
 
-# A fifth block, and it exempts a marker rather than a key. The gateway's provenance case puts one short
-# string in the prompt, the completion, the model id and the credential of every request it issues, then
-# asserts that string reaches none of the receipt's text members. The value is a canary: it authenticates
-# nothing, and eight hex characters behind a word is too short for any real credential to be. The built-in
-# generic-api-key rule matched it anyway, at the line that declared the constant under the name `TOKEN`,
-# because that rule reads the name beside the value rather than what the value is worth. The constant now
-# carries the name the case uses for the thing, so no line of the current tree matches. This block exists
-# because the scan reads commits, and the line that introduced the shape stays in the history whatever the
-# constant is called after it.
-#
-# Measured on 8.30.1 against this repository's history: the scan reports the file with no block below and
-# reports nothing with it. The same value written into another file in a fresh commit is still reported, and
-# a different value declared the same way inside this file is still reported, because the exemption is the
-# intersection of the two lines below and not either one alone.
 [[allowlists]]
-description = "The provenance case's canary marker, in the file that asserts it goes nowhere"
+description = "The capture fixture's record keys, in the file that publishes them"
 condition = "AND"
 regexTarget = "secret"
 regexes = [
-  '''^CANARY-4f7b2e9a$''',
-]
-paths = [
-  '''^gateway/test/receipt-provenance\.test\.ts$''',
-]
-
-# A sixth block, and like the fourth it exempts an identifier rather than a key. Every accepted row of the
-# capture fixture publishes `recordKey`, which is sha256 of that record’s canonical JSON, and the built-in
-# generic-api-key rule reads the `"recordKey":` prefix plus the 64 hex characters behind it as a credential
-# candidate. Each value is a content address of bytes the same row already prints: all 20 were reproduced by
-# the shipped `captureRecordKey` over the records beside them, and 18 distinct values cover the 20 rows,
-# because three accepted rows differ only in what the caller pinned, so they hold one record and state one
-# key. Nothing secret is named, and a row whose stated key is not its record’s digest is refused by the
-# suite that replays them.
-#
-# Measured on 8.30.1 against the history of this branch: the scan reports 19 findings in this file with no
-# block below, and reports nothing with it. The narrowing checks ran on the same release against synthetic
-# repositories carrying this config: a different 64-hex value written at the same shape in a file at this
-# path is still reported, and any value listed below copied to another path is still reported. The
-# exemption is the intersection of the two lines below and not either one alone, and the file is
-# generated, so a value pasted over one of its slots also fails the job that regenerates it.
-[[allowlists]]
-description = "The capture fixture’s record keys, in the file that publishes them, including the row that names a version 2 receipt"
-condition = "AND"
-regexTarget = "secret"
-regexes = [
+  '''^103c20ca482c8c93c241071d084f92c09a4a46da38553612661a992bcfb19651$''',
   '''^1dd149cbbecdfd2246862c8fdfeb6649463a5b631aaefba7e4ae63cacbc51bed$''',
   '''^2eda90c63cf619ceb7e258af9c7b8ea24d8420707e00c1365f6b777bef29498b$''',
   '''^2f7c4692a1d41d8250b097c3945bb92be214fed3b123601a177dd54f5f3d810d$''',
@@ -150,47 +85,128 @@ regexes = [
   '''^cf78592627f7b3f3a7da047818513c43be88b8fdf44a13c95eee862eb2d59a13$''',
   '''^eeddad0c87eb2ccc0dde2bac1d63d03260e0e58e9754fe626138e6f7b704e231$''',
   '''^f69e0d49e07f8428a7ac6f4077b5c5e160441a480c1ffdd2e2b0d2689f5abd65$''',
-  '''^f772189e549e243bffce6936eafb22e3353a83b68cba032fdb59ef61b87a5ef0$''',
-  '''^103c20ca482c8c93c241071d084f92c09a4a46da38553612661a992bcfb19651$'''
+  '''^f772189e549e243bffce6936eafb22e3353a83b68cba032fdb59ef61b87a5ef0$'''
 ]
 paths = [
-  '''^packages/fixtures/data/capture-v1\.json$''',
+  '''^packages/fixtures/data/capture-v1\.json$'''
 ]
+
+# An identifier rather than a key, in the same shape as the two blocks above. Every accepted row publishes
+# `key`, which is sha256 of the version, the provider and the original of its envelope under the domain
+# prefix `importEnvelopeKey` states, and the rule reads that name beside a long token as a credential
+# candidate. The script runs the shipped key function over each row's own envelope and admits only what it
+# reproduces, so the row that states a second intake of one export is covered by the same value as the row
+# it restates rather than by an extra line.
+#
+# 4 values are admitted at this path, each one recomputed over bytes this tree publishes before the line
+# naming it is written. This file states them 5 times, because rows that hold one record and state one key
+# share a value.
 
 [[allowlists]]
 description = "The import envelope's content keys, in the file that publishes the vectors"
 condition = "AND"
 regexTarget = "secret"
 regexes = [
-  '''^a34574b1079b12bd73fb20fea4570e77809390e5126a3f2867215b89637bba1e$''',
-  '''^9d6f466769de2cb4a5f8f23ef0f51c65135823e904222544ccc6bbaeeaa5ec18$''',
   '''^4c5a0dba50c827ea41afb08e020ea108d732959155450f60ec52350bd40ee41d$''',
   '''^542fa9a321128900d5aa7646fe80304b0fbb334baaec75fe1ec5a312a0d58165$''',
+  '''^9d6f466769de2cb4a5f8f23ef0f51c65135823e904222544ccc6bbaeeaa5ec18$''',
+  '''^a34574b1079b12bd73fb20fea4570e77809390e5126a3f2867215b89637bba1e$'''
 ]
 paths = [
-  '''^packages/fixtures/data/import-v1\.json$''',
+  '''^packages/fixtures/data/import-v1\.json$'''
 ]
 
-# A seventh block, and like the sixth it exempts an identifier rather than a credential. The challenge family
-# publishes `sessionKeyBase64Url` so a reader can lay the pre-image out without this repository's code, and the
-# built-in generic-api-key rule reads that 43-character base64url run beside its name as a candidate. Nothing new
-# is disclosed: the value is `enc.pk` of the session-arm receipt this repository already publishes and signs at
-# `packages/fixtures/data/receipts/receipt-enc-session-v2.cbor`, and it was measured equal to those bytes through
-# the shipped `decodeReceipt` on the day this block was written. A reader handed that document already holds them.
-#
-# Measured on 8.30.1 against this branch's history: the scan reports 1 finding in this file with no block below,
-# and reports nothing with it. The narrowing checks ran on the same release against synthetic repositories carrying
-# this config: a different 43-character base64url value written at the same shape in a file at this path is still
-# reported, and the value below copied to another path is still reported, because the exemption is the intersection
-# of the two lines and not either one alone. The file is generated, and the job that regenerates it diffs
-# `packages/fixtures/data`, so a value pasted over its slot fails there as well.
+# One of the two deterministic test signing keys this repository publishes deliberately, each in the same
+# object as the public half it pairs with, so a scanner with no context has to be told it is not a
+# credential. Its bytes come from `signingKeyFromSeed(labeled('pop-vector-key-v1/private'))` in
+# `packages/fixtures/scripts/pop-vectors.ts`. A digest of a seed label is a key and not the address of the
+# file that prints it, so this line stays hand-written with the seed named beside it. The file is generated,
+# so a value pasted over its slot fails the job that regenerates it as well as the scan.
+
+[[allowlists]]
+description = "The PoP fixture's signing key, in the file that publishes it"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^d1332ee54c62ab3f5336167d4d694944ed98509395a5529e165e043013de19dd$'''
+]
+paths = [
+  '''^packages/fixtures/data/pop-v1\.json$'''
+]
+
+# The second deterministic test signing key. Its bytes come from
+# `labeled('ashaveri-fixtures/receipt-key/v1')`, the seed `fixtureKey()` in
+# `packages/fixtures/scripts/receipt-envelope.ts` hands to `signingKeyFromSeed`, and the receipt fixtures
+# beside it are sealed under it. A seed digest again, so a key rather than an address. The file is
+# generated, so a value pasted over its slot fails the job that regenerates it as well as the scan.
+
+[[allowlists]]
+description = "The receipt fixture's signing key, in the file that publishes it"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^83323642bdd8d84c58b3d208d07b4dfc7d84be7b4d670d2272a7ea328f2a06b7$'''
+]
+paths = [
+  '''^packages/fixtures/data/keys/receipt-key-v1\.json$'''
+]
+
+# The public half of the key above, and the verification half rather than the signing half, so the private
+# bytes stay outside this block. It is exempted at the one place a document prints it: the verify-pack
+# example, where the same thirty-two bytes appear base64url rather than hex and the sentence under the
+# example names the file that publishes them. Base64url of a curve point is an encoding of bytes and not a
+# digest of them, so no script writes this line; the bytes come from `data/keys/receipt-key-v1.json` beside
+# its private half.
+
+[[allowlists]]
+description = "The receipt fixture's public verification key, in the README example that prints it"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU$'''
+]
+paths = [
+  '''^README\.md$'''
+]
+
+# A marker rather than a key. The gateway's provenance case puts one short string in the prompt, the
+# completion, the model id and the credential of every request it issues, then asserts that string reaches
+# none of the receipt's text members. The value authenticates nothing, and eight hex characters behind a
+# word is too short for any real credential to be. The built-in generic-api-key rule matched it at the line
+# that declared the constant under the name `TOKEN`, because that rule reads the name beside the value
+# rather than what the value is worth. The constant carries the name the case uses for the thing, so no line
+# of the current tree matches it, and this block answers for the commit that introduced the shape, which
+# stays in the history whatever the constant is called after it. Nothing digests to this value, so nothing
+# derives it.
+
+[[allowlists]]
+description = "The provenance case's canary marker, in the file that asserts it goes nowhere"
+condition = "AND"
+regexTarget = "secret"
+regexes = [
+  '''^CANARY-4f7b2e9a$'''
+]
+paths = [
+  '''^gateway/test/receipt-provenance\.test\.ts$'''
+]
+
+# The public half of a session key pair, published so a reader can lay the challenge pre-image out without
+# this repository's code, and the built-in rule reads that forty-three character base64url run beside its
+# name as a candidate. Nothing new is disclosed by it: the bytes are the `pk` member of the `enc` arm of
+# `data/receipts/receipt-enc-session-v2.cbor`, the signed document this repository already publishes, and
+# `decodeReceipt` answers them equal to the value the block below names. A reader handed that document
+# already holds them. An encoding of a CBOR member is not a digest of anything, so this line stays
+# hand-written and names the document instead. The file is generated, so a value pasted over its slot fails
+# the job that regenerates it as well as the scan.
+
 [[allowlists]]
 description = "The session public key the challenge family states, in the file that publishes it"
 condition = "AND"
 regexTarget = "secret"
 regexes = [
-  '''^tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY$''',
+  '''^tH4RCNZJrs5MOILOyEcYYDm_3i1hbJ-WxCq0t4zm-xY$'''
 ]
 paths = [
-  '''^packages/fixtures/data/challenge-v1\.json$''',
+  '''^packages/fixtures/data/challenge-v1\.json$'''
 ]
+

@@ -92,6 +92,10 @@ jobs:
       - run: pnpm -C packages/fixtures generate:redaction
       - run: pnpm -C packages/fixtures generate:epoch-inventory
       - run: pnpm -C packages/fixtures generate:capture
+      # The scan's allowlist is derived from the bytes the steps above write, so it runs last among them: a
+      # config built from a stale vector file would be a stale config, and the diff below reads it as one
+      # finding rather than two.
+      - run: pnpm -C packages/fixtures generate:scan-allowlist
       # The anchor ledger is written by the attestation package rather than the vector package, and the same
       # rule reaches it: the script is typechecked before it runs, because a generator that compiles wrong can
       # still emit a document that reads as a plausible statement about the shipped anchors.
@@ -100,6 +104,10 @@ jobs:
       # Both committed artifacts are checked in one step: a regenerated vector set and a regenerated ledger
       # are the same finding, that the bytes beside them were written by an earlier run.
       - run: git diff --exit-code packages/fixtures/data packages/attest-core/data
+      # The scan config is refused in a step of its own because a diff there is a different finding: not bytes
+      # left behind by an earlier run, but an exemption somebody wrote into the file the scan reads, which is
+      # the one artifact in this job whose next line is a permission rather than a vector.
+      - run: git diff --exit-code .gitleaks.toml
 
   offline-verifier:
     name: The single-file verifier runs with no installed dependencies
