@@ -190,9 +190,11 @@ export class GatewaySession {
    * The receipt comes first because it is the cheaper check and the reason the
    * evidence is worth fetching at all: its `tee` label alone can settle strict
    * mode, so a deployment claiming no hardware is rejected without a round trip.
-   * The expected report data is recomputed from the client's own nonce and
-   * request bytes rather than read from the gateway, so the gateway cannot point
-   * the client at a quote for other work.
+   * The expected report data is recomputed from the client's own nonce, the client's
+   * own request bytes, and the session key the decoded receipt names in its own `enc`
+   * arm — never from an argument beside the receipt — rather than read from the
+   * gateway, so the gateway cannot point the client at a quote for other work, and a
+   * reader holding one document can reach the same value this line reaches.
    *
    * A composite claim costs a second document. `att.d` covers only the platform
    * quote, so the device report arrives beside it and is believed on the strength
@@ -207,7 +209,11 @@ export class GatewaySession {
     }
     const tee = receipt.payload.meas.tee;
     requireHardwareEvidence(tee);
-    const expectedReportData = evidenceReportData(params.nonce, params.requestHash);
+    const expectedReportData = evidenceReportData(
+      params.nonce,
+      params.requestHash,
+      receipt.payload.v === 2 ? receipt.payload.enc : undefined,
+    );
     const document = await this.attestationBytes(expectedReportData);
     const gpuEvidence = claimsConfidentialDevice(tee)
       ? deviceReports(await this.deviceAttestationBytes(expectedReportData))

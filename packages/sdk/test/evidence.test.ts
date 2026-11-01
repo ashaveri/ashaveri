@@ -157,6 +157,32 @@ describe('evidenceReportData', () => {
     expect(toHex(bound)).not.toBe(toHex(evidenceReportData(otherNonce, requestHash)));
     expect(toHex(bound)).not.toBe(toHex(evidenceReportData(nonce, sha256(utf8('other body')))));
   });
+
+  // The plain arm and the arm that names no arm at all are the shipped two-part rule, byte for byte: a
+  // fold that moved them would move every receipt served before a session key existed.
+  it('leaves the two-part pre-image where the document states no session key', () => {
+    const nonce = new Uint8Array(16).fill(7);
+    const requestHash = sha256(utf8('body'));
+    const shipped = toHex(sha256(new Uint8Array([...nonce, ...requestHash])));
+    expect(toHex(evidenceReportData(nonce, requestHash, { sch: 'none' }))).toBe(shipped);
+    expect(toHex(evidenceReportData(nonce, requestHash, undefined))).toBe(shipped);
+  });
+
+  it('folds the session key the arm names between the nonce and the request', () => {
+    const nonce = new Uint8Array(16).fill(7);
+    const requestHash = sha256(utf8('body'));
+    const key = new Uint8Array(32).fill(11);
+    const enc = { sch: 'x25519-aes-256-gcm-v1', pk: key } as const;
+    expect(toHex(evidenceReportData(nonce, requestHash, enc))).toBe(
+      toHex(sha256(new Uint8Array([...nonce, ...key, ...requestHash]))),
+    );
+    // The three parts are one pre-image and the order is a wire fact: the same members concatenated in
+    // another order, or without the key, are three different values and only one of them is the rule.
+    expect(toHex(evidenceReportData(nonce, requestHash, enc))).not.toBe(
+      toHex(sha256(new Uint8Array([...nonce, ...requestHash, ...key]))),
+    );
+    expect(toHex(evidenceReportData(nonce, requestHash, enc))).not.toBe(toHex(evidenceReportData(nonce, requestHash)));
+  });
 });
 
 describe('verifyCompletionEvidence', () => {
