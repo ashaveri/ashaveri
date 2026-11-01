@@ -860,8 +860,10 @@ against it exactly as before.
 
 Which payload versions a call reads is none of these three choices to make. Section 6's
 `acceptedVersions` is an option on `@ashaveri/receipt`'s own `verifyReceipt` and `decodeReceipt`, and
-no mode above passes it, so an integrator verifying through the SDK gets the default set, which
-admits every version the package parses, and has no flag to refuse a receipt by its number.
+on the client path's `verifyCompletionReceipt` and `GatewaySession.verifyReceipted`, so an integrator
+who names nothing gets the default set, which admits every version the package parses; a caller who
+means to read fewer narrows that set, and `ashaveri verify-receipt --accept-version` carries the same
+choice to the command edge.
 
 ### 5.2 Record framing and chain recomputation
 
@@ -1537,7 +1539,10 @@ document instead of being upgraded into it.
 
 Which versions a call reads is a setting rather than a fact about the format. `acceptedVersions`
 names them on both `verifyReceipt` and `decodeReceipt`, and its default is every version the
-package parses, which is `[1]`. An empty list is how a caller says it reads no receipt at all; a
+package parses, which is `[1, 2]`. The same set reaches the client path, where
+`verifyCompletionReceipt` and `GatewaySession.verifyReceipted` take it, and the command edge, where
+`ashaveri verify-receipt --accept-version <n>` carries it, and an omitted flag reads the parsed set,
+exactly as the library default does. An empty list is how a caller says it reads no receipt at all; a
 document naming a number outside the set this package parses is refused under either setting. A version
 outside the accepted set and a version no format has ever used get one answer, `UNSUPPORTED_VERSION`, because
 which of the two it was is a fact about the reader rather than about the bytes, and two codes would
