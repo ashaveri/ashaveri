@@ -3,7 +3,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { ReceiptError, decodeCoseSign1, equalBytes, issueReceipt, type SigningKey } from '@ashaveri/receipt';
+import {
+  ReceiptError,
+  decodeCoseSign1,
+  decodeReceipt,
+  equalBytes,
+  issueReceipt,
+  verifyReceipt,
+  type SigningKey,
+} from '@ashaveri/receipt';
 import {
   SdkError,
   assessCapture,
@@ -50,15 +58,20 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * whatever it observes, so the direction is written into the case and required of the run rather than inferred
  * from the outcome.
  *
- * The originals are not invented. The bytes every row states as its original, apart from the four named below, are
+ * The originals are not invented. The bytes every row states as its original, apart from the five named below, are
  * `issueReceipt` output over the fixture payload under the key `data/keys/receipt-key-v1.json` publishes, and `main`
  * requires that document to be byte for byte `data/receipts/receipt-valid-v1.cbor`, the one the receipt suite seals
- * and verifies, which is what makes every other row a capture of the file rather than of a copy of it. Those four
- * each say which bytes they name: one states the deployment manifest as its original, one states the receipt with
- * one bit changed inside it, and two state one envelope of that receipt with its four elements untouched and its
- * framing written by a second encoder. That re-framed document is assembled out of what `decodeCoseSign1` hands
- * back, which is the only way a purported equivalent can be made out of a real document rather than guessed at. The
- * manifest a held slot carries is a document `parseManifest` accepts, and `main` asks it.
+ * and verifies, which is what makes every other row a capture of the file rather than of a copy of it. Those five
+ * each say which bytes they name: one states the deployment manifest as its original, one states the receipt with one
+ * bit changed inside it, two state one envelope of that receipt with its four elements untouched and its framing
+ * written by a second encoder, and one states the version 2 receipt `data/receipts/receipt-enc-plain-v2.cbor`
+ * publishes. That fifth is read out of the file the receipt suite writes rather than issued again here, because a
+ * second copy of a document is the thing a capture record refuses to be, and `main` requires the row to state that
+ * file's bytes with their digest and length, requires the shipped reader to take those bytes at version 2 as the plain
+ * arm over this suite's own deployment and instance, and requires the format's verifier to run over them the leg the
+ * row publishes as run. The re-framed document is assembled out of what `decodeCoseSign1` hands back, which is the
+ * only way a purported equivalent can be made out of a real document rather than guessed at. The manifest a held slot
+ * carries is a document `parseManifest` accepts, and `main` asks it.
  */
 
 /** A key derived from a label rather than drawn at random, in the shape `@ashaveri/receipt`'s writer takes. */
@@ -85,6 +98,21 @@ const PAYLOAD = fixturePayload();
 
 /** The receipt every row states as its original, unless the row names other bytes. */
 const ORIGINAL = issueReceipt(PAYLOAD, KEY);
+
+/**
+ * The name of the row that states the version 2 receipt below as its original, written once because the byte
+ * guard and the census of rows stating other bytes both have to reach the same row.
+ */
+const V2_ROW = 'payload-version-two-original-repeated';
+
+/**
+ * The version 2 receipt this suite captures, read out of the document `data/receipts` publishes rather than
+ * issued again here. The receipt suite writes these bytes with the format's own writer, seals them and verifies
+ * them in its own rows; a second issue here would put a copy beside the published document, and a copy that
+ * only has to look like the original is the thing a capture record exists to refuse. `main` requires the file's
+ * bytes, the version the row states, and the signature leg over exactly those bytes.
+ */
+const V2_ORIGINAL = new Uint8Array(readFileSync(join(DATA, 'receipts', 'receipt-enc-plain-v2.cbor')));
 
 /** The detached signature that envelope carries inside it, taken out of it rather than written beside it. */
 const DETACHED_SIGNATURE = decodeCoseSign1(ORIGINAL).signature;
@@ -344,6 +372,13 @@ const CASES: readonly Case[] = [
     name: 'exact-original-bytes-repeated',
     note: 'The record this suite is built around: the original bytes are the receipt `data/receipts/receipt-valid-v1.cbor` publishes, held as they arrived, and every context slot states itself held. The reader hands those bytes back unchanged, recomputes the digest the record states, resolves the kid in their own header to the key the caller pinned under it, and matches the one root the record relied on against the caller\'s own. That is the whole of `repeated`, and it is reached only out of a caller\'s pins and never out of the record\'s word.',
     record: baseRecord(),
+    read: PINNED,
+    status: 'repeated',
+  },
+  {
+    name: V2_ROW,
+    note: "A record whose original bytes are the version 2 receipt `data/receipts/receipt-enc-plain-v2.cbor` publishes, read out of that file rather than issued again here, and whose `check.receiptFormatVersion` states 2: the first capture record of a payload version 2 document this estate hands a collector. The plain arm is the one captured and the session arm is not, and the reason is what this reader's own leg reaches. The leg repeats the signature over the stored bytes under the caller's pin, and the plain arm's one statement about transmission is `enc: { sch: \"none\" }`, which names no key and asks nothing outside the document. `receipt-enc-session-v2` carries `enc.pk`, and as `docs/receipt-spec.md` section 3.4 states of that arm, the receipt names the key and does not bind it: `att` states a digest, an instant and a route, and no member states what that evidence's report data carried, so the binding belongs to a second document and no shipped route serves it today. A capture row over that document would publish this suite's strongest word `repeated` beside a claim the capture reader is written to say nothing about, and a conformance set is not the place to blur which word covers what. When a shipped route binds a session key to a measurement, the row beside this one is what says the capture covers it. The issuer, the instance, the signing key, the manifest and every clock are the ones `exact-original-bytes-repeated` states, and the deployment and instance the captured document names are those same two, so what moves between the two records is the version the check read and the bytes it read it over, and the leg runs at the version the record states rather than at a reader's default.",
+    record: member(withOriginalBytes(baseRecord(), V2_ORIGINAL, true), 'check', 'receiptFormatVersion', 2),
     read: PINNED,
     status: 'repeated',
   },
@@ -757,9 +792,9 @@ const REFUSALS: readonly Case[] = [
     code: 'UNSUPPORTED_VERSION',
   },
   {
-    name: 'receipt-version-two',
-    note: 'A record stating that the check read a receipt at version 2, which is a payload number the format retired. The bytes beside it frame a version 1 document, and the reader answers the version the record named rather than re-reading those bytes at a version no reader of this build opens.',
-    record: member(baseRecord(), 'check', 'receiptFormatVersion', 2),
+    name: 'receipt-version-three',
+    note: 'A record stating that the check read a receipt at version 3, which is a number this format declares no payload map for. The refusal is of a version the format does not parse, measured against the list this reader implements and never against the arithmetic: a reader answers the version the record named rather than re-reading those bytes at the nearest version inside the list, and the bytes beside this row frame a version 1 document. The number this row used to state is one the format defines and every reader of this build parses, so it is no longer a refusal this suite states.',
+    record: member(baseRecord(), 'check', 'receiptFormatVersion', 3),
     read: PINNED,
     stage: 'layout',
     code: 'UNSUPPORTED_VERSION',
@@ -907,6 +942,41 @@ function main(): void {
   if (!equalBytes(committed, ORIGINAL)) {
     throw new Error('the receipt this suite captures is not the byte-for-byte document data/receipts publishes');
   }
+  // The version 2 row is held to the same rule at the newer number: the bytes it states are the document
+  // `data/receipts/receipt-enc-plain-v2.cbor` publishes, digest and length beside them, and the shipped reader
+  // takes those bytes at the version the row states and answers them as the plain arm over this deployment. A
+  // row that named version 2 over bytes that are no longer a version 2 document, or that drifted from the
+  // published file by one byte, would publish a claim no reader in this repository can check.
+  const v2Row = CASES.find((one) => one.name === V2_ROW);
+  if (v2Row === undefined) throw new Error(`this suite states no row named ${V2_ROW}`);
+  const v2Original = v2Row.record['original'] as Record<string, unknown>;
+  const v2Check = v2Row.record['check'] as Record<string, unknown>;
+  if (
+    v2Original['bytes'] !== toBase64Url(V2_ORIGINAL) ||
+    v2Original['sha256'] !== digestHex(V2_ORIGINAL) ||
+    v2Original['byteCount'] !== V2_ORIGINAL.length ||
+    v2Check['receiptFormatVersion'] !== 2
+  ) {
+    throw new Error('the version 2 row does not state the published version 2 receipt byte for byte at the version it names');
+  }
+  if (equalBytes(V2_ORIGINAL, committed)) {
+    throw new Error('the receipt stated at version 2 is the version 1 document this suite already captures');
+  }
+  const v2Claims = decodeReceipt(V2_ORIGINAL, { acceptedVersions: [2] }).payload;
+  if (v2Claims.v !== 2) {
+    throw new Error('the receipt this suite states at version 2 is not a document naming version 2');
+  }
+  if (v2Claims.enc.sch !== 'none') {
+    throw new Error('the receipt this suite states at version 2 is not the plain-arm document its row says it is');
+  }
+  // The new row states this suite's own instance as the source's name for itself and this suite's own issuer in
+  // the manifest its held slot carries, so the captured document has to name those same two.
+  if (v2Claims.iss !== PAYLOAD.iss || v2Claims.ins !== PAYLOAD.ins) {
+    throw new Error('the version 2 receipt this suite captures names a deployment or an instance other than the record states');
+  }
+  // The leg the new row publishes as run, taken over exactly those bytes under the key this package publishes
+  // and at the clock the row hands, rather than read back out of the answer the generator is about to publish.
+  verifyReceipt(V2_ORIGINAL, { publicKey: KEY.publicKey, acceptedVersions: [2], nowSeconds: Math.floor(AT_MILLIS / 1_000) });
   // The published prose names the rows that state bytes other than that document's, so the set is measured here
   // rather than remembered: a row that began to state other bytes without saying which would publish a file
   // describing an original this suite does not hold and a sentence about one it does.
@@ -917,6 +987,7 @@ function main(): void {
   const namedApart = [
     'manifest-original-claiming-no-signature',
     'one-bit-changed-inside-the-original',
+    V2_ROW,
     'reserialized-envelope-against-the-stated-digest',
     'reserialized-envelope-stated-as-its-own-original',
   ].sort();
@@ -1038,7 +1109,7 @@ function main(): void {
           collateralRule:
             'a held collateral slot states the eight facts about the answer its bytes are, and no other slot owes them. Eight rows state one of them missing and each refusal names which; two more state the chain\'s two halves apart from each other, one states a chain digest that is not the digest of the header beside it, and one states the header in a second spelling. A row states an identity of `null` as an acceptance and a row refuses an address of one byte more than a reference carries, which is the pair the bound is measured by.',
           originals:
-            'the bytes every row states as its original are `data/receipts/receipt-valid-v1.cbor`: the receipt `issueReceipt` writes for the fixture payload under the key `data/keys/receipt-key-v1.json` publishes. Four rows name other bytes and say which: one states the deployment manifest as its original, one states that receipt with one bit changed inside it, and the pair beside it states one envelope of that receipt with its four elements untouched and its framing written by a second encoder. The generator stops unless the receipt this suite captures is byte for byte the document data/receipts publishes, so this file captures evidence the repository already seals rather than a stand-in for it, and the manifest a held slot carries is read by `parseManifest`, which the generator asks.',
+            'the bytes every row states as its original are `data/receipts/receipt-valid-v1.cbor`: the receipt `issueReceipt` writes for the fixture payload under the key `data/keys/receipt-key-v1.json` publishes. Five rows name other bytes and say which: one states the deployment manifest as its original, one states that receipt with one bit changed inside it, the pair beside it states one envelope of that receipt with its four elements untouched and its framing written by a second encoder, and `payload-version-two-original-repeated` states the version 2 receipt `data/receipts/receipt-enc-plain-v2.cbor` publishes with its `check.receiptFormatVersion` stating 2, which is the row that makes a version 2 claim checkable in this package rather than a claim nothing exercises. That row\'s bytes are read out of the published file rather than issued again, because a capture of a copy is a capture of the copy. The generator stops unless the receipt this suite captures is byte for byte the document data/receipts publishes, unless the version 2 row states its file byte for byte with the digest and length of exactly those bytes, unless the shipped reader takes those bytes at version 2 as the plain arm over the deployment and instance the record names, and unless the format\'s verifier runs the signature leg over them at the clock the row hands, so this file captures evidence the repository already seals rather than a stand-in for it, and the manifest a held slot carries is read by `parseManifest`, which the generator asks.',
           keyMaterial: [
             {
               id: 'receipt-fixture-key',

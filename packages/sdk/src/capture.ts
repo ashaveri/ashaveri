@@ -55,20 +55,26 @@ const IMPLEMENTED_POLICY_VERSIONS: readonly number[] = [1];
  * package. It is the format's own list and it carries exactly that set: a gateway emits `v: 1` for every
  * completion whose bytes frame into items, so a record of a check over a v1 receipt is the ordinary
  * document a collector hands over, and a reader that refused it would leave every client of every
- * emitting deployment unable to record what it verified. The list and
- * `packages/sdk/schemas/capture-v1.schema.json`'s `enum` for `check.receiptFormatVersion` are one rule
- * written twice on purpose, because the schema is what a collector outside this repository builds against
- * and the reader is what a stranger runs; `test/capture.test.ts` holds the two to each other at the
- * boundary of the list, where only a disagreement between them can be seen.
+ * emitting deployment unable to record what it verified. A version joins this list when the format parses
+ * it and this package's own conformance set states a record of a check over it, which is
+ * `packages/fixtures/data/capture-v1.json`: a version the format parses that no published record exercises
+ * is a claim nothing here can hand a collector, and a version the format does not parse is refused however
+ * many records name it. The list and `packages/sdk/schemas/capture-v1.schema.json`'s `enum` for
+ * `check.receiptFormatVersion` are one rule written twice on purpose, because the schema is what a
+ * collector outside this repository builds against and the reader is what a stranger runs;
+ * `test/capture.test.ts` holds the two to each other at the boundary of the list, where only a
+ * disagreement between them can be seen.
  *
  * `as const` is what makes the list and the type of the member below one fact instead of two that can
  * disagree. Widening this list is answered at the schema half of that walk, and a version the format gains
  * without a reader for it fails the same way: `receipt.cddl` and `packages/receipt/src/receipt.ts` own what
- * can be parsed, and this list only says which of those a record may claim it checked. A record naming
- * `2` or `3` is refused at that boundary, because the numbers retired with the versions they named and a
- * collector that hands one over is describing a document no reader in this estate can open.
+ * can be parsed, and this list only says which of those a record may claim it checked. A record naming a
+ * number this list does not hold is refused at that boundary, and the refusal states a rule rather than a
+ * census: the reader answers the version the record carries and never re-reads those bytes at the nearest
+ * version inside the list, so a collector that hands over a number past its end is describing a document no
+ * reader in this estate can open.
  */
-const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1] as const;
+const IMPLEMENTED_RECEIPT_FORMAT_VERSIONS = [1, 2] as const;
 
 /** The versions above as a type, so no caller of the reader has to name them again. */
 type CaptureReceiptFormatVersion = (typeof IMPLEMENTED_RECEIPT_FORMAT_VERSIONS)[number];
@@ -470,13 +476,14 @@ function requireImplementedVersion<T extends number>(value: unknown, what: strin
 }
 
 /**
- * Which receipt format version the record says the check read, against the version this package reads it
- * as. `receipt.cddl` declares one payload version and this reader names it, because a gateway emits
- * that version on the bytes of the response rather than on a capability the deployment was asked about, so
- * a record of a check is a record a collector writes. A version outside the list is still refused by
- * design and never read as one inside it: `requireImplementedVersion` answers with an `UNSUPPORTED_VERSION`
- * naming the version the record states and the versions this reader implements, which is the same rule the
- * capture and policy versions beside it run under.
+ * Which receipt format version the record says the check read, against the versions this package reads it
+ * as. `packages/receipt/src/receipt.ts` owns what can be parsed and this list says which of those a record
+ * may claim it checked: a gateway emits `v: 1` on the bytes of the response rather than on a capability the
+ * deployment was asked about, so a record of a check over a v1 receipt is the record a collector writes, and
+ * a record at v2 is one this package's conformance set now states a document for. A version outside the list
+ * is still refused by design and never read as one inside it: `requireImplementedVersion` answers with an
+ * `UNSUPPORTED_VERSION` naming the version the record states and the versions this reader implements, which
+ * is the same rule the capture and policy versions beside it run under.
  */
 function requireReceiptVersion(value: unknown, where: string): CaptureReceiptFormatVersion {
   return requireImplementedVersion(value, `${where}.receiptFormatVersion`, IMPLEMENTED_RECEIPT_FORMAT_VERSIONS);

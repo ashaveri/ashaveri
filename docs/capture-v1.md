@@ -143,23 +143,35 @@ slot carrying a whole observation to prove.
 
 ## Which receipt version a record may name
 
-`check.receiptFormatVersion` carries `1`, which is every payload version
-[`receipt.cddl`](../packages/receipt/receipt.cddl) defines and every version `@ashaveri/receipt` parses.
-The list is the same on both sides of the reader: `enum: [1]` in the published schema and
+`check.receiptFormatVersion` carries `1` or `2`, the two payload versions
+[`receipt.cddl`](../packages/receipt/receipt.cddl) defines and the two `@ashaveri/receipt` parses. The list is
+the same on both sides of the reader: `enum: [1, 2]` in the published schema and
 `IMPLEMENTED_RECEIPT_FORMAT_VERSIONS` in `capture.ts`, held to each other by
-`packages/sdk/test/capture.test.ts` at the boundary of the list, so a version gained on one side without the
+`packages/sdk/test/capture.test.ts` at both edges of the list, so a version gained on one side without the
 other fails the assertion belonging to the side that moved rather than passing in silence.
 
-That list holds one of the two versions the format declares, and the narrowing is deliberate rather than an
-oversight the two halves above would let pass: a capture record states a receipt version a collector was handed
-bytes of, and this repository publishes no capture record at the newer number, so a record naming it would be a
-claim nothing exercises. A deployment signs the older number for every response whose bytes frame into items,
-and serves no completion at all for a stream that sent no `data:` frame, so a record naming `1` is the
-ordinary output of a check a collector will be written against, and refusing one would leave a client unable
-to record what it verified. A version the list does not hold is still refused, by the schema and by the reader
-alike, with `UNSUPPORTED_VERSION` naming what the record stated and what the reader implements; the refusal is
-of a number this reader was never given bytes for, measured against the set this package implements, and the
-set widens in the change that adds a document at the newer number to this package's own conformance suite.
+The list carries both numbers because a published record now exercises the newer one.
+`packages/fixtures/data/capture-v1.json` states `payload-version-two-original-repeated`: a whole record whose
+original bytes are the version 2 receipt the fixtures package publishes at
+`packages/fixtures/data/receipts/receipt-enc-plain-v2.cbor`, read out of that file by the generator that writes
+the row, and whose check block states the newer number. That is the condition the set widens on. A version
+joins the list when the format parses it and this package hands a collector a record of a check over it,
+because a capture record states what a check read, and a number no record carries would be a claim a stranger
+could write that nothing here could check.
+
+A deployment signs the older number for every response whose bytes frame into items, and serves no completion
+at all for a stream that sent no `data:` frame, so a record naming `1` stays the ordinary output of a check a
+collector will be written against. Nothing emits the newer number yet: the format's writer produces it, its
+reader reads it, and the shipped gateway path writes the older one, so a record at the newer number is a
+record of a check over a document somebody handed to the collector, which is the one thing this layout is for.
+
+A number past the pair is refused, by the schema and by the reader alike, with `UNSUPPORTED_VERSION` naming
+what the record carried and what this build implements. The refusal states a rule rather than a census: the
+reader answers the version the record carries and never re-reads those bytes at the nearer version inside the
+list. The version a record names also governs how its own bytes are weighed, because `assessCapture` hands the
+format's verifier the stated version alone: a record that names the newer number over bytes written at the
+older one is taken by the layout and refused by the leg, which is why the published row states the version of
+the document it holds.
 
 The same walk reads `original.sourceKind` against the `SOURCE_KINDS` list the reader and its type are made
 of, which is the coupling that holds `check.receiptFormatVersion` to its enum: a kind added to one side

@@ -289,7 +289,7 @@ specific to that case.
   handed, because a capture's claim about bytes lives inside its members rather than in the spelling of the document
   holding them. Hand the record to `parseCaptureRecord` for the layout's answer and to `assessCapture` for the
   reading's, beside the caller's own pins, its own pinned roots and the clock the row's `read` block states, and
-  compare what comes back with the row. `capture-v1.json` publishes 19 accepted rows and 39 refusals, and 8 of the
+  compare what comes back with the row. `capture-v1.json` publishes 20 accepted rows and 39 refusals, and 8 of the
   refusals state one fact a held collateral slot leaves out, one per member, each naming the member it found missing.
   Where a refused row states `stage`, that is which of the two published steps answered: `layout` where the record
   itself was refused, which `assessCapture` then refuses with the same code because it parses first, and `reading`
@@ -297,12 +297,13 @@ specific to that case.
   roots, or the clock. `status` is one of the three a verdict has: `repeated`, `qualified`, `unassessed`. `stated` is
   the record's claim about the bytes it held and `repeated` is what this reader established over them, published
   apart because a verdict carrying one word would let the claim be read as the finding. The original bytes of every
-  row but 4 are the document `data/receipts/receipt-valid-v1.cbor` publishes, and
+  row but 5 are the document `data/receipts/receipt-valid-v1.cbor` publishes, and
   `packages/fixtures/test/capture-vectors.test.ts` requires each of the rest to be that file byte for byte while
   reading that count out of this sentence rather than keeping its own, so a capture in this suite is of evidence the
-  repository already seals. The four that state other bytes say which: the deployment manifest, the receipt with one
-  bit changed inside it, and the re-framed envelope stated twice, once against the digest of the document the source
-  produced and once as its own original.
+  repository already seals. The five that state other bytes say which: the deployment manifest, the receipt with one
+  bit changed inside it, the re-framed envelope stated twice, once against the digest of the document the source
+  produced and once as its own original, and the version 2 receipt `data/receipts/receipt-enc-plain-v2.cbor`, which
+  the row stating `check.receiptFormatVersion` as 2 carries as read out of that file and held to it byte for byte.
   The one bound this suite measures rather than quotes is the address a collateral slot states: a row at 2,048 bytes
   of UTF-8 is taken and a row at 2,049 is refused. The key material this file publishes is public halves and kids;
   the private half beside them is the one `data/keys/receipt-key-v1.json` already publishes, which the last section
@@ -466,7 +467,7 @@ These vectors check bytes. They say nothing about trust:
   a byte-exact reimplementation of every suite in `data/` is compatible with a deployment that should
   not be trusted at all.
 - A passing port is not a certified port. It is a reimplementation that agrees with this one on the
-  cases chosen here, which for the payload version these fixtures carry are the field set, the digests and the framing,
+  cases chosen here, which for the payload versions these fixtures carry are the field set, the digests and the framing,
   the marking member, the disclosure of the source
   an instant came from, the anchor of the context an appraisal ran on, the list of items a response
   was made of, and the count of those anchor slots a client's policy demands be stated as taken in,
