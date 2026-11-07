@@ -43,7 +43,7 @@ function payload(at: number): ReceiptPayload {
     ins: 'cvm-test-1',
     iat: at,
     nce: new Uint8Array(16).fill(7),
-    req: sha256(TEXT('the canonical request bytes')),
+    req: sha256(TEXT('the transmitted request bytes')),
     res: sha256(TEXT('the full response bytes')),
     mdl: 'test/model-1',
     wts: sha256(TEXT('the deployment manifest digest input')),

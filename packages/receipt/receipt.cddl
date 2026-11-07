@@ -48,7 +48,7 @@ Ashaveri-Receipt-Payload-v1 = {
     ins: tstr,                ; CVM instance id
     iat: int,                 ; unix seconds, issuance time
     nce: bstr .size 16,       ; client nonce, echoed for anti-replay
-    req: bstr .size 32,       ; sha256(canonical request)
+    req: bstr .size 32,       ; sha256(request body as transmitted, before any parsing)
     res: bstr .size 32,       ; sha256(full response bytes, incl. SSE frames)
     mdl: tstr,                ; model id, e.g. "meta-llama/Llama-3.1-8B-Instruct"
     wts: bstr .size 32,       ; sha256(deployment manifest: weights + image + config)
@@ -68,7 +68,7 @@ Ashaveri-Receipt-Payload-v2 = {
     ins: tstr,                ; CVM instance id
     iat: int,                 ; unix seconds, issuance time
     nce: bstr .size 16,       ; client nonce, echoed for anti-replay
-    req: bstr .size 32,       ; sha256(canonical request, or of its ciphertext under a session)
+    req: bstr .size 32,       ; sha256(request body as transmitted, or of its ciphertext under a session)
     res: bstr .size 32,       ; sha256(full response bytes, or of its ciphertext under a session)
     mdl: tstr,                ; model id, e.g. "meta-llama/Llama-3.1-8B-Instruct"
     wts: bstr .size 32,       ; sha256(deployment manifest: weights + image + config)
