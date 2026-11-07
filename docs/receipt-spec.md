@@ -1275,7 +1275,7 @@ nothing.
 
 **The two endpoints, and why they are repeated here.** A pack carries an anchor and a head inside its
 signature, and this manifest names the same two values again from the same store. It does not defer to a
-pack, because there is nothing to defer to: the published pack manifest names eight members, `v`, `at`,
+pack, because there is nothing to defer to: the published pack manifest names nine members, `v`, `at`, `prov`,
 `span`, `chain`, `duty`, `items`, `custody` and `attached`, and none of them is this document or a digest of it, so a reader
 holding a pack has no endpoint to inherit. Repeating them is also what the artifact's own bytes do, and a
 layout that referred a reader elsewhere to find them would be publishing a shape nothing produces. Where
