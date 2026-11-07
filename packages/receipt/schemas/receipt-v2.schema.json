@@ -30,7 +30,7 @@
         "ins": { "type": "string", "description": "CVM instance id" },
         "iat": { "type": "integer", "description": "issuance time, unix seconds" },
         "nce": { "$ref": "#/$defs/hex16", "description": "client nonce, echoed" },
-        "req": { "$ref": "#/$defs/hex32", "description": "sha256 of canonical request, or of its ciphertext under a session" },
+        "req": { "$ref": "#/$defs/hex32", "description": "sha256 of the request body as transmitted, or of its ciphertext under a session" },
         "res": { "$ref": "#/$defs/hex32", "description": "sha256 of full response bytes, or of its ciphertext under a session" },
         "mdl": { "type": "string", "description": "model id" },
         "wts": { "$ref": "#/$defs/hex32", "description": "sha256 of deployment manifest" },
