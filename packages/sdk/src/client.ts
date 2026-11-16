@@ -1,4 +1,4 @@
-import { hashRequest, randomNonce, type VerifiedReceipt } from '@ashaveri/receipt';
+import { hashRequest, randomNonce, stripTrailingSlashes, type VerifiedReceipt } from '@ashaveri/receipt';
 import { authorizedFetch, type AshaveriCredential } from './auth.js';
 import { toBase64Url } from './b64.js';
 import { GatewaySession, type VerifiedCompletion } from './gateway.js';
@@ -162,7 +162,7 @@ export class AshaveriClient {
   };
 
   constructor(options: AshaveriClientOptions) {
-    const baseUrl = options.baseUrl.replace(/\/+$/, '');
+    const baseUrl = stripTrailingSlashes(options.baseUrl);
     this.mode = options.verify ?? 'receipt';
     if (this.mode === 'strict' && options.policy === undefined) {
       throw new SdkError('NO_POLICY', "verify: 'strict' requires a policy pinning keys and measurements");
