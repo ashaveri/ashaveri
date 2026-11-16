@@ -193,9 +193,11 @@ export type {
   VerifiedEpochInventory,
 } from './epoch-inventory.js';
 export {
+  DUTY_LABEL_REGISTRY_REVISION,
   RETENTION_CHAIN_MEMBERS,
   RETENTION_DUTY_LABELS,
   RETENTION_DUTY_MEMBERS,
+  RETENTION_DUTY_REGISTRY,
   RETENTION_FAMILY_MEMBERS,
   RETENTION_FILE_NAMES,
   RETENTION_FILE_NAME_SET,
@@ -211,6 +213,7 @@ export {
   RETENTION_V1_MEMBERS,
   RETENTION_V2_MEMBERS,
   RETENTION_WINDOW_MEMBERS,
+  dutyLabelEntry,
   encodeRetentionDocument,
   parseRetentionDocument,
   retentionDocumentBytes,
@@ -219,6 +222,7 @@ export type {
   RetentionBody,
   RetentionChain,
   RetentionDuty,
+  RetentionDutyLabelEntry,
   RetentionFamily,
   RetentionHeld,
   RetentionManifest,
@@ -269,5 +273,30 @@ export type {
   CollateralValidityAnchor,
   StampDisclosure,
 } from './disclosure.js';
+export {
+  DISCLOSURE_DUTY_CITATIONS,
+  DISCLOSURE_DUTY_POINTERS,
+  DISCLOSURE_RECORD_LIMITS,
+  DISCLOSURE_RECORD_V1_MEMBERS,
+  DISCLOSURE_RECORD_VERSIONS,
+  DISCLOSURE_SERVED_KINDS,
+  DISCLOSURE_SERVED_REGION_MEMBERS,
+  DISCLOSURE_SERVED_TEXT_MEMBERS,
+  DISCLOSURE_TEXT_MAX_UNITS,
+  DISCLOSURE_TRANSFORMATION_MEMBERS,
+  DISCLOSURE_TRANSFORMATION_OUTCOMES,
+  disclosureRecordBytes,
+  encodeDisclosureRecord,
+  parseDisclosureRecord,
+} from './disclosure-record.js';
+export type {
+  DisclosureDutyPointer,
+  DisclosureRecord,
+  DisclosureServed,
+  DisclosureServedRegion,
+  DisclosureServedText,
+  DisclosureTransformation,
+  DisclosureTransformationOutcome,
+} from './disclosure-record.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';

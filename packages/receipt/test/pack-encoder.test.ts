@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {
+  DUTY_LABEL_REGISTRY_REVISION,
   PACK_CONTENT_TYPE,
   ReceiptError,
   decodeCanonical,
@@ -54,7 +55,7 @@ import { PACK_MANIFEST_MEMBERS } from '../src/pack.js';
 
 const KEY: SigningKey = signingKeyFromSeed(new Uint8Array(32).fill(31));
 const SECOND: SigningKey = signingKeyFromSeed(new Uint8Array(32).fill(32));
-const BASE = 1_772_000_000;
+const BASE = DUTY_LABEL_REGISTRY_REVISION - 3;
 const SPAN_FROM = BASE - 60;
 const SPAN_TO = BASE + 3;
 
@@ -160,7 +161,7 @@ function manifestFor(run: { items: PackItem[]; anchor: Uint8Array; head: Uint8Ar
     prov: 'fixture',
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
-    duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
+    duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: SPAN_TO - BASE },
     items: run.items,
     custody: [],
     attached: [],
@@ -360,10 +361,10 @@ describe('the pack writer', () => {
       ['assembly before the span closed', { ...honest, at: SPAN_TO - 1 }, 'PACK_BAD_MANIFEST'],
       ['an item stamped outside the span', manifestFor(chained([{ id: 'late', iat: SPAN_TO, nonce: 4 }])), 'PACK_BAD_MANIFEST'],
       ['a revision after the reads', manifestFor(run, { duty: { art: '19(1)', rev: SPAN_TO + 1, required: 3_600, held: SPAN_TO - BASE } }), 'PACK_BAD_MANIFEST'],
-      ['a held figure younger than the oldest receipt', manifestFor(run, { duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: 0 } }), 'PACK_BAD_MANIFEST'],
+      ['a held figure younger than the oldest receipt', manifestFor(run, { duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: 0 } }), 'PACK_BAD_MANIFEST'],
       ['an instant before the epoch', { ...honest, at: -1 }, 'PACK_BAD_MANIFEST'],
-      ['a duration below zero', manifestFor(run, { duty: { art: '19(1)', rev: SPAN_TO - 30, required: -1, held: SPAN_TO - BASE } }), 'PACK_BAD_MANIFEST'],
-      ['a duty label that is not text', manifestFor(run, { duty: { art: 19 as unknown as string, rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE } }), 'PACK_BAD_MANIFEST'],
+      ['a duration below zero', manifestFor(run, { duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: -1, held: SPAN_TO - BASE } }), 'PACK_BAD_MANIFEST'],
+      ['a duty label that is not text', manifestFor(run, { duty: { art: 19 as unknown as string, rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: SPAN_TO - BASE } }), 'PACK_BAD_MANIFEST'],
       ['no items at all', manifestFor(run, { items: [] }), 'PACK_BAD_MANIFEST'],
       ['two items answering to one name', manifestFor(run, { items: [...run.items, { ...run.items[1]!, id: 'receipt-0' }] }), 'PACK_DUPLICATE_ID'],
       ['a predecessor of another width', manifestFor(run, { items: run.items.map((one, index) => (index === 0 ? { ...one, prev: new Uint8Array(31) } : one)) }), 'PACK_BAD_MANIFEST'],
@@ -500,7 +501,7 @@ describe('the pack seal walks the run it signs', () => {
     // span binds every item, so the record the chain runs through has to be inside the window it links.
     const whole = manifestFor(store, {
       span: { from: BASE - 100, to: SPAN_TO },
-      duty: { art: '19(1)', rev: SPAN_TO - 200, required: 3_600, held: SPAN_TO - (BASE - 100) },
+      duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: SPAN_TO - (BASE - 100) },
     });
     expect(codeOf(() => signPack(whole, KEY))).toBe('accepted');
   });

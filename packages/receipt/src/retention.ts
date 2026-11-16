@@ -89,6 +89,104 @@ export const RETENTION_UNDER_MEMBERS = ['kind', 'value'] as const;
 export const RETENTION_DUTY_LABELS = ['19(1)', '19(2)', '26(6)'] as const;
 export const RETENTION_UNDER_KINDS = ['root', 'chain'] as const;
 
+/**
+ * The mapping revision every entry of the duty-label registry demands, in unix seconds: the instant this
+ * registry was published, 2026-11-16T00:00:00Z. It is one shared revision rather than one per label because
+ * the labels are read from one mapping, and it is named here rather than read from that mapping because the
+ * mapping is a private artifact this package never sees. The registry publishes the pointer and never the
+ * mapping rows. A pack's `duty.rev` has to name this revision for its label to be readable, which is the
+ * member the pack reader weighs; the revision is never after the assembly instant, so a pack assembled
+ * before this registry existed cannot name it.
+ *
+ * The limitation travels with the claim: the private mapping has not yet adopted this revision, so until it
+ * does, no production pack verifies under these labels. The entries below are pointers for counsel, not
+ * conclusions: each states the instrument's own period in the instrument's own words, and the period a
+ * deployment owes stays the deployment's to state. Nothing here decides whether a duty was owed or met.
+ */
+export const DUTY_LABEL_REGISTRY_REVISION = 1_794_787_200;
+
+/**
+ * One label of the duty-label registry: the article a pack answers under, the instrument it comes from, and
+ * the mapping revision a pack under that label has to name. The `article` is the value `PackDuty.art`
+ * carries. The `period` and `citation` point a reviewer at the instrument text; they are not a reading this
+ * package enforces, and no period here bounds a deployment's stated `required`.
+ */
+export interface RetentionDutyLabelEntry {
+  /** The label, as `PackDuty.art` carries it and as the retention layout's enum spells the three it closes. */
+  readonly article: string;
+  /** The instrument the article sits in, by the id the legal corpus files it under. */
+  readonly instrument: string;
+  /** The jurisdiction the instrument binds in. */
+  readonly jurisdiction: string;
+  /** The instrument's own period, in its own words: a pointer for counsel, never a bound this package sets. */
+  readonly period: string;
+  /** The instrument, its version, and the corpus file and line the period was read from. */
+  readonly citation: string;
+  /** The mapping revision a pack under this label has to name in `duty.rev`. */
+  readonly mappingRevision: number;
+}
+
+/**
+ * The published duty-label registry, beside the enum the retention layout closes. The two are deliberately
+ * different sets: the retention manifest's `duty.article` is the closed three-label enum its schema states,
+ * while the pack container declares `art` a bare `tstr` and asks this registry which labels it can read. A
+ * label here that the enum does not carry is readable in a pack and refused in a retention manifest, which is
+ * the two stances on one question the retention schema names. The three labels the enum carries are each an
+ * entry here, and the registry grows past them as instruments are read; a test holds the enum a subset of
+ * this registry so the two cannot drift apart silently.
+ *
+ * Every period and citation is a pointer for counsel, not a conclusion. The mapping rows behind these labels
+ * are maintained privately and are not yet authored for the growth entry, so a registry label makes a pack
+ * readable under a duty and never sufficient for it.
+ */
+export const RETENTION_DUTY_REGISTRY: readonly RetentionDutyLabelEntry[] = [
+  {
+    article: '19(1)',
+    instrument: 'ai-act',
+    jurisdiction: 'EU',
+    period:
+      'logs kept for a period appropriate to the intended purpose of the high-risk AI system, of at least six months, unless provided otherwise in applicable Union or national law, in particular Union law on the protection of personal data',
+    citation:
+      'Regulation (EU) 2024/1689 (AI Act), consolidated text 2026-07-27, binding-law/ai-act/articles/article-019.txt:13',
+    mappingRevision: DUTY_LABEL_REGISTRY_REVISION,
+  },
+  {
+    article: '19(2)',
+    instrument: 'ai-act',
+    jurisdiction: 'EU',
+    period:
+      'a financial institution provider maintains the logs as part of the documentation kept under the relevant Union financial services law; the article names no period of its own',
+    citation:
+      'Regulation (EU) 2024/1689 (AI Act), consolidated text 2026-07-27, binding-law/ai-act/articles/article-019.txt:20',
+    mappingRevision: DUTY_LABEL_REGISTRY_REVISION,
+  },
+  {
+    article: '26(6)',
+    instrument: 'ai-act',
+    jurisdiction: 'EU',
+    period:
+      'the deployer keeps the logs, to the extent they are under its control, for a period appropriate to the intended purpose, of at least six months, unless provided otherwise in applicable Union or national law, in particular Union law on the protection of personal data',
+    citation:
+      'Regulation (EU) 2024/1689 (AI Act), consolidated text 2026-07-27, binding-law/ai-act/articles/article-026.txt:51',
+    mappingRevision: DUTY_LABEL_REGISTRY_REVISION,
+  },
+  {
+    article: '5(1)(e)',
+    instrument: 'gdpr',
+    jurisdiction: 'EU',
+    period:
+      'personal data kept in a form which permits identification of data subjects for no longer than is necessary for the purposes for which they are processed (storage limitation); the article names no fixed period',
+    citation:
+      'Regulation (EU) 2016/679 (GDPR), consolidated text 2016-05-04 (original version), binding-law/gdpr/articles/article-005.txt:108',
+    mappingRevision: DUTY_LABEL_REGISTRY_REVISION,
+  },
+];
+
+/** The registry entry a label names, or undefined for a label no entry carries. */
+export function dutyLabelEntry(label: string): RetentionDutyLabelEntry | undefined {
+  return RETENTION_DUTY_REGISTRY.find((entry) => entry.article === label);
+}
+
 /** The two families of the appraisal context, named in the order the layout declares them. */
 export const RETENTION_PRESENCE_FAMILIES = ['collateral', 'validity'] as const;
 

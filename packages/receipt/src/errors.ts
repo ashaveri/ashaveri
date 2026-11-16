@@ -19,10 +19,10 @@ export type ReceiptErrorCode =
   | 'UNSUPPORTED_VERSION'
   | 'BAD_PAYLOAD'
   | 'UNSUPPORTED_SCHEME'
-  // Not `UNSUPPORTED_SCHEME` under another name: that sentence is about `mk.sch`, and a reader able to look
-  // for a mark is not therefore able to look for a cipher. Which registry a label is weighed against is the
-  // fact a caller acts on, and two registries answering one string would leave a log line that cannot say
-  // which of the two a deployment has to widen.
+  // Not `UNSUPPORTED_SCHEME` under another name: that sentence is about the marking registry, and a reader
+  // able to look for a mark is not therefore able to look for a cipher. Which registry a label is weighed
+  // against is the fact a caller acts on, and two registries answering one string would leave a log line
+  // that cannot say which of the two a deployment has to widen.
   | 'UNSUPPORTED_ENCRYPTION_SCHEME'
   | 'MARK_MISMATCH'
   | 'ITEM_STAMP_OUT_OF_ORDER'
@@ -47,6 +47,8 @@ export type ReceiptErrorCode =
   | 'PACK_BAD_HEADER'
   | 'PACK_UNSUPPORTED_VERSION'
   | 'PACK_BAD_MANIFEST'
+  | 'PACK_DUTY_UNKNOWN_LABEL'
+  | 'PACK_DUTY_REVISION_UNMAPPED'
   | 'PACK_DUPLICATE_ID'
   | 'PACK_RECEIPT_INVALID'
   | 'PACK_RECEIPT_STAMP_MISMATCH'
@@ -90,7 +92,18 @@ export type ReceiptErrorCode =
   | 'EPOCH_INVENTORY_KID_MISMATCH'
   | 'EPOCH_INVENTORY_UNKNOWN_KEY'
   | 'RETENTION_UNSUPPORTED_VERSION'
-  | 'RETENTION_BAD_DOCUMENT';
+  | 'RETENTION_BAD_DOCUMENT'
+  // The disclosure record family below, for the same reason the retention family exists: a log line carries
+  // only the code string, and the sentences fixed beside the receipt codes name a receipt, so reading a
+  // disclosure record's bytes under them would hand an operator a diagnosis of the wrong document. This
+  // artifact carries no signature either, so it carries no envelope: the three shared envelope refusals have
+  // no site here. What the codes answer is the layout and the one registry the record reads its duty pointer
+  // from. The scheme member is weighed against the marking registry `mk.sch` reads, so an unregistered label
+  // there answers `UNSUPPORTED_SCHEME`, the one code that registry owns: the action a caller takes is to widen
+  // the marking registry, whichever of the two positions the label arrived at.
+  | 'DISCLOSURE_RECORD_UNSUPPORTED_VERSION'
+  | 'DISCLOSURE_RECORD_BAD_DOCUMENT'
+  | 'DISCLOSURE_RECORD_UNKNOWN_DUTY';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -126,8 +139,13 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   UNSUPPORTED_VERSION: 'receipt payload declares a version this package cannot parse or is not configured to accept',
   BAD_PAYLOAD: 'payload does not match the CDDL schema for its receipt version',
   UNSUPPORTED_SCHEME: 'marking scheme is not in the registry this package can interpret',
-  // The other registry, weighed at the position `enc` names rather than the one `mk` does, and answered at
-  // both entry points that read a payload and at the writer that settles which member list the label picks.
+  // One registry, one code, two positions: `mk.sch` of a receipt payload and the `scheme` member of a
+  // disclosure record are weighed against the same `MARKING_SCHEMES` list, and the action a label outside
+  // it earns is the same wherever the label arrived: widen the marking registry. The detail names the
+  // position, so a log line still says which document refused.
+  // The other registry, weighed at the position `enc` names rather than the one the marking labels do, and
+  // answered at both entry points that read a payload and at the writer that settles which member list the
+  // label picks.
   UNSUPPORTED_ENCRYPTION_SCHEME: 'encryption scheme is not in the registry this package can interpret',
   MARK_MISMATCH: 'the marked region does not hash to the digest the receipt carries in mk.d',
   // The two orders one payload states about its own items, compared. Chain order is the array's
@@ -234,6 +252,21 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // in a key alike, answers here too and from the decode rather than from a field read, because by the time a
   // check could tell `1` from `1.0` the signed bytes have become one map entry.
   PACK_BAD_MANIFEST: 'pack manifest does not match the layout its declared version defines',
+  // The two the duty-label registry answers, and why they are not `PACK_BAD_MANIFEST`. The manifest is
+  // well-formed in both: `art` is a text string and `rev` is a stamp, every member of the duty block is the
+  // type and width the layout declares, and the document contradicts itself about nothing. What is refused is
+  // the label's standing against the registry this package publishes, which is a question the layout leaves
+  // open on purpose: `pack.cddl` types `art` a bare `tstr` so the format does not enumerate answers it cannot
+  // check, and the reader asks the registry which labels it can read. The two codes send a caller to two
+  // different places. An unknown label is a duty this registry has no entry for, so the action is to widen the
+  // registry from the instrument text, not to edit the pack. A known label whose `rev` does not name the
+  // revision the entry demands is a pack read from a mapping revision this registry does not stand behind, so
+  // the action is to name the revision the entry demands. Neither is a verdict about the duty: a registry
+  // label makes a pack readable under a duty and never sufficient for it, and the period the deployment
+  // states stays its own. A `rev` after the assembly instant is the older contradiction and still answers
+  // `PACK_BAD_MANIFEST`, because two signed members that cannot both be true are a fault of the document.
+  PACK_DUTY_UNKNOWN_LABEL: 'duty.art names a label the retention duty-label registry has no entry for',
+  PACK_DUTY_REVISION_UNMAPPED: 'duty.rev does not name the mapping revision the registry entry for this duty label demands',
   PACK_DUPLICATE_ID: 'two pack items answer to the same id',
   // Not a fault of the chain and not a fault of the receipt alone: an item's original is the document the pack
   // attests, and it either parses and verifies under the key the reader holds for it, which is the one the
@@ -516,6 +549,26 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // of another version's shape answers here too rather than under the version code, because the fault is in the
   // bytes and not in the reader's reach.
   RETENTION_BAD_DOCUMENT: 'retention manifest does not match the layout its declared version defines',
+  // One code for the two readings of a `v` this package cannot use, as the retention's and the receipt's
+  // are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `DISCLOSURE_RECORD_BAD_DOCUMENT`.
+  DISCLOSURE_RECORD_UNSUPPORTED_VERSION: 'disclosure record declares a version this package cannot parse',
+  // Every structural refusal of the document and of the maps inside it: an absent member, a member this
+  // version does not define, a text of the wrong type or width or carrying a character that forges the
+  // printed line it belongs to, a digest of the wrong width, an empty transformation list, one
+  // transformation named twice, an outcome outside the three the layout enumerates, a region served beside
+  // a scheme that declares no region, and a limits member stating anything other than the format's own
+  // limits sentence. The last is this code rather than a reading of the record's own claims: the limits a
+  // record states are the format's, and a document widening them is a document of a shape the layout does
+  // not define. A floating-point number answers here too, from the decode rather than from a field read,
+  // because by the time a check could tell `1` from `1.0` the bytes have become one JavaScript number.
+  DISCLOSURE_RECORD_BAD_DOCUMENT: 'disclosure record does not match the layout its declared version defines',
+  // The duty pointer is the record's own registry, the five provisions the layout enumerates, and a label
+  // outside it is refused rather than read as a citation nobody checked. Not `DISCLOSURE_RECORD_BAD_DOCUMENT`
+  // under another name: the document is well-formed and it is the provision it names that this reader has no
+  // pointer for, and the action is counsel widening the registry rather than a writer fixing a field, which
+  // is the same line the marking and encryption registries draw for their own labels.
+  DISCLOSURE_RECORD_UNKNOWN_DUTY: 'disclosure record names a duty pointer outside the registry this package reads',
 };
 
 /**

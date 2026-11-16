@@ -141,6 +141,35 @@ export interface AshaveriPolicy {
    */
   readonly maxEvidenceAgeSeconds?: number;
   /**
+   * The client's own bound on how old the key route's boot-scoped binding document may be: the
+   * attestation a deployment serves beside its session public key, whose report data is `sha256(pk)`,
+   * the identifier the receipt header states. A different document from the per-request evidence the
+   * window above weighs, and a different moment. That evidence is minted per request and is fresh by
+   * construction; this one is constant for a whole boot, so it is replayable standing evidence unless a
+   * reader demands an age of it. This field is that demand, and the producer states no interval.
+   *
+   * Unlike the two windows above, this one has no shipped default that guards an absent field, and the
+   * absence is the weakness owned in the open: a reader that names no bound accepts a document of any
+   * date, the same posture a reader takes today toward collateral it is not asked to appraise. Naming
+   * nothing therefore demands nothing and moves no verdict taken under a policy written before this
+   * field existed. `Number.POSITIVE_INFINITY` is the deliberate off switch rather than the absence of
+   * one, the same spelling the two windows use, for a caller who has thought about the clock and decided
+   * it must not vote.
+   *
+   * The epoch that carries the key is the ceiling the demand cannot exceed. A binding is never good
+   * beyond the epoch whose key it names, which the deployment's manifest publishes from its rotation
+   * journal, so a finite demand is weighed beside that ceiling and a binding whose epoch the manifest
+   * does not support is refused however large the demand. The check is `assertKeyBindingFreshUnderPolicy`,
+   * the one place the comparison lives, and it reads the epoch through `adjudicateReceiptEpoch` rather
+   * than restating the rotation rule.
+   *
+   * This field lives on the policy object and not in the policy file format, the same choice
+   * `manifestKeys` makes: a demand with no default that guards nothing when absent is a decision a
+   * caller writes in the process that verifies, not a number a published document carries, and keeping
+   * it out of the file leaves the policy digest question untouched.
+   */
+  readonly maxKeyBindingAgeSeconds?: number;
+  /**
    * How far the source a stamp was read from may stand from the instant it names, demanded of the
    * deployment rather than measured by the client. A reviewer's demand turned into a number: it bounds
    * how far a receipt's `iat` may be from the instant it states, which is the one time question a
