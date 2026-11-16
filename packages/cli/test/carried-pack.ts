@@ -2,6 +2,7 @@ import { createHash, createPrivateKey, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  DUTY_LABEL_REGISTRY_REVISION,
   decodeReceipt,
   decodeCanonical,
   encodeCanonical,
@@ -268,7 +269,9 @@ export function packManifestOf(
   const stamps = entries.map((one) => one.iat);
   const from = Math.min(...stamps);
   const to = Math.max(...stamps) + 1;
-  const at = to + 1_000;
+  // The assembly is at or after the duty-label registry's revision, so the duty can name that revision in
+  // `rev` without postdating the reads; the receipts are issued earlier, at the stamps the entries state.
+  const at = Math.max(to + 1_000, DUTY_LABEL_REGISTRY_REVISION);
   let previous: Uint8Array<ArrayBufferLike> = new Uint8Array(32);
   const items = entries.map((one) => {
     const item = { id: one.id, iat: one.iat, prov: one.prov ?? 'fixture', prev: previous, receipt: one.receipt };
@@ -284,7 +287,7 @@ export function packManifestOf(
     prov: reduceProvenance(items.map((item) => item.prov)),
     span: { from, to },
     chain: { anchor: new Uint8Array(32), head: previous },
-    duty: { art: 'retention-evidence', rev: at - 10, required: 31_536_000, held: at - from },
+    duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 31_536_000, held: at - from },
     items,
     custody,
     attached,
