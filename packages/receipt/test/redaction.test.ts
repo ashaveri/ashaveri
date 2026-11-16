@@ -573,18 +573,19 @@ describe('the removal set: every name present, nothing else gone', () => {
 
 describe('a hold consulted about a removal', () => {
   it('refuses the removal of a record a live hold covers', () => {
-    expect(thrownCode(() => verifyRedaction(honest, readWithHolds(PACK, [hold()])))).toBe('HOLD_REDACTION_REFUSED');
-    // The detail names the record and the hold's issue stamp and author, as the erasure refusal names its three.
+    const held = hold();
     let caught: unknown;
     try {
-      verifyRedaction(honest, readWithHolds(PACK, [hold()]));
+      verifyRedaction(honest, readWithHolds(PACK, [held]));
     } catch (err) {
       caught = err;
     }
     expect(caught).toBeInstanceOf(ReceiptError);
+    expect((caught as ReceiptError).code).toBe('HOLD_REDACTION_REFUSED');
+    // The detail names the record and carries the hold in the `issued at ... by ...` grammar the erasure
+    // refusal uses, so an operator is told which instruction refuses; a bare digit run would match any stamp.
     expect((caught as ReceiptError).message).toContain('receipt-1');
-    expect((caught as ReceiptError).message).toContain(String(hold().at));
-    expect((caught as ReceiptError).message).toContain('the fixture deployer');
+    expect((caught as ReceiptError).message).toContain(`issued at ${String(held.at)} by "the fixture deployer"`);
   });
 
   it('reads a hold released before the removal was stated', () => {
@@ -619,6 +620,17 @@ describe('a hold consulted about a removal', () => {
     expect((caught as ReceiptError).code).toBe('HOLD_REDACTION_REFUSED');
     expect((caught as ReceiptError).message).toContain('receipt-1');
     expect((caught as ReceiptError).message).not.toContain('receipt-0');
+  });
+
+  it('names the held removal before the survivor fold can misreport it', () => {
+    // A mis-stated `reduced` beside a covered removal: the fold alone refuses it, the hold alone refuses the
+    // honest document, and read together the held removal is answered by name because the consultation runs
+    // at the match and the fold never hashes a chain as though a forbidden removal had already happened.
+    const misstated = mutant(PACK, ['receipt-1'], (root) =>
+      root.set('reduced', redactionSurvivorDigest(PACK.manifest.chain.anchor, [PACK.manifest.items[0]!])),
+    );
+    expect(thrownCode(() => verifyRedaction(misstated, readWith(PACK)))).toBe('REDACTION_SURVIVOR_CHAIN_MISMATCH');
+    expect(thrownCode(() => verifyRedaction(misstated, readWithHolds(PACK, [hold()])))).toBe('HOLD_REDACTION_REFUSED');
   });
 
   it('reads with no holds handed exactly as it does without the option', () => {

@@ -908,9 +908,19 @@ the credential, or names none and so covers every credential, refuses the erasur
 stamp and author. The window is not consulted there, because an erasure takes all of a credential's
 material at once and a hold naming that credential suspends the whole of it rather than a slice.
 
+`verifyRedaction` is the redaction arm: handed the parsed holds beside the pack, it weighs each removed
+record's own chain stamp with `holdCoversStamp(record, iat, manifest.at)`, at the instant the removal was
+stated rather than at the reading, so a hold issued after the statement does not rewrite it and a hold
+released after it still covers the removal stated while it was on. The window decides there and the
+credential list does not, because a `PackItem` names an id and a stamp rather than a credential, so a hold
+over one credential refuses removals of records belonging to another, which is over-refusal an operator can
+hit rather than a silent permission. The consultation runs per removed record after the id is matched to a
+record of that pack and before the survivor fold, so a held removal is answered by name and is never
+reported as a chain mismatch.
+
 A version no layout reads is `HOLD_RECORD_UNSUPPORTED_VERSION`; every structural refusal is
-`HOLD_RECORD_BAD_DOCUMENT`; the erasure suspension is `HOLD_ERASURE_REFUSED`. The rows are in
-[error-codes.md](error-codes.md).
+`HOLD_RECORD_BAD_DOCUMENT`; the erasure suspension is `HOLD_ERASURE_REFUSED`; the redaction refusal is
+`HOLD_REDACTION_REFUSED`. The rows are in [error-codes.md](error-codes.md).
 
 The limits sentence every record states:
 

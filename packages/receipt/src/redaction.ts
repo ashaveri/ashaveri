@@ -31,9 +31,10 @@ import { signEd25519 } from './signing.js';
  * removal instead of a rewritten first one. This module reads and writes that document. It is a checker and
  * not a verdict engine: it answers whether the bytes are a well-formed redaction, whether the key it was
  * handed signed them, whether the pack it names is the pack it was handed, whether every id it names is a
- * record of that pack, and what the chain over the records that remain hashes to. It answers nothing about a
- * duty, nothing about whether the removed bytes are unreachable anywhere else, and nothing about freshness,
- * and it resolves nothing by itself: every key arrives as an argument and the pack arrives as bytes.
+ * record of that pack, whether any record it removes falls under a hold handed beside these two documents,
+ * and what the chain over the records that remain hashes to. It answers nothing about a duty, nothing about
+ * whether the removed bytes are unreachable anywhere else, and nothing about freshness, and it resolves
+ * nothing by itself: every key arrives as an argument and the pack arrives as bytes.
  *
  * Four things a reader is owed, and where each is settled here. That the redaction was sealed by a key it
  * designates, and which pack it speaks about, by a digest recomputed from that pack's own bytes rather than
@@ -57,7 +58,10 @@ import { signEd25519 } from './signing.js';
  * a redaction without the pack it names. The second of those is the availability rule stated the other way
  * round. A reader that cannot reach a redaction still verifies the original pack, because the pack was never
  * rewritten and refers to nothing here; a reader that has the redaction and not the pack can say nothing at
- * all, and says that by name rather than accepting the document on its own word.
+ * all, and says that by name rather than accepting the document on its own word. A refusal about a handed
+ * hold is not one of those two, and it is not a fault in the call either: it is weighed after both documents
+ * have been read, against the record the pack's walk reached and the instant this statement removes it, so
+ * it belongs with the refusals about the bytes.
  *
  * The writer is `encodeRedactionManifest`, `encodeRedactionProtectedHeader`, `sealRedaction` and
  * `signRedaction`, and `redactionSurvivorDigest` and `redactionPackDigest` are the two computations a caller
