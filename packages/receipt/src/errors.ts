@@ -125,7 +125,19 @@ export type ReceiptErrorCode =
   // which is a finding about the call rather than about the document.
   | 'HOLD_RECORD_UNSUPPORTED_VERSION'
   | 'HOLD_RECORD_BAD_DOCUMENT'
-  | 'HOLD_ERASURE_REFUSED';
+  | 'HOLD_ERASURE_REFUSED'
+  // The incident bundle family below, for the same reason the hold's and the model inventory's exist: a
+  // log line carries only the code string, and the sentences fixed beside the receipt codes name a
+  // receipt. This artifact carries no signature either, so it carries no envelope: the three shared
+  // envelope refusals have no site here. What the codes answer is the layout, the pointer registry, and
+  // the pair of a record with the hold it designates, which is a finding about two documents rather than
+  // about either half alone, the same split the model inventory's manifest codes draw.
+  | 'INCIDENT_BUNDLE_UNSUPPORTED_VERSION'
+  | 'INCIDENT_BUNDLE_BAD_DOCUMENT'
+  | 'INCIDENT_BUNDLE_UNKNOWN_POINTER'
+  | 'INCIDENT_BUNDLE_HOLD_MISMATCH'
+  | 'INCIDENT_BUNDLE_HOLD_UNREADABLE'
+  | 'INCIDENT_BUNDLE_BOUND_DISAGREES';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -660,6 +672,53 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // deployment's own: wait for the release the record states, or issue a release, and never edit the
   // hold to make the erasure pass.
   HOLD_ERASURE_REFUSED: 'an active hold record suspends erasure of the credential this call names',
+  // One code for the two readings of a `v` this package cannot use, as the hold record's and the model
+  // inventory's are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `INCIDENT_BUNDLE_BAD_DOCUMENT`.
+  INCIDENT_BUNDLE_UNSUPPORTED_VERSION: 'incident bundle declares a version this package cannot parse',
+  // Every structural refusal of the document and of the maps inside it: an absent member, a member this
+  // version does not define at the top level or in the incident, hold, window or floor block, a text of
+  // the wrong type or width or carrying a character that forges the printed line it belongs to, a digest
+  // of the wrong width or case, a stamp below zero, an incident stamped after the bundle that carries it,
+  // a window closing before it opens, a floor days that is not a positive whole number, an empty pointers
+  // list, one pointer named twice, a provenance outside the three values, and a limits member stating
+  // anything other than the format's own limits sentence. A floating-point number answers here too, from
+  // the decode rather than from a field read, because by the time a check could tell `1` from `1.0` the
+  // bytes have become one JavaScript number. The verifying door answers here as well for a
+  // `floor.preserveUntil` that is not the incident stamp plus the stated days: that figure is the
+  // record's own arithmetic over its own asserted fields, so a disagreement is the document contradicting
+  // its own layout rather than a bound field disagreeing with the hold. What is not this code: a pointer
+  // outside the registry, which answers `INCIDENT_BUNDLE_UNKNOWN_POINTER`, and any disagreement with the
+  // designated hold, which answers one of the three hold codes below.
+  INCIDENT_BUNDLE_BAD_DOCUMENT: 'incident bundle does not match the layout its declared version defines',
+  // The pointer is the record's own registry, the one provision the layout enumerates, and a label
+  // outside it is refused rather than read as a citation nobody checked. Not `INCIDENT_BUNDLE_BAD_DOCUMENT`
+  // under another name: the document is well-formed and it is the provision it names that this reader has
+  // no pointer for, and the action is counsel widening the registry from the instrument text rather than a
+  // writer fixing a field, the same line the model inventory's pointer registry draws. The floor number is
+  // the deployment's own statement and the pointer is counsel's to weigh; the reader judges the days
+  // against no provision's period.
+  INCIDENT_BUNDLE_UNKNOWN_POINTER: 'incident bundle names a pointer outside the registry this package reads',
+  // The reader hashed the hold it was given and got a different digest from the one the record designates.
+  // Either document may be whole; what is refused is reading this record against that hold, which is a
+  // finding about which hold the reader is holding rather than about either pair of bytes. The action is to
+  // hand over the hold the record names, not to edit a record that is already whole.
+  INCIDENT_BUNDLE_HOLD_MISMATCH: 'the hold handed to the reader is not the hold the incident bundle designates',
+  // The designated hold does not parse as a hold record: a position the copied fields are read from is
+  // absent or ill-shaped where the hold's own reader reads it. The bundle may be whole and the hold simply
+  // not state what the copied fields claim, so this is not a malformed bundle and not a bound disagreement:
+  // there is nothing to compare against. The hold is read through `parseHoldRecord`, the hold's own
+  // whole-layout reader, and the detail carries that reader's refusal so an operator sees which position
+  // failed.
+  INCIDENT_BUNDLE_HOLD_UNREADABLE: 'the hold handed to the reader does not parse as a hold record the incident bundle binds against',
+  // A copied field states one value and the designated hold binds another. The copied fields are the
+  // layout's, not a label a writer picks: the hold's issue stamp and author and the window of record stamps
+  // are copied from the hold and checked against it, and a disagreement is the record contradicting the
+  // document it designates. An asserted field (the incident's identity, stamp and narrative, and the floor
+  // days as a number) has no comparison to fail, which is the difference between the two kinds of statement
+  // the layout keeps apart, and the detail names the position and both values so an operator can see which
+  // of the two documents has to move.
+  INCIDENT_BUNDLE_BOUND_DISAGREES: 'a bound field of the incident bundle disagrees with the hold it designates',
 };
 
 /**

@@ -341,5 +341,26 @@ export {
   refuseErasureUnderHold,
 } from './hold.js';
 export type { HoldRecord } from './hold.js';
+export {
+  INCIDENT_BUNDLE_FLOOR_MEMBERS,
+  INCIDENT_BUNDLE_HOLD_MEMBERS,
+  INCIDENT_BUNDLE_INCIDENT_MEMBERS,
+  INCIDENT_BUNDLE_LIMITS,
+  INCIDENT_BUNDLE_POINTERS,
+  INCIDENT_BUNDLE_POINTER_CITATIONS,
+  INCIDENT_BUNDLE_TEXT_MAX_UNITS,
+  INCIDENT_BUNDLE_V1_MEMBERS,
+  INCIDENT_BUNDLE_VERSIONS,
+  INCIDENT_BUNDLE_WINDOW_MEMBERS,
+  encodeIncidentBundle,
+  incidentBundleBytes,
+  parseIncidentBundle,
+  verifyIncidentBundle,
+} from './incident-bundle.js';
+export type {
+  IncidentBundlePointer,
+  IncidentBundleRecord,
+  IncidentBundleVerifyOptions,
+} from './incident-bundle.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';
