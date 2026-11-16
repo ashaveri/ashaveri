@@ -941,7 +941,7 @@ The layout, version 1, every member required, in this order:
 | `incident` | `{ id, at, states }`: the incident the deployment states, its identity, its stamp no later than the bundle's own `at`, and its narrative. Asserted: the deployment's own statement, which nothing in the record proves |
 | `hold` | `{ sha256, at, by }`: the sha256 of the exact hold-record bytes the record designates, beside the issue stamp and author copied from it. Both copied fields are bound |
 | `window` | `{ from, to }`: the window of record stamps the hold covers, copied from the hold record's window, `from` inclusive and `to` exclusive, a null `to` an open end. Bound. `to` is never before `from` |
-| `floor` | `{ days, preserveUntil, pointer }`: the preservation floor. `days` is a positive whole number the deployment states (asserted); `preserveUntil` is `incident.at + days * 86400`, recomputed by the verifying door; `pointer` is one label from the registry below |
+| `floor` | `{ days, preserveUntil, pointer }`: the preservation floor. `days` is a positive whole number the deployment states (asserted), few enough that its floor is a stamp the reader can state; `preserveUntil` is `incident.at + days * 86400`, recomputed by the reader rather than believed; `pointer` is one label from the registry below |
 | `pointers` | A non-empty list from the registry below, each a pointer for counsel rather than a conclusion |
 | `limits` | The limits sentence below, verbatim. A record wording its own limits is refused |
 
@@ -961,10 +961,12 @@ smaller than zero, read through the same strict JSON scanner the hold record and
 so a member named twice and a float wearing an integer are refused while the characters are still
 distinguishable. The version is asked before any member is read.
 
-The preservation floor is a pointer for counsel, not a compliance claim. The reader checks that `days` is
-a positive whole number and that `preserveUntil` is the arithmetic of the incident stamp plus those days;
-it judges the number against no provision's period, ninety days or any other. The one provision the
-layout enumerates, cited as the estate's own sources name it:
+The preservation floor is a pointer for counsel, not a compliance claim. The layout door checks that
+`days` is a positive whole number few enough for its floor to be a stamp the reader states exactly, and
+that `preserveUntil` is the arithmetic of the incident stamp plus those days, both figures being inside
+one record and the check reading no external byte; it judges the number against no provision's period,
+ninety days or any other. The one provision the layout enumerates, cited as the estate's own sources
+name it:
 
 | `pointers` entry | The instrument it names |
 |---|---|
@@ -994,13 +996,15 @@ The limits sentence every record states:
 The verifying door is `verifyIncidentBundle`, which takes the designated hold bytes beside the record,
 hashes them against `hold.sha256`, reads the hold through `parseHoldRecord`, and refuses any copied field
 that disagrees as `INCIDENT_BUNDLE_BOUND_DISAGREES`, naming the position and both values. Bytes that are
-not the ones the record designates are `INCIDENT_BUNDLE_HOLD_MISMATCH`; a hold those bytes cannot be read
-out of is `INCIDENT_BUNDLE_HOLD_UNREADABLE`, the hold's own refusal carried in the detail. The door then
-recomputes `preserveUntil` from the incident stamp and the stated days and refuses a stamp that is not
-that arithmetic as `INCIDENT_BUNDLE_BAD_DOCUMENT`, the record contradicting its own figures rather than a
-bound field disagreeing with the hold. An asserted field is never compared, because there is nothing in
-the hold to compare it to. The bundle verifies offline with its floor stated: a reader holding the record
-and the hold it designates needs no network and no provision's text to check the pair.
+not the ones the record designates are `INCIDENT_BUNDLE_HOLD_MISMATCH`; a hold its own reader refuses,
+for whatever reason it gives, is `INCIDENT_BUNDLE_HOLD_UNREADABLE`, that refusal carried in the detail.
+The floor's arithmetic is not this door's question: `parseIncidentBundle` recomputes `preserveUntil` from
+the incident stamp and the stated days and refuses a stamp that is not that arithmetic as
+`INCIDENT_BUNDLE_BAD_DOCUMENT`, the record contradicting its own figures rather than a bound field
+disagreeing with the hold, so a reader handed only the bundle is refused too. An asserted field is never
+compared, because there is nothing in the hold to compare it to. The bundle verifies offline with its
+floor stated: a reader holding the record and the hold it designates needs no network and no provision's
+text to check the pair.
 
 ## 5. Verification algorithm
 

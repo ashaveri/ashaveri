@@ -33,10 +33,11 @@ import { PROVENANCES, isProvenance, type Provenance } from './provenance.js';
  * the other is read.
  *
  * The preservation floor is a pointer for counsel, not a compliance claim. The number of days is the
- * deployment's own statement, and the reader checks only that it is a positive whole number and that
- * the `preserveUntil` stamp beside it is the arithmetic of the incident stamp plus those days; it
- * judges the number against no provision's period, ninety days or any other. The one provision the
- * layout enumerates is cited as a pointer for counsel to weigh, and the limits sentence every record
+ * deployment's own statement, and the reader checks only that it is a positive whole number whose floor
+ * this layout can state and that the `preserveUntil` stamp beside it is the arithmetic of the incident
+ * stamp plus those days, both answers given by the layout door because both figures are inside one
+ * record; it judges the number against no provision's period, ninety days or any other. The one provision
+ * the layout enumerates is cited as a pointer for counsel to weigh, and the limits sentence every record
  * carries says the floor is not a conclusion that a duty applies or was met.
  *
  * The seventy-two-hour notification is a process obligation of the deployment, not a product claim.
@@ -186,15 +187,45 @@ function requireStamp(value: unknown, position: string): number {
 
 /**
  * The preservation floor's days: a positive whole number, the integer spelling already settled by the
- * reading. The reader checks the shape and nothing else: the number is the deployment's own statement,
- * and judging it against a provision's period would turn a pointer for counsel into a compliance claim
- * the limits sentence expressly disclaims.
+ * reading. This asks the shape and nothing else: the number is the deployment's own statement, and
+ * judging it against a provision's period would turn a pointer for counsel into a compliance claim the
+ * limits sentence expressly disclaims. `assertFloor` below is where the one ceiling sits, and it is a
+ * ceiling on what a stamp can state rather than on how long a period may be.
  */
 function requireDays(value: unknown, position: string): number {
   if (typeof value !== 'number' || value < 1) {
     throw bad(`${position} must be a positive whole number of days`);
   }
   return value;
+}
+
+/**
+ * The most days whose floor this layout can state: the largest day count whose `days * 86400` still
+ * lands inside the integers a JavaScript number carries exactly, which is the range a stamp takes.
+ */
+const FLOOR_DAYS_MAX = Math.floor(Number.MAX_SAFE_INTEGER / 86_400);
+
+/**
+ * The floor's stamp, recomputed rather than believed. `floor.preserveUntil` relates two figures inside
+ * one record and reads no byte outside it, so a floor that does not state the incident stamp plus the
+ * stated days is the record contradicting itself, which the layout door answers where a caller holding
+ * only the bundle is refused too. Both terms are bounded before any stated value is compared to them,
+ * because an equality the reader cannot state exactly is no check: past the largest integer a JavaScript
+ * number carries exactly, `days * 86400` is a rounded float a stated value could match by luck. The
+ * range the recomputed floor has to stay inside is the one a stamp takes, as the store states beside its
+ * own stamp guard.
+ */
+function assertFloor(incidentAt: number, days: number, stated: number): void {
+  if (days > FLOOR_DAYS_MAX) {
+    throw bad(`floor.days=${String(days)} is more days than a floor can state as a whole number of unix seconds no larger than ${String(Number.MAX_SAFE_INTEGER)}`);
+  }
+  const recomputed = incidentAt + days * 86_400;
+  if (!Number.isSafeInteger(recomputed)) {
+    throw bad(`incident.at=${String(incidentAt)} plus floor.days=${String(days)} is not a whole number of unix seconds between 0 and ${String(Number.MAX_SAFE_INTEGER)}, so no preserveUntil states this floor`);
+  }
+  if (stated !== recomputed) {
+    throw bad(`floor.preserveUntil states ${String(stated)} and the incident stamp plus the stated days recomputes to ${String(recomputed)}`);
+  }
 }
 
 /** The closure rule: a member the layout does not define makes the document malformed, not read around. */
@@ -243,10 +274,11 @@ function readPointers(value: unknown): readonly IncidentBundlePointer[] {
  * arrives at a check as the very number it imitates. The version is asked before any member is read,
  * because which member list applies is the one question a wrong version cannot be talked out of.
  *
- * This door answers the layout alone. The copied hold fields are read as text and stamps and a digest,
- * and the floor's `preserveUntil` is read as a stamp; whether the copied fields agree with the hold the
- * record designates, and whether `preserveUntil` is the arithmetic of the incident stamp and the stated
- * days, are the verifying door's questions, asked when a caller hands over the hold's bytes.
+ * This door answers the layout alone, and the floor's arithmetic is part of the layout: `assertFloor`
+ * recomputes `preserveUntil` from the incident stamp and the stated days, because both figures are
+ * inside this one record and the comparison reads no external byte. What stays the verifying door's
+ * question is whether the copied fields agree with the hold the record designates, asked when a caller
+ * hands over the hold's bytes.
  */
 export function parseIncidentBundle(bytes: Uint8Array): IncidentBundleRecord {
   const raw = readJsonBytes(bytes, (detail) => {
@@ -293,6 +325,9 @@ export function parseIncidentBundle(bytes: Uint8Array): IncidentBundleRecord {
   }
   const floor = readMap(document.get('floor'), 'floor');
   assertDefined(floor, INCIDENT_BUNDLE_FLOOR_MEMBERS, 'floor');
+  const floorDays = requireDays(floor.get('days'), 'floor.days');
+  const floorPreserveUntil = requireStamp(floor.get('preserveUntil'), 'floor.preserveUntil');
+  assertFloor(incidentAt, floorDays, floorPreserveUntil);
   const limits = document.get('limits');
   if (limits !== INCIDENT_BUNDLE_LIMITS) {
     throw bad('limits must state the limits sentence this format owns, verbatim; a record does not word its own limits');
@@ -313,8 +348,8 @@ export function parseIncidentBundle(bytes: Uint8Array): IncidentBundleRecord {
     },
     window: { from, to },
     floor: {
-      days: requireDays(floor.get('days'), 'floor.days'),
-      preserveUntil: requireStamp(floor.get('preserveUntil'), 'floor.preserveUntil'),
+      days: floorDays,
+      preserveUntil: floorPreserveUntil,
       pointer: requirePointer(floor.get('pointer'), 'floor.pointer'),
     },
     pointers: readPointers(document.get('pointers')),
@@ -360,8 +395,8 @@ function toHex(bytes: Uint8Array): string {
 }
 
 /**
- * Verify a record against the hold it designates: the layout, the designation's digest, every copied
- * field against the hold's own statement, and the floor's arithmetic.
+ * Verify a record against the hold it designates: the layout, the designation's digest, and every copied
+ * field against the hold's own statement.
  *
  * The order is what keeps the report honest. The record is parsed first, because a document that
  * contradicts its own layout does so whoever handed it over. The digest comes next: bytes that are not
@@ -373,12 +408,13 @@ function toHex(bytes: Uint8Array): string {
  * that disagrees is the record contradicting the hold, and which of the two an operator has to look at
  * is the finding.
  *
- * The floor's `preserveUntil` is recomputed from the incident stamp and the stated days, because it is
- * the record's own arithmetic rather than a field copied from the hold: a stamp that is not the incident
- * stamp plus those days is the document contradicting its own figures, which is a fault of the layout.
- * The days themselves are never judged against a provision's period, and an asserted field (the
- * incident's identity, stamp and narrative, and the days as a number) is never compared, because there
- * is nothing in the hold to compare it to: that is the split the layout exists to keep.
+ * The floor's arithmetic is not asked here. `parseIncidentBundle` has already recomputed `preserveUntil`
+ * from the incident stamp and the stated days, both of which are inside one record, so a moved floor is
+ * refused before a hold is handed over. What neither door asks is whether the days are the right number:
+ * they are the deployment's own statement, judged against no provision's period, and an asserted field
+ * (the incident's identity, stamp and narrative, and the days as a number) is never compared against the
+ * hold, because there is nothing in the hold to compare it to. That is the split the layout exists to
+ * keep.
  */
 export function verifyIncidentBundle(bytes: Uint8Array, options: IncidentBundleVerifyOptions): { record: IncidentBundleRecord } {
   const record = parseIncidentBundle(bytes);
@@ -393,8 +429,12 @@ export function verifyIncidentBundle(bytes: Uint8Array, options: IncidentBundleV
   try {
     hold = parseHoldRecord(options.holdBytes);
   } catch (reason) {
-    const detail = reason instanceof Error ? reason.message : String(reason);
-    throw new ReceiptError('INCIDENT_BUNDLE_HOLD_UNREADABLE', detail);
+    // The hold's own reader refuses a document with a `ReceiptError` naming the position it failed at,
+    // and that message rides in the detail so an operator sees which claim the hold cannot support.
+    // Anything else is not a finding about these bytes but a fault of this program, so it propagates
+    // unchanged rather than being reported as one of the bundle's document refusals.
+    if (!(reason instanceof ReceiptError)) throw reason;
+    throw new ReceiptError('INCIDENT_BUNDLE_HOLD_UNREADABLE', reason.message);
   }
   const disagrees = (position: string, stated: string | number | null, bound: string | number | null): ReceiptError =>
     new ReceiptError(
@@ -405,13 +445,5 @@ export function verifyIncidentBundle(bytes: Uint8Array, options: IncidentBundleV
   if (record.hold.by !== hold.by) throw disagrees('hold.by', record.hold.by, hold.by);
   if (record.window.from !== hold.window.from) throw disagrees('window.from', record.window.from, hold.window.from);
   if (record.window.to !== hold.window.to) throw disagrees('window.to', record.window.to, hold.window.to);
-  // The floor's stamp is the record's own arithmetic over its own asserted fields, recomputed here so a
-  // moved floor is refused. Without this recomputation a bundle could state a preserveUntil the incident
-  // stamp and the stated days do not reach, and a reader would report a preservation period the record's
-  // own figures do not support.
-  const preserveUntil = record.incident.at + record.floor.days * 86_400;
-  if (record.floor.preserveUntil !== preserveUntil) {
-    throw bad(`floor.preserveUntil states ${String(record.floor.preserveUntil)} and the incident stamp plus the stated days recomputes to ${String(preserveUntil)}`);
-  }
   return { record };
 }

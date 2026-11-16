@@ -680,16 +680,17 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // version does not define at the top level or in the incident, hold, window or floor block, a text of
   // the wrong type or width or carrying a character that forges the printed line it belongs to, a digest
   // of the wrong width or case, a stamp below zero, an incident stamped after the bundle that carries it,
-  // a window closing before it opens, a floor days that is not a positive whole number, an empty pointers
-  // list, one pointer named twice, a provenance outside the three values, and a limits member stating
-  // anything other than the format's own limits sentence. A floating-point number answers here too, from
-  // the decode rather than from a field read, because by the time a check could tell `1` from `1.0` the
-  // bytes have become one JavaScript number. The verifying door answers here as well for a
-  // `floor.preserveUntil` that is not the incident stamp plus the stated days: that figure is the
-  // record's own arithmetic over its own asserted fields, so a disagreement is the document contradicting
-  // its own layout rather than a bound field disagreeing with the hold. What is not this code: a pointer
-  // outside the registry, which answers `INCIDENT_BUNDLE_UNKNOWN_POINTER`, and any disagreement with the
-  // designated hold, which answers one of the three hold codes below.
+  // a window closing before it opens, a floor days that is not a positive whole number or is too many
+  // days for its floor to be a stamp, a floor preserveUntil that is not the incident stamp plus the
+  // stated days, an empty pointers list, one pointer named twice, a provenance outside the three values,
+  // and a limits member stating anything other than the format's own limits sentence. A floating-point
+  // number answers here too, from the decode rather than from a field read, because by the time a check
+  // could tell `1` from `1.0` the bytes have become one JavaScript number. The floor's arithmetic is
+  // answered by the layout door rather than the verifying one, because `floor.preserveUntil` relates two
+  // figures inside this one record and reads no byte outside it: the reader recomputes it rather than
+  // believing the stated value, so a caller holding only the bundle is refused too. What is not this
+  // code: a pointer outside the registry, which answers `INCIDENT_BUNDLE_UNKNOWN_POINTER`, and any
+  // disagreement with the designated hold, which answers one of the three hold codes below.
   INCIDENT_BUNDLE_BAD_DOCUMENT: 'incident bundle does not match the layout its declared version defines',
   // The pointer is the record's own registry, the one provision the layout enumerates, and a label
   // outside it is refused rather than read as a citation nobody checked. Not `INCIDENT_BUNDLE_BAD_DOCUMENT`
@@ -704,12 +705,13 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // finding about which hold the reader is holding rather than about either pair of bytes. The action is to
   // hand over the hold the record names, not to edit a record that is already whole.
   INCIDENT_BUNDLE_HOLD_MISMATCH: 'the hold handed to the reader is not the hold the incident bundle designates',
-  // The designated hold does not parse as a hold record: a position the copied fields are read from is
-  // absent or ill-shaped where the hold's own reader reads it. The bundle may be whole and the hold simply
-  // not state what the copied fields claim, so this is not a malformed bundle and not a bound disagreement:
-  // there is nothing to compare against. The hold is read through `parseHoldRecord`, the hold's own
-  // whole-layout reader, and the detail carries that reader's refusal so an operator sees which position
-  // failed.
+  // The designated hold does not parse as a hold record: `parseHoldRecord`, the hold's own whole-layout
+  // reader, refuses the bytes handed over for any reason of its own layout, whether a position the copied
+  // fields are read from is absent or ill-shaped or the hold states a version this package does not read.
+  // The bundle may be whole and the hold simply not state what the copied fields claim, so this is not a
+  // malformed bundle and not a bound disagreement: there is nothing to compare against. The detail carries
+  // that reader's refusal so an operator sees which position failed. A throw that is not a `ReceiptError`
+  // is no document fault at all, so it propagates rather than being re-framed as one of this family.
   INCIDENT_BUNDLE_HOLD_UNREADABLE: 'the hold handed to the reader does not parse as a hold record the incident bundle binds against',
   // A copied field states one value and the designated hold binds another. The copied fields are the
   // layout's, not a label a writer picks: the hold's issue stamp and author and the window of record stamps

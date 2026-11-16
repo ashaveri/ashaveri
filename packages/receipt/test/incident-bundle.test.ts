@@ -85,14 +85,19 @@ function edited(base: IncidentBundleRecord, mutate: (document: Record<string, un
   return encoded(`${JSON.stringify(document, null, 2)}\n`);
 }
 
-function codeOf(run: () => unknown): string {
+/** The refusal a run raises, so a row can name the figures a detail has to carry as well as the code. */
+function refusalOf(run: () => unknown): ReceiptError {
   try {
     run();
   } catch (err) {
-    if (err instanceof ReceiptError) return err.code;
+    if (err instanceof ReceiptError) return err;
     throw err;
   }
   throw new Error('the reader accepted a document this case states it refuses');
+}
+
+function codeOf(run: () => unknown): string {
+  return refusalOf(run).code;
 }
 
 describe('the incident bundle layout', () => {
@@ -113,6 +118,17 @@ describe('the incident bundle layout', () => {
     };
     expect(parseIncidentBundle(incidentBundleBytes(base))).toEqual(base);
     expect(verifyIncidentBundle(incidentBundleBytes(base), { holdBytes: openHold }).record).toEqual(base);
+  });
+
+  it('reads an incident stamped at the very instant of the bundle that carries it', () => {
+    // `incident.at` may equal the assembly stamp and is refused only past it, so the boundary reads.
+    const base: IncidentBundleRecord = {
+      ...record(),
+      incident: { ...record().incident, at: AT },
+      floor: { days: DAYS, preserveUntil: AT + DAYS * 86_400, pointer: POINTER },
+    };
+    expect(parseIncidentBundle(incidentBundleBytes(base))).toEqual(base);
+    expect(verifyIncidentBundle(incidentBundleBytes(base), { holdBytes: HOLD_BYTES }).record).toEqual(base);
   });
 
   it('declares the member lists the wire closes over', () => {
@@ -245,6 +261,21 @@ describe('the incident bundle reader refuses', () => {
     expect(codeOf(() => parseIncidentBundle(bytes))).toBe('INCIDENT_BUNDLE_UNKNOWN_POINTER');
   });
 
+  it('a pointers entry that is not a text at all', () => {
+    const bytes = edited(record(), (document) => {
+      document['pointers'] = [1];
+    });
+    expect(codeOf(() => parseIncidentBundle(bytes))).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+  });
+
+  it('a floor pointer that is not a text at all', () => {
+    const bytes = edited(record(), (document) => {
+      const floor = document['floor'] as Record<string, unknown>;
+      floor['pointer'] = 1;
+    });
+    expect(codeOf(() => parseIncidentBundle(bytes))).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+  });
+
   it('an empty pointers list and one pointer named twice', () => {
     expect(
       codeOf(() =>
@@ -306,6 +337,42 @@ describe('the incident bundle reader refuses', () => {
     ).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
   });
 
+  it('a floor whose preserveUntil is not the incident stamp plus the stated days', () => {
+    const bytes = edited(record(), (document) => {
+      const floor = document['floor'] as Record<string, unknown>;
+      floor['preserveUntil'] = PRESERVE_UNTIL + 1;
+    });
+    // Both figures the floor relates are inside this one record and no external byte is read to compare
+    // them, so the layout door answers the arithmetic rather than the door handed the hold: a caller
+    // holding only the bundle is refused too.
+    const fault = refusalOf(() => parseIncidentBundle(bytes));
+    expect(fault.code).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+    expect(fault.message).toContain(String(PRESERVE_UNTIL + 1));
+    expect(fault.message).toContain(String(PRESERVE_UNTIL));
+  });
+
+  it('a floor whose days cannot be stated as a stamp', () => {
+    const bytes = edited(record(), (document) => {
+      const floor = document['floor'] as Record<string, unknown>;
+      floor['days'] = Number.MAX_SAFE_INTEGER;
+    });
+    // Past the largest integer a JavaScript number carries exactly, `days * 86400` is a rounded float a
+    // stated value could match by luck, so the days are refused before any floor is compared to them.
+    const fault = refusalOf(() => parseIncidentBundle(bytes));
+    expect(fault.code).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+    expect(fault.message).toContain('floor.days');
+  });
+
+  it('a preserveUntil stated before the incident it preserves', () => {
+    const bytes = edited(record(), (document) => {
+      const floor = document['floor'] as Record<string, unknown>;
+      floor['preserveUntil'] = INCIDENT_AT - 1;
+    });
+    const fault = refusalOf(() => parseIncidentBundle(bytes));
+    expect(fault.code).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+    expect(fault.message).toContain('floor.preserveUntil');
+  });
+
   it('a hold digest in uppercase hex', () => {
     const bytes = edited(record(), (document) => {
       const holdBlock = document['hold'] as Record<string, unknown>;
@@ -325,6 +392,14 @@ describe('the incident bundle reader refuses', () => {
     const bytes = edited(record(), (document) => {
       const incident = document['incident'] as Record<string, unknown>;
       incident['id'] = 'incident\u202E/one';
+    });
+    expect(codeOf(() => parseIncidentBundle(bytes))).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+  });
+
+  it('a copied hold author carrying a character that forges the printed line', () => {
+    const bytes = edited(record(), (document) => {
+      const holdBlock = document['hold'] as Record<string, unknown>;
+      holdBlock['by'] = 'the\u202E fixture deployer';
     });
     expect(codeOf(() => parseIncidentBundle(bytes))).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
   });
@@ -448,15 +523,18 @@ describe('the bound and asserted split, over the hold the record designates', ()
     ).toBe('INCIDENT_BUNDLE_BOUND_DISAGREES');
   });
 
-  it('refuses a preserveUntil that is not the incident stamp plus the stated days', () => {
-    const bytes = edited(record(), (document) => {
-      const floor = document['floor'] as Record<string, unknown>;
-      floor['preserveUntil'] = PRESERVE_UNTIL + 1;
-    });
-    // The layout door reads the stamp as a stamp; the arithmetic is the verifying door's question.
-    expect(() => parseIncidentBundle(bytes)).not.toThrow();
-    expect(
-      codeOf(() => verifyIncidentBundle(bytes, { holdBytes: HOLD_BYTES })),
-    ).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+  it('refuses a designated hold that is whole bytes of a version this package does not read', () => {
+    const laterVersion = encoded(decoded(HOLD_BYTES).replace('"v": 1,', '"v": 2,'));
+    const designating: IncidentBundleRecord = {
+      ...record(),
+      hold: { ...record().hold, sha256: toHex(sha256(laterVersion)) },
+    };
+    // The hold is read through its own whole-layout reader, and whatever that reader refuses is what an
+    // operator has to see: the bundle's code closes the family, the hold's own message carries the reason.
+    const holdFault = refusalOf(() => parseHoldRecord(laterVersion));
+    const fault = refusalOf(() => verifyIncidentBundle(incidentBundleBytes(designating), { holdBytes: laterVersion }));
+    expect(holdFault.code).toBe('HOLD_RECORD_UNSUPPORTED_VERSION');
+    expect(fault.code).toBe('INCIDENT_BUNDLE_HOLD_UNREADABLE');
+    expect(fault.message).toContain(holdFault.message);
   });
 });
