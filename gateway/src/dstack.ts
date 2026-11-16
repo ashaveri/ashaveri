@@ -10,7 +10,7 @@ import {
   type NvidiaEvidence,
   type RuntimeEvent,
 } from '@ashaveri/attest-core';
-import { claimsConfidentialDevice, signingKeyFromSeed } from '@ashaveri/receipt';
+import { claimsConfidentialDevice, signingKeyFromSeed, stripTrailingSlashes } from '@ashaveri/receipt';
 import { GuestClient, GuestError, type GuestApi, type GpuEvidenceBundle } from './guest.js';
 import { sha256, toHex } from './digest.js';
 import { declarationOf, HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
@@ -218,7 +218,7 @@ export async function dstackDeployment(options: DstackDeploymentOptions): Promis
   const client = options.client ?? new GuestClient();
   const keyPath = options.keyPath ?? '/ashaveri/receipt';
   const time = options.time ?? HOST_CLOCK_SOURCE;
-  const evidenceBaseUrl = options.evidenceBaseUrl.replace(/\/+$/, '');
+  const evidenceBaseUrl = stripTrailingSlashes(options.evidenceBaseUrl);
   const standingReportData = sha256(utf8(DEPLOYMENT_EVIDENCE_DOMAIN));
 
   const { key: seed } = await client.getKey(keyPath, options.keyPurpose ?? '', 'ed25519');

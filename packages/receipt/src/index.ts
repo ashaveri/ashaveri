@@ -20,6 +20,7 @@ export {
 } from './cose.js';
 export type { SigningKey, ProtectedHeader, CoseSign1 } from './cose.js';
 export { FORGES_A_LINE_RANGES } from './line-text.js';
+export { stripTrailingSlashes } from './url-text.js';
 export { DEPLOYMENT_MANIFEST_CONTENT_TYPE, isSealedDeploymentManifest, sealDeploymentManifest, decodeSealedDeploymentManifest, verifySealedDeploymentManifest, type ManifestSeal } from './manifest-seal.js';
 export { toBase64Url, fromBase64Url } from './b64.js';
 export {

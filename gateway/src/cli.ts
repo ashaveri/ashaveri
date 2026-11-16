@@ -6,6 +6,7 @@ import {
   POP_TIMESTAMP_TOLERANCE_SECONDS,
   isMarkingScheme,
   strictVerifySource,
+  stripTrailingSlashes,
   type MarkingScheme,
   type TeeKind,
 } from '@ashaveri/receipt';
@@ -970,7 +971,7 @@ async function liveDeployment(values: CliOptions): Promise<Deployment> {
     client: new GuestClient({ endpoint: values['guest-socket'] }),
     models: manifestModels.models,
     weightsManifest: manifestModels.manifest,
-    evidenceBaseUrl: `${publicUrl.origin}${publicUrl.pathname.replace(/\/+$/, '')}/v1`,
+    evidenceBaseUrl: `${publicUrl.origin}${stripTrailingSlashes(publicUrl.pathname)}/v1`,
     keyPath: values['key-path'],
     keyPurpose: values['key-purpose'],
     manifestKeyPath: values['manifest-key-path'],
