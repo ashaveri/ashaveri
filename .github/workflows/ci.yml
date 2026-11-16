@@ -92,6 +92,8 @@ jobs:
       - run: pnpm -C packages/fixtures generate:redaction
       - run: pnpm -C packages/fixtures generate:epoch-inventory
       - run: pnpm -C packages/fixtures generate:capture
+      - run: pnpm -C packages/fixtures generate:import
+      - run: pnpm -C packages/fixtures generate:retention-assessment
       # The scan's allowlist is derived from the bytes the steps above write, so it runs last among them: a
       # config built from a stale vector file would be a stale config, and the diff below reads it as one
       # finding rather than two.
