@@ -456,6 +456,19 @@ export interface ModelInventoryVectorFile {
     limits: string;
     boundModelFields: string[];
     assertedModelFields: string[];
+    appSource: {
+      cut: string;
+      cutSha256: string;
+      instrument: string;
+      version: string;
+      status: string;
+      commencement: string;
+      commencementBasis: string;
+      application: string;
+      inForceContext: string;
+      archivedSources: Array<{ file: string; sha256: string }>;
+      note: string;
+    };
     manifest: { row: string; documentBase64Url: string; publicKeyBase64Url: string; note: string };
     exportRide: { exportBase64Url: string; publicKeyBase64Url: string; itemId: string; note: string };
     encodings: string;

@@ -144,6 +144,49 @@ describe('the accepted record binds to the manifest payload, re-derived here', (
   });
 });
 
+describe('the APP extract replays and carries its scope and date', () => {
+  const APP_ROW = file.vectors.find((one) => one.name === 'inventory-app-extract-fixture-v1');
+  if (APP_ROW === undefined) throw new Error('the family publishes no APP extract row');
+  const appRecord = parseModelInventory(fromBase64Url(APP_ROW.recordBase64Url));
+
+  it('answers the APP pointer alone, labeled fixture, over the same bound declaration', () => {
+    expect(APP_ROW.expected).toBe('verify-ok');
+    expect(appRecord.prov).toBe('fixture');
+    expect(appRecord.pointers).toEqual(['au-app-1-7-1-9']);
+    expect(appRecord.manifest).toEqual(parseModelInventory(ACCEPTED_BYTES).manifest);
+    expect(appRecord.models[0]!.bound).toEqual(parseModelInventory(ACCEPTED_BYTES).models[0]!.bound);
+    expect(appRecord.at).toBe(parseModelInventory(ACCEPTED_BYTES).at);
+  });
+
+  it('states the commencement and application the cut records, as pointers', () => {
+    expect(file.rule.appSource.commencement).toBe('10 December 2026');
+    expect(appRecord.scope).toContain(file.rule.appSource.commencement);
+    expect(appRecord.scope).toContain('items 87-89');
+    expect(appRecord.scope).toContain('after commencement');
+    expect(appRecord.scope).toContain('pointers, not conclusions');
+    expect(file.rule.appSource.application).toContain('decisions made after the commencement');
+    expect(file.rule.appSource.status).toContain('not yet commenced');
+    expect(file.rule.appSource.inForceContext).toContain('no consolidated text');
+  });
+
+  it('names the cut and its archived sources with whole digests', () => {
+    expect(file.rule.appSource.cut).toBe(
+      'legal-corpus/binding-law/australia-privacy-act-1988/articles/article-001.txt',
+    );
+    expect(file.rule.appSource.cutSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(file.rule.appSource.archivedSources.length).toBe(2);
+    for (const one of file.rule.appSource.archivedSources) {
+      expect(one.sha256).toMatch(/^[0-9a-f]{64}$/u);
+    }
+  });
+
+  it('refuses a pointer one subclause short of the registry label', () => {
+    const nearMiss = file.vectors.find((one) => one.name === 'inventory-unknown-app-pointer-v1');
+    expect(nearMiss?.expected).toBe('MODEL_INVENTORY_UNKNOWN_POINTER');
+    expect(verdictOf(fromBase64Url(nearMiss!.recordBase64Url))).toBe('MODEL_INVENTORY_UNKNOWN_POINTER');
+  });
+});
+
 describe('the export ride replays through the published export contract', () => {
   it('verifies the export, reads the item back through both inventory doors, and moves no export member', () => {
     const exportBytes = fromBase64Url(file.rule.exportRide.exportBase64Url);

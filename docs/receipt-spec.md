@@ -813,6 +813,7 @@ sources name them:
 | `osfi-e23-app-1` | OSFI E-23 (model risk management guideline), Appendix 1 |
 | `mas-airg` | MAS AIRG (AI Risk Management guidelines) |
 | `naic-3-3` | NAIC 3.3 (model bulletin / governance guidance) |
+| `au-app-1-7-1-9` | Privacy Act 1988 (Cth), Schedule 1, APP 1.7-1.9 (as enacted by the Privacy and Other Legislation Amendment Act 2024, Schedule 1, Part 15, items 87-89) |
 
 Whether a provision applies to a deployment, or was met by what it ran, is a judgment this layout does
 not make, and the record's own language says so. A label outside the pointer registry is refused as
@@ -845,9 +846,13 @@ The published vectors of the record, its refusals, the bound cases beside the ma
 designate, and the export ride are `packages/fixtures/data/model-inventory-v1.json`, indexed in
 [vectors.md](vectors.md). The fixture deployment is the one the published receipt family came from,
 stated by the manifest row `paired-with-the-published-receipt-family`; the extract is labeled fixture
-and describes no live deployment. The registry is closed at the three provisions above. An Australia
-APP 1.7-1.9 automated-decision inventory extract reads the captured APP instrument text, and this
-version states no APP pointer, period or citation.
+and describes no live deployment. The registry is closed at the four provisions above. The APP
+pointer names the enacted subclauses: the corpus cut records them as enacted and not yet commenced,
+commencing 10 December 2026 under the amending Act's section 2 table item 7, with item 89 applying
+the amendment to decisions made after commencement. The published APP extract is a fixture row whose
+scope states those periods, transcribed from the cut; the family's `appSource` block names the cut
+and its archived sources with their measured digests. The periods are pointers for counsel, not
+conclusions, and no consolidated text combining the enacted and in-force versions is assembled.
 
 ## 5. Verification algorithm
 

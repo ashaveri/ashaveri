@@ -33,7 +33,7 @@ each shape.
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
 | Disclosure record | `packages/fixtures/data/disclosure-record-v1.json` | The record beside the marking region: the layout its strict reader reads, the duty pointers it enumerates, the limits sentence every record states verbatim, and the transformation outcomes measured over the published buffered completion, with unsupported transformations recorded as untested; the content path is a fixture path, and detectability through a named application's own transformations is not claimed here | `version: 1` |
-| Model inventory | `packages/fixtures/data/model-inventory-v1.json` | The inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the bound cases replayed beside the manifest bytes each record designates including the mutation pair that witnesses the split, and the record riding one inline item of the published export contract; the fixture deployment is the one the published receipt family came from, and the extract is labeled fixture | `version: 1` |
+| Model inventory | `packages/fixtures/data/model-inventory-v1.json` | The inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the bound cases replayed beside the manifest bytes each record designates including the mutation pair that witnesses the split, the Australia APP 1.7-1.9 automated-decision extract as a fixture row whose scope states the enacted periods transcribed from the corpus cut the appSource block names with its measured digests, and the record riding one inline item of the published export contract; the fixture deployment is the one the published receipt family came from, and the extract is labeled fixture | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | Deployment manifests in both shapes a deployment serves, the signing keys a reader designates beside them, and the verdict the client path owes each; the family states two deployments, and the rows stating the one the published receipts came from are `paired-with-the-published-receipt-family` and `protected-content-type-of-a-receipt` | `version: 1` |
@@ -503,9 +503,11 @@ These vectors check bytes. They say nothing about trust:
 - The model inventory vectors pin a layout and the split between bound and asserted fields. The bound
   cases are replayed beside the manifest bytes each record designates, and the mutation pair witnesses
   the split: a bound mutation is refused and an asserted mutation is read. The pointers are pointers
-  for counsel rather than conclusions, the extract is labeled fixture and describes no live deployment,
-  and the family states no Australia APP pointer, period or citation: an APP extract reads the captured
-  instrument text, which is a separate authoring act over the legal corpus.
+  for counsel rather than conclusions, the extract is labeled fixture and describes no live deployment.
+  The APP extract's scope states the enacted periods transcribed from the corpus cut the appSource
+  block names, whose digests were measured over the corpus files; the in-force APP 1.1-1.6 context
+  stands under its own source label in that cut, and no consolidated text combining the two versions
+  is assembled here.
 - Which published families are one pair is a fact of the bytes and not of a reader's guess. The receipt
   fixtures under `data/receipts/` and the row `paired-with-the-published-receipt-family` of
   `manifest-v1.json` describe one deployment, so a published receipt and a published manifest can be

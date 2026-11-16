@@ -78,11 +78,14 @@ export const MODEL_INVENTORY_ASSERTED_MODEL_FIELDS = ['version', 'purpose', 'ris
  * The pointers the layout enumerates, each naming one provision an inventory extract may answer. The
  * citations beside them are the instruments as the estate's own sources name them; they are pointers
  * for counsel to weigh, not conclusions about applicability, and the record's limits sentence says so.
- * The registry is closed at these three provisions. An Australia APP 1.7-1.9 automated-decision
- * inventory extract reads the captured APP instrument text; this version enumerates no APP pointer and
- * states no APP period or citation.
+ * The registry is closed at these four provisions. The APP citation names the enacted instrument: the
+ * subclauses as inserted by the Privacy and Other Legislation Amendment Act 2024, which the corpus cut
+ * records as enacted and not yet commenced, commencing 10 December 2026. An extract's scope states the
+ * periods it answers under, transcribed from that cut; the layout reads the scope as text and decides
+ * nothing about a period, and no consolidated text combining the enacted and in-force versions is
+ * assembled anywhere in this package.
  */
-export const MODEL_INVENTORY_POINTERS = ['osfi-e23-app-1', 'mas-airg', 'naic-3-3'] as const;
+export const MODEL_INVENTORY_POINTERS = ['osfi-e23-app-1', 'mas-airg', 'naic-3-3', 'au-app-1-7-1-9'] as const;
 
 export type ModelInventoryPointer = (typeof MODEL_INVENTORY_POINTERS)[number];
 
@@ -91,6 +94,8 @@ export const MODEL_INVENTORY_POINTER_CITATIONS: Readonly<Record<ModelInventoryPo
   'osfi-e23-app-1': 'OSFI E-23 (model risk management guideline), Appendix 1',
   'mas-airg': 'MAS AIRG (AI Risk Management guidelines)',
   'naic-3-3': 'NAIC 3.3 (model bulletin / governance guidance)',
+  'au-app-1-7-1-9':
+    'Privacy Act 1988 (Cth), Schedule 1, APP 1.7-1.9 (as enacted by the Privacy and Other Legislation Amendment Act 2024, Schedule 1, Part 15, items 87-89)',
 };
 
 /**

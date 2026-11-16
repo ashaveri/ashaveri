@@ -95,6 +95,70 @@ const RECORD: ModelInventoryRecord = {
 const RECORD_BYTES = modelInventoryBytes(RECORD);
 
 /**
+ * The APP extract: the same fixture deployment and manifest, scoped to the Australia APP 1.7-1.9
+ * automated-decision provisions. Every period and obligation in the scope and in the `appSource`
+ * block below is transcribed from the corpus cut
+ * `legal-corpus/binding-law/australia-privacy-act-1988/articles/article-001.txt`, whose digest and
+ * whose archived sources' digests were measured over the corpus files at authoring time. The cut
+ * records the subclauses as enacted and not yet commenced, commencing 10 December 2026 under the
+ * amending Act's section 2 table item 7, and item 89 applying the amendment to decisions made after
+ * commencement. The in-force APP 1.1-1.6 context stands under its own source label in the cut; no
+ * consolidated text combining the two versions is assembled here. The extract is labeled fixture,
+ * and the periods are pointers for counsel, not conclusions.
+ */
+const APP_SCOPE =
+  'Fixture extract for counsel under APP 1.7-1.9, Privacy Act 1988 (Cth) Schedule 1, as enacted by the ' +
+  'Privacy and Other Legislation Amendment Act 2024 Schedule 1 Part 15 items 87-89: enacted, commencing ' +
+  '10 December 2026, applying to decisions made after commencement (item 89). Periods and obligations ' +
+  'are pointers, not conclusions.';
+
+const APP_RECORD: ModelInventoryRecord = {
+  ...RECORD,
+  scope: APP_SCOPE,
+  models: [
+    {
+      bound: { ...RECORD.models[0]!.bound },
+      asserted: {
+        ...RECORD.models[0]!.asserted,
+        purpose:
+          'Fixture automated-decision inventory: the model the fixture computer program operates, stated for counsel under APP 1.7-1.9.',
+      },
+    },
+  ],
+  pointers: ['au-app-1-7-1-9'],
+};
+
+const APP_RECORD_BYTES = modelInventoryBytes(APP_RECORD);
+
+const APP_SOURCE = {
+  cut: 'legal-corpus/binding-law/australia-privacy-act-1988/articles/article-001.txt',
+  cutSha256: '48881ea45ea45b677c2217a0d94652b476dd0c34dffa4968bbea50e83ad7215c',
+  instrument: 'Privacy Act 1988 (Cth), Schedule 1, clause 1 (Australian Privacy Principle 1), subclauses 1.7 to 1.9',
+  version:
+    'as enacted by the Privacy and Other Legislation Amendment Act 2024 (No. 128, 2024), Schedule 1, Part 15, items 87 to 89; assented to 10 December 2024; Authorised Version C2024A00128 registered 13/12/2024',
+  status: 'Enacted Commonwealth legislation, not yet commenced at retrieval (2026-11-16).',
+  commencement: '10 December 2026',
+  commencementBasis:
+    "the amending Act's section 2 commencement table, item 7: Schedule 1, Part 15, the day after the end of the period of 24 months beginning on the day the Act receives the Royal Assent",
+  application:
+    'item 89: the amendment applies in relation to decisions made after the commencement of the item, whether the arrangement for the computer program, the use of personal information in its operation, or the acquisition or creation of that information occurred before or after that commencement',
+  inForceContext:
+    'APP 1.1-1.6 from the Privacy Act 1988, Compilation No. 104, compilation date 4 June 2026, Authorised Version C2026C00227, under their own source label in the cut; no consolidated text combining the two versions exists at retrieval, and none is assembled here',
+  archivedSources: [
+    {
+      file: 'binding-law/australia-privacy-act-1988/privacy-and-other-legislation-amendment-act-2024-asmade-20241210.pdf',
+      sha256: 'fcddc902d749191f617afe640f320d7d4b53d339680839fb61de2a7a5608c6ed',
+    },
+    {
+      file: 'binding-law/australia-privacy-act-1988/privacy-act-1988-compilation-104-20260604.pdf',
+      sha256: '443e895f1e1536763af78e4553d469b0857a84553ca0c011ed796a623f954e38',
+    },
+  ],
+  note:
+    "Every period, date and obligation here is the cut's own wording, a pointer for counsel, not a compliance or applicability conclusion. The cut digest and the archived sources' digests were measured over the corpus files at authoring time; the archived PDFs are the sources of record.",
+};
+
+/**
  * One edit to the writer's own bytes, every other byte left as the writer wrote it, which is how the
  * refusal rows are made: the writer refuses a malformed record, so a refusal row cannot come from it
  * directly, and a row assembled out of junk would test nothing. The writer's format is `JSON.stringify`
@@ -121,6 +185,21 @@ const ROWS: readonly Row[] = [
     note: 'A whole record over the fixture deployment: the bound model id and weights digest copied from the paired manifest row, the asserted version, purpose, risk category and review stated by the fixture deployer, the three counsel pointers, and the format\'s limits sentence verbatim. The provenance is fixture, so the record labels itself as describing fixture material.',
     expected: 'verify-ok',
     bytes: RECORD_BYTES,
+  },
+  {
+    name: 'inventory-app-extract-fixture-v1',
+    note: 'The APP 1.7-1.9 automated-decision inventory extract over the same fixture deployment: the scope names the enacted instrument, its commencement on 10 December 2026 and the item 89 application rule, all transcribed from the corpus cut the rule block names; the pointers list carries the APP pointer alone, and the provenance is fixture. The periods are pointers for counsel, not conclusions, and the bound fields are the same manifest declaration the first record binds to.',
+    expected: 'verify-ok',
+    bytes: APP_RECORD_BYTES,
+  },
+  {
+    name: 'inventory-unknown-app-pointer-v1',
+    note: 'The APP extract with its pointer moved one subclause short of the registry label: a near miss of the enacted APP pointer rather than a label no instrument resembles. The document is whole and it is the provision it names that this reader has no pointer for.',
+    expected: 'MODEL_INVENTORY_UNKNOWN_POINTER',
+    bytes: editedRecord(APP_RECORD, (document) => {
+      document['pointers'] = ['au-app-1-7-1-8'];
+    }),
+    fault: { at: 'pointers[0]', states: 'a label one subclause short of the APP pointer the registry holds' },
   },
   {
     name: 'inventory-unknown-member-v1',
@@ -259,6 +338,16 @@ const BOUND_CASES: readonly BoundCase[] = [
     note: 'The honest record verified against the sealed manifest it designates, under the key the manifest family publishes for that purpose. The bound fields agree with the manifest\'s own declaration and the outcome reports the seal authenticated.',
     expected: 'verify-ok',
     recordBytes: RECORD_BYTES,
+    manifestBytes: SEALED_MANIFEST,
+    publicKey: fromBase64Url(DESIGNATED_KEY.publicKeyBase64Url),
+    sealed: true,
+    authenticated: true,
+  },
+  {
+    name: 'bound-app-extract-honest',
+    note: 'The APP extract verified against the sealed manifest it designates, under the designated key. The extract\'s scope and pointer change what the record answers under; the bound fields are the same declaration, and the verifying door reads them the same way.',
+    expected: 'verify-ok',
+    recordBytes: APP_RECORD_BYTES,
     manifestBytes: SEALED_MANIFEST,
     publicKey: fromBase64Url(DESIGNATED_KEY.publicKeyBase64Url),
     sealed: true,
@@ -457,7 +546,7 @@ function main(): void {
       {
         version: 1,
         description:
-          'The model inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, and the limits sentence every record states verbatim. The fixture deployment is the one the published receipt family came from, stated by the manifest row paired-with-the-published-receipt-family; the bound fields are copied from that row\'s payload and the asserted fields are the fixture deployer\'s statements, so the extract is labeled fixture and describes no live deployment. The parse rows carry the record bytes the shipped writer made, or one edit of them at the position the fault names; the bound cases carry the record beside the manifest bytes it designates and the verdict the verifying door owes the pair, including the mutation pair that witnesses the split: a bound mutation refused and an asserted mutation read. The export ride publishes the record as one inline item of the published export container, which no member of that contract moves for.',
+          'The model inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, and the limits sentence every record states verbatim. The fixture deployment is the one the published receipt family came from, stated by the manifest row paired-with-the-published-receipt-family; the bound fields are copied from that row\'s payload and the asserted fields are the fixture deployer\'s statements, so the extract is labeled fixture and describes no live deployment. The family carries the Australia APP 1.7-1.9 automated-decision inventory extract as a fixture row whose scope names the enacted instrument, its commencement and its application rule, transcribed from the corpus cut the appSource block names with its measured digests; the periods are pointers for counsel, not conclusions, and no consolidated text combining the enacted and in-force versions is assembled. The parse rows carry the record bytes the shipped writer made, or one edit of them at the position the fault names; the bound cases carry the record beside the manifest bytes it designates and the verdict the verifying door owes the pair, including the mutation pair that witnesses the split: a bound mutation refused and an asserted mutation read. The export ride publishes the record as one inline item of the published export container, which no member of that contract moves for.',
         rule: {
           registry: 'docs/receipt-spec.md section 4.9',
           reader: 'parseModelInventory in @ashaveri/receipt',
@@ -468,6 +557,7 @@ function main(): void {
           limits: MODEL_INVENTORY_LIMITS,
           boundModelFields: [...MODEL_INVENTORY_BOUND_MODEL_FIELDS],
           assertedModelFields: [...MODEL_INVENTORY_ASSERTED_MODEL_FIELDS],
+          appSource: APP_SOURCE,
           manifest: {
             row: 'manifest-v1.json#paired-with-the-published-receipt-family',
             documentBase64Url: toBase64Url(SEALED_MANIFEST),
