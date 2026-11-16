@@ -384,6 +384,25 @@ export interface ReceiptRetention {
 }
 
 /**
+ * The question a store asks about one record before either retention bound acts on it: does something
+ * other than this policy keep it.
+ *
+ * It is an injected predicate and not a record type, because the store holds no facts about why a
+ * receipt would be kept. Which instruction names it, what span that instruction covers and whether it
+ * still stands are a deployment's own, and weighing them where retirement reads them keeps one rule
+ * rather than two. `TimeSource` is wired the same way for the same reason: the store reads a number it
+ * did not derive and cannot argue with, and a window stated in years is only testable because the
+ * instant can be handed to it.
+ *
+ * Both instants arrive because an answer can turn on either one: the record's stamp decides what a span
+ * covers, and the instant the policy is read at decides whether that answer still stands.
+ */
+export interface HoldSuspension {
+  /** Whether a suspension keeps the record stamped `iat` at the instant `now` the policy reads at. */
+  covers(iat: number, now: number): boolean;
+}
+
+/**
  * The serving bound: how many records one range query may hold at once.
  *
  * It bounds the working set of a walk over the retained set and nothing else. Receipt bytes are read
@@ -484,6 +503,12 @@ export interface FileReceiptStoreOptions {
   readonly dir: string;
   /** Absent means nothing is evicted, which is the right default for a fixture store. */
   readonly retention?: ReceiptRetention;
+  /**
+   * Suspends retirement for the records it covers, which are then kept whatever their window says.
+   * Absent means nothing is suspended: the store retires exactly the prefix its `retention` states,
+   * which is the answer every store file this repository has published was written under.
+   */
+  readonly hold?: HoldSuspension;
   /** Absent means a range query resolves the whole window it is asked for. */
   readonly serving?: ReceiptServing;
   /**
@@ -1606,11 +1631,18 @@ interface Retirement {
  * record in the middle of the chain leaves the hole the chain exists to make visible, and no
  * reader could tell it apart from someone deleting evidence. Holding a receipt past its window by
  * the skew of its neighbours is the same rule's cost, and it falls on the side that keeps data.
+ *
+ * A suspension is asked at that same stop and before either bound: the first record it covers ends the
+ * prefix, and every record newer than that one is kept with it. A held receipt therefore keeps receipts
+ * the policy alone would have retired, which is the skew rule's cost above and falls on the same side.
+ * No number a deployment stated moves with it: `ReceiptRetention` is reported as configured, and the
+ * longer span shows only in the set the store serves.
  */
 function retire(
   entries: ReadonlyMap<string, { iat: number }>,
   retention: ReceiptRetention | undefined,
   now: number,
+  hold: HoldSuspension | undefined,
 ): Retirement {
   const byAge: string[] = [];
   const byCount: string[] = [];
@@ -1626,6 +1658,10 @@ function retire(
   // number a count cap speaks about, so the cap fits the moment kept no longer exceeds it.
   let kept = entries.size;
   for (const [id, where] of entries) {
+    // Asked before either bound, so a covered record ends the prefix instead of joining it.
+    if (hold !== undefined && hold.covers(where.iat, now)) {
+      break;
+    }
     if (where.iat < cutoff) {
       byAge.push(id);
     } else if (max === undefined || kept <= max) {
@@ -1646,8 +1682,13 @@ function retire(
  * The tally is held here rather than left to the trim run because retirement and compaction are not
  * the same moment: a reader asking what the store retired has to get an answer in between.
  */
-function prune(state: StoreState, retention: ReceiptRetention | undefined, now: number): void {
-  const { byAge, byCount } = retire(state.records, retention, now);
+function prune(
+  state: StoreState,
+  retention: ReceiptRetention | undefined,
+  now: number,
+  hold: HoldSuspension | undefined,
+): void {
+  const { byAge, byCount } = retire(state.records, retention, now, hold);
   for (const id of byAge) {
     state.records.delete(id);
   }
@@ -2669,6 +2710,7 @@ async function releaseDirectoryClaim(dir: string): Promise<void> {
 export async function openFileReceiptStore(options: FileReceiptStoreOptions): Promise<ReceiptStore> {
   const path = join(options.dir, RECEIPT_STORE_FILE);
   const retention = options.retention;
+  const hold = options.hold;
   const serving = options.serving;
   const source = retention?.time ?? HOST_CLOCK_SOURCE;
   // Floored here as well as at the issuance seam: a stamp is a whole second, and a record layout with an
@@ -2697,7 +2739,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
   try {
     state = await scan(path, sidecar, receiptKind);
     // A deployment that was down over a weekend has aged receipts on disk it must not serve.
-    prune(state, retention, now());
+    prune(state, retention, now(), hold);
     // What a file can serve is known once it has been read and pruned, and this is the last moment a
     // refusal is cheap: no receipt has been served from it and no caller is holding an id. The in-process
     // engine has no equivalent call because it is empty when it is constructed, and a store that has never
@@ -2930,7 +2972,7 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
       for (const each of records) {
         await noteEntry(sidecar, each.entry);
       }
-      prune(state, retention, now());
+      prune(state, retention, now(), hold);
       await compact(path, state, now(), retention, putDownHandles, sidecar, receiptKind);
       // A compaction leaves a file shorter than the position an append synced to, so nothing past the
       // rewrite is something this store has ever had reach the volume.
@@ -3161,13 +3203,18 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
  * a mock run would stop being a reading of the durable one. What it has no equivalent of is the mixture
  * refusal, which is a claim about a file: nothing is being read back here, and a store that cannot hold
  * records of a kind it never wrote has no disagreement to notice.
+ *
+ * It takes the same suspension for the same reason: a mock run rehearses the durable store, and one that
+ * retired a prefix the file would have held rehearses a deployment nobody is running.
  */
 export function openMemoryReceiptStore(options: {
   readonly retention?: ReceiptRetention;
+  readonly hold?: HoldSuspension;
   readonly serving?: ReceiptServing;
   readonly receiptKind?: ReceiptRecordKind;
 } = {}): ReceiptStore {
   const retention = options.retention;
+  const hold = options.hold;
   const serving = options.serving;
   const source = retention?.time ?? HOST_CLOCK_SOURCE;
   // The same whole-second floor the file store reads a source through, so the two stores age a record
@@ -3188,7 +3235,7 @@ export function openMemoryReceiptStore(options: {
       const prev = chainHead;
       chainHead = encode(recordKind, chainHead, iat, id, receiptPayload(receipt, receiptKind)).digest;
       entries.set(id, { iat, seq: chainSeq++, prev, receipt });
-      const retired = retire(entries, retention, now());
+      const retired = retire(entries, retention, now(), hold);
       for (const doomed of [...retired.byAge, ...retired.byCount]) {
         entries.delete(doomed);
       }

@@ -21,6 +21,7 @@ import {
   COMPACTION_RENAME_WAIT_MILLISECONDS,
   StoreError,
   servedBatches,
+  type HoldSuspension,
   type ReceiptRecordKind,
   type ReceiptRetention,
   type ReceiptServing,
@@ -1026,6 +1027,205 @@ describe('chain state', () => {
     expect((await store.window()).count, 'a retained set above its cap is a cap that did not bind').toBe(1);
     expect(await store.get(mintedId(2)), 'the record the prefix leaves is the one still served').not.toBeNull();
     expect(await store.get(mintedId(0)), 'the front gave way to the cap, not to its stamp').toBeNull();
+  });
+});
+
+/**
+ * A suspension is a deployment's answer about one record, handed to the store and held by nothing in
+ * it. Every case here opens a real store and appends through it, because what a hold owes is the set a
+ * store serves and the bytes it writes, not a predicate's return value.
+ */
+describe('a retirement the store is told to suspend', () => {
+  const STAMP = 1_780_000_000;
+  /** Every case configures the same window, so the only variable is what covers a stamp. */
+  const WINDOW_SECONDS = 1_000;
+  /** One instant past the whole aged run, so each `old_` record is outside the window when read. */
+  const AGED_AT = STAMP + WINDOW_SECONDS + 10;
+
+  /** The suspension a case wants: it covers exactly the stamps it is handed. */
+  function holding(stamps: Iterable<number>): HoldSuspension {
+    const covered = new Set(stamps);
+    return { covers: (iat: number) => covered.has(iat) };
+  }
+
+  /** Ten receipts past their window and four inside it, chained in that order. */
+  async function agedThenFresh(store: ReceiptStore): Promise<void> {
+    for (let i = 0; i < 10; i++) {
+      await store.put(`old_${i}`, RECEIPT, STAMP + i);
+    }
+    for (let i = 0; i < 4; i++) {
+      await store.put(`new_${i}`, OTHER_RECEIPT, AGED_AT + i);
+    }
+  }
+
+  it('keeps the whole prefix when the front of the chain is covered', async () => {
+    // The walk stops at the first record the policy may not give up, so a hold naming one aged receipt
+    // keeps every aged record chained after it too. That is the prefix rule's own conservative half: a
+    // chain tolerates losing a prefix and nothing else, so a store cannot keep one aged record without
+    // keeping the run behind it.
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: WINDOW_SECONDS, time: fixedClock(() => AGED_AT) },
+      hold: holding([STAMP]),
+    });
+    await agedThenFresh(store);
+
+    expect(await store.window()).toEqual({ from: STAMP, to: AGED_AT + 3, count: 14 });
+    expect(await store.get('old_5'), 'past its window, and served, because its predecessor is held').not.toBeNull();
+    expect((await store.chainState()).retired).toEqual({ byAge: 0, byCount: 0, trims: [] });
+  });
+
+  it('leaves a count cap unmet when the front of the chain is covered', async () => {
+    // A cap counts what a caller would be served, so it cannot be met by retiring past a record the
+    // deployment is holding. The cap reading short is the same cost as the aged records above, and it
+    // falls on the side that keeps data.
+    const retention: ReceiptRetention = { maxCount: 4, time: fixedClock(() => STAMP) };
+    const heldDir = await emptyDir();
+    const held = await openFileReceiptStore({ dir: heldDir, retention, hold: holding([STAMP]) });
+    for (let i = 0; i < 9; i++) {
+      await held.put(`rcpt_${i}`, RECEIPT, STAMP + i);
+    }
+    expect((await held.window()).count, 'a cap that bound past a held record bound the wrong set').toBe(9);
+    expect((await held.chainState()).retired).toEqual({ byAge: 0, byCount: 0, trims: [] });
+
+    const unheldDir = await emptyDir();
+    const unheld = await openFileReceiptStore({ dir: unheldDir, retention });
+    for (let i = 0; i < 9; i++) {
+      await unheld.put(`rcpt_${i}`, RECEIPT, STAMP + i);
+    }
+    expect((await unheld.window()).count, 'the same nine receipts answer the cap with nothing held').toBe(4);
+  });
+
+  it('writes the same file when the suspension covers nothing', async () => {
+    // An answer of false has to be indistinguishable from no suspension at all, down to the bytes: the
+    // predicate is asked about every record the walk reaches, and a store that kept a receipt nobody
+    // held would serve a set that depends on a wiring detail rather than on a deployment's instruction.
+    const written = async (hold: HoldSuspension | undefined): Promise<Buffer> => {
+      const dir = await emptyDir();
+      let now = STAMP;
+      const retention: ReceiptRetention = { maxAgeSeconds: WINDOW_SECONDS, time: fixedClock(() => now) };
+      const store = await openFileReceiptStore({ dir, retention, ...(hold === undefined ? {} : { hold }) });
+      for (let i = 0; i < 10; i++) {
+        await store.put(`old_${i}`, RECEIPT, STAMP + i);
+      }
+      now = AGED_AT;
+      for (let i = 0; i < 4; i++) {
+        await store.put(`new_${i}`, RECEIPT, now + i);
+      }
+      return readFile(join(dir, RECEIPT_STORE_FILE));
+    };
+
+    expect(await written({ covers: () => false })).toEqual(await written(undefined));
+  });
+
+  it('states the policy it was configured with in the trim record, held or not', async () => {
+    // The half a suspension must not reach: keeping a receipt is not a longer window. The period and
+    // the cap a compaction writes down are the ones the deployment configured, and they are what a
+    // reader weighs a duty against, so numbers moved by a hold would extend a stated period in silence.
+    const write = async (hold: HoldSuspension | undefined): Promise<{ file: Buffer; served: number; from: number }> => {
+      const dir = await emptyDir();
+      let now = STAMP;
+      const retention: ReceiptRetention = { maxAgeSeconds: WINDOW_SECONDS, time: fixedClock(() => now) };
+      const store = await openFileReceiptStore({ dir, retention, hold });
+      for (let i = 0; i < 20; i++) {
+        await store.put(`old_${i}`, RECEIPT, now + i);
+      }
+      // The instant moves only once the aged run is filed, so retirement falls on the whole run at the
+      // append that sees it: one prefix, and one compaction to write it down.
+      now = STAMP + 1_100;
+      for (let i = 0; i < 10; i++) {
+        await store.put(`new_${i}`, RECEIPT, now + i);
+      }
+      const window = await store.window();
+      return {
+        file: await readFile(join(dir, RECEIPT_STORE_FILE)),
+        served: window.count,
+        from: window.from,
+      };
+    };
+
+    // Held at the last aged record, so both stores retire a prefix, both compact, and only the length
+    // of what left differs.
+    const withHold = await write(holding([STAMP + 19]));
+    const without = await write(undefined);
+    const heldTrim = readTrimReport(readFrame(frames(withHold.file)[0]!).payload);
+    const plainTrim = readTrimReport(readFrame(frames(without.file)[0]!).payload);
+    expect({ maxAgeSeconds: heldTrim.maxAgeSeconds, maxCount: heldTrim.maxCount }).toEqual({
+      maxAgeSeconds: WINDOW_SECONDS,
+      maxCount: 0,
+    });
+    expect([heldTrim.maxAgeSeconds, heldTrim.maxCount]).toEqual([plainTrim.maxAgeSeconds, plainTrim.maxCount]);
+    expect([heldTrim.byAge, heldTrim.byCount, plainTrim.byAge, plainTrim.byCount]).toEqual([19, 0, 20, 0]);
+    expect(withHold.served).toBe(11);
+    expect(without.served).toBe(10);
+    expect(withHold.from, 'the held record is the oldest one its store serves').toBe(STAMP + 19);
+    expect(without.from, 'the same file with nothing held starts at the fresh run').toBe(STAMP + 1_100);
+  });
+
+  it('holds the same prefix in the in-process engine', async () => {
+    // Two engines and one rule: a mock run serving a different set from the durable one would stop
+    // being a reading of it, and `--mock` is how a deployment rehearses the store it is about to open.
+    const retention: ReceiptRetention = { maxAgeSeconds: WINDOW_SECONDS, time: fixedClock(() => AGED_AT) };
+    const memory = openMemoryReceiptStore({ retention, hold: holding([STAMP]) });
+    await agedThenFresh(memory);
+    const ids: string[] = [];
+    for await (const item of memory.range(0, 2_000_000_000)) {
+      ids.push(item.id);
+    }
+    expect(ids).toEqual([
+      ...Array.from({ length: 10 }, (_, i) => `old_${i}`),
+      ...Array.from({ length: 4 }, (_, i) => `new_${i}`),
+    ]);
+    expect((await memory.chainState()).retired).toEqual({ byAge: 0, byCount: 0, trims: [] });
+
+    const dir = await emptyDir();
+    const fileStore = await openFileReceiptStore({ dir, retention, hold: holding([STAMP]) });
+    await agedThenFresh(fileStore);
+    expect(await memory.window()).toEqual(await fileStore.window());
+  });
+
+  it('consults the suspension at the opening, over a file that aged while nothing was running', async () => {
+    // A deployment that was down over a weekend has aged receipts on a volume, and the opening is the
+    // only caller that prunes them. A hold wired into the append path alone would let that restart
+    // serve nothing, which is as good as the deletion the hold exists to prevent.
+    const dir = await emptyDir();
+    // Written under no retention at all, so every one of the fourteen records reaches the file.
+    const written = await openFileReceiptStore({ dir });
+    await agedThenFresh(written);
+    const retention: ReceiptRetention = { maxAgeSeconds: WINDOW_SECONDS, time: fixedClock(() => AGED_AT) };
+
+    const held = await openFileReceiptStore({ dir, retention, hold: holding([STAMP]) });
+    expect((await held.window()).count, 'the prefix survived the opening it was held through').toBe(14);
+
+    const unheld = await openFileReceiptStore({ dir, retention });
+    expect((await unheld.window()).count, 'the same file answers its window with nothing held').toBe(4);
+  });
+
+  it('consults it on the append that lands, and on the append after a release', async () => {
+    // The other moment a prefix is applied is the instant a record lands, and a hold that arrives or
+    // leaves between two appends has to be read at each one rather than once at the opening.
+    const covered = new Set<number>();
+    const dir = await emptyDir();
+    const store = await openFileReceiptStore({
+      dir,
+      retention: { maxAgeSeconds: WINDOW_SECONDS, time: fixedClock(() => AGED_AT) },
+      hold: { covers: (iat: number) => covered.has(iat) },
+    });
+    for (let i = 0; i < 3; i++) {
+      await store.put(`old_${i}`, RECEIPT, STAMP + i);
+    }
+    expect((await store.window()).count, 'an aged record retires as fast as it arrives when nothing covers it').toBe(0);
+
+    covered.add(STAMP + 9);
+    await store.put('held', RECEIPT, STAMP + 9);
+    expect((await store.window()).count, 'the covered record stops the append path as it stops the opening').toBe(1);
+
+    covered.clear();
+    // Aged, and landing behind the held record, so the walk reaches the held one first: the release
+    // gives up the prefix, and the record that arrived after it leaves with the prefix.
+    await store.put('last', RECEIPT, STAMP + 5);
+    expect((await store.window()).count, 'a released suspension retires the prefix on the next append').toBe(0);
   });
 });
 
