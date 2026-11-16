@@ -415,11 +415,11 @@ describe('ashaveri verify', () => {
   it('exits 2, naming the command list, for no command and for one that does not exist', () => {
     const none = runCli([]);
     expect(none.status).toBe(2);
-    expect(none.stderr).toContain('expected a command: verify, verify-receipt, verify-handover, verify-pack, verify-export, verify-epoch-inventory, keygen, credential, accesslog');
+    expect(none.stderr).toContain('expected a command: verify, verify-receipt, detect-mark, verify-handover, verify-pack, verify-export, verify-epoch-inventory, keygen, credential, accesslog');
     const unknown = runCli(['frobnicate', 'anything']);
     expect(unknown.status).toBe(2);
     expect(unknown.stderr).toContain(
-      "unknown command 'frobnicate': expected one of verify, verify-receipt, verify-handover, verify-pack, verify-export, verify-epoch-inventory, keygen, credential, accesslog",
+      "unknown command 'frobnicate': expected one of verify, verify-receipt, detect-mark, verify-handover, verify-pack, verify-export, verify-epoch-inventory, keygen, credential, accesslog",
     );
   });
 

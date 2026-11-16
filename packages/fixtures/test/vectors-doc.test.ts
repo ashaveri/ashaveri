@@ -132,6 +132,7 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
     case 'manifest.json':
       return rows('fixtures').map((row) => ({ verdict: field(row, 'expected'), code: null }));
     case 'marking-v1.json':
+    case 'disclosure-record-v1.json':
       return rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null }));
     case 'export-v1.json':
     case 'manifest-v1.json':

@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "description": "The disclosure record beside the marking region: who owed the notice, the duty pointer it answers, the text or region served, and the transformation set it was tested through, with unsupported transformations recorded rather than omitted. The content path these records state is the buffered completion this suite publishes, and the outcomes are measured through the published extraction rule; detectability through a named application's own copying, rendering and export transformations is a separate test this family does not claim. Each row carries the record bytes the shipped writer made, or one edit of them at the position its fault names, and the verdict the shipped reader owes those bytes.",
+  "rule": {
+    "registry": "docs/receipt-spec.md section 3.3",
+    "reader": "parseDisclosureRecord in @ashaveri/receipt",
+    "writer": "disclosureRecordBytes in @ashaveri/receipt",
+    "dutyPointers": [
+      "ai-act-50-1",
+      "ai-act-50-4",
+      "ai-act-50-5",
+      "difc-reg-10-2-2-b",
+      "kr-enforcement-decree-23-2"
+    ],
+    "dutyCitations": {
+      "ai-act-50-1": "AI Act (Regulation (EU) 2024/1689), Article 50(1)",
+      "ai-act-50-4": "AI Act (Regulation (EU) 2024/1689), Article 50(4)",
+      "ai-act-50-5": "AI Act (Regulation (EU) 2024/1689), Article 50(5)",
+      "difc-reg-10-2-2-b": "DIFC Regulation 10.2.2(b)",
+      "kr-enforcement-decree-23-2": "Korea Enforcement Decree 23(2)"
+    },
+    "limits": "This record describes a marking in a JSON transcript region, not a pixel or audio watermark. A reader holding only the text of a completion, copied or retyped out of the transcript, has no region to look for and cannot prove the mark from those words. The duty pointers name provisions for counsel to weigh, not conclusions that a duty applies or was met.",
+    "contentPath": {
+      "response": "marking-v1.json#buffered-member",
+      "responseBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJNb2NrIHJlcGx5OiBjYWbDqSDimJUgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6OSwiY29tcGxldGlvbl90b2tlbnMiOjYsInRvdGFsX3Rva2VucyI6MTV9LCJhc2hhdmVyaSI6eyJtYXJraW5nIjp7InNjaCI6ImFzaGF2ZXJpL3Byb3ZlbmFuY2UtdjEiLCJnZW4iOiJhaSIsImF0IjoxNzcyMDAwMDAwfX19",
+      "note": "The fixture content path the harness ran over, byte for byte the response the marking suite publishes for the buffered shape. A named application path is a different content path, and no row here stands in for one."
+    },
+    "transformations": [
+      {
+        "name": "byte-copy",
+        "implemented": true,
+        "note": "Run by the harness; the outcome is what extractMarkedRegion locates after the transformation, which is the region's survival and not the digest's agreement."
+      },
+      {
+        "name": "json-reparse",
+        "implemented": true,
+        "note": "Run by the harness; the outcome is what extractMarkedRegion locates after the transformation, which is the region's survival and not the digest's agreement."
+      },
+      {
+        "name": "text-render",
+        "implemented": true,
+        "note": "Run by the harness; the outcome is what extractMarkedRegion locates after the transformation, which is the region's survival and not the digest's agreement."
+      },
+      {
+        "name": "plain-text-export",
+        "implemented": true,
+        "note": "Run by the harness; the outcome is what extractMarkedRegion locates after the transformation, which is the region's survival and not the digest's agreement."
+      },
+      {
+        "name": "pixel-render",
+        "implemented": false,
+        "note": "Named and recorded as untested: the harness implements no pixel or audio rendering, and a JSON transcript region is not a pixel or audio watermark."
+      },
+      {
+        "name": "audio-render",
+        "implemented": false,
+        "note": "Named and recorded as untested: the harness implements no pixel or audio rendering, and a JSON transcript region is not a pixel or audio watermark."
+      }
+    ],
+    "encodings": "byte strings unpadded base64url, digests lowercase hex"
+  },
+  "vectors": [
+    {
+      "name": "record-marked-region-v1",
+      "note": "A record naming the marked region by the digest mk.d carries, beside the transformation set the harness measured over the published buffered completion. The region arm is the record stating which span of the response the notice travels with, and the digest is checkable against the response bytes the rule block publishes.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAib2JsaWdvciI6ICJ0aGUgZGVwbG95ZXIgc2VydmluZyB0aGUgY29tcGxldGlvbiIsCiAgImR1dHkiOiAiYWktYWN0LTUwLTQiLAogICJzY2hlbWUiOiAicHJvdmVuYW5jZS12MSIsCiAgInNlcnZlZCI6IHsKICAgICJraW5kIjogInJlZ2lvbiIsCiAgICAic2hhMjU2IjogIjM1NzAyZmRhMjc2ZjNkMGE4MTc0MmNkNTQwNzllZWI3MDMxYWViZjA2MjA1OTkzY2ZlZDEwNTFlMmRlMjgyZGUiCiAgfSwKICAidHJhbnNmb3JtYXRpb25zIjogWwogICAgewogICAgICAibmFtZSI6ICJieXRlLWNvcHkiLAogICAgICAib3V0Y29tZSI6ICJkZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAianNvbi1yZXBhcnNlIiwKICAgICAgIm91dGNvbWUiOiAiZGV0ZWN0YWJsZSIKICAgIH0sCiAgICB7CiAgICAgICJuYW1lIjogInRleHQtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAibm90LWRldGVjdGFibGUiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJwbGFpbi10ZXh0LWV4cG9ydCIsCiAgICAgICJvdXRjb21lIjogIm5vdC1kZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAicGl4ZWwtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAidW50ZXN0ZWQiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJhdWRpby1yZW5kZXIiLAogICAgICAib3V0Y29tZSI6ICJ1bnRlc3RlZCIKICAgIH0KICBdLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgZGVzY3JpYmVzIGEgbWFya2luZyBpbiBhIEpTT04gdHJhbnNjcmlwdCByZWdpb24sIG5vdCBhIHBpeGVsIG9yIGF1ZGlvIHdhdGVybWFyay4gQSByZWFkZXIgaG9sZGluZyBvbmx5IHRoZSB0ZXh0IG9mIGEgY29tcGxldGlvbiwgY29waWVkIG9yIHJldHlwZWQgb3V0IG9mIHRoZSB0cmFuc2NyaXB0LCBoYXMgbm8gcmVnaW9uIHRvIGxvb2sgZm9yIGFuZCBjYW5ub3QgcHJvdmUgdGhlIG1hcmsgZnJvbSB0aG9zZSB3b3Jkcy4gVGhlIGR1dHkgcG9pbnRlcnMgbmFtZSBwcm92aXNpb25zIGZvciBjb3Vuc2VsIHRvIHdlaWdoLCBub3QgY29uY2x1c2lvbnMgdGhhdCBhIGR1dHkgYXBwbGllcyBvciB3YXMgbWV0LiIKfQo",
+      "recordByteLength": 1082
+    },
+    {
+      "name": "record-notice-text-v1",
+      "note": "A record stating the notice text served to a reader, under the first-exposure pointer, beside the same measured transformation set. The text arm is the disclosure a human reads; the mark it travels beside is named by the scheme member, and the two are one record's two statements rather than two records.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAib2JsaWdvciI6ICJ0aGUgZGVwbG95ZXIgc2VydmluZyB0aGUgY29tcGxldGlvbiIsCiAgImR1dHkiOiAiYWktYWN0LTUwLTUiLAogICJzY2hlbWUiOiAicHJvdmVuYW5jZS12MSIsCiAgInNlcnZlZCI6IHsKICAgICJraW5kIjogInRleHQiLAogICAgInRleHQiOiAiVGhpcyByZXNwb25zZSB3YXMgZ2VuZXJhdGVkIGJ5IGFuIEFJIHN5c3RlbS4iCiAgfSwKICAidHJhbnNmb3JtYXRpb25zIjogWwogICAgewogICAgICAibmFtZSI6ICJieXRlLWNvcHkiLAogICAgICAib3V0Y29tZSI6ICJkZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAianNvbi1yZXBhcnNlIiwKICAgICAgIm91dGNvbWUiOiAiZGV0ZWN0YWJsZSIKICAgIH0sCiAgICB7CiAgICAgICJuYW1lIjogInRleHQtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAibm90LWRldGVjdGFibGUiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJwbGFpbi10ZXh0LWV4cG9ydCIsCiAgICAgICJvdXRjb21lIjogIm5vdC1kZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAicGl4ZWwtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAidW50ZXN0ZWQiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJhdWRpby1yZW5kZXIiLAogICAgICAib3V0Y29tZSI6ICJ1bnRlc3RlZCIKICAgIH0KICBdLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgZGVzY3JpYmVzIGEgbWFya2luZyBpbiBhIEpTT04gdHJhbnNjcmlwdCByZWdpb24sIG5vdCBhIHBpeGVsIG9yIGF1ZGlvIHdhdGVybWFyay4gQSByZWFkZXIgaG9sZGluZyBvbmx5IHRoZSB0ZXh0IG9mIGEgY29tcGxldGlvbiwgY29waWVkIG9yIHJldHlwZWQgb3V0IG9mIHRoZSB0cmFuc2NyaXB0LCBoYXMgbm8gcmVnaW9uIHRvIGxvb2sgZm9yIGFuZCBjYW5ub3QgcHJvdmUgdGhlIG1hcmsgZnJvbSB0aG9zZSB3b3Jkcy4gVGhlIGR1dHkgcG9pbnRlcnMgbmFtZSBwcm92aXNpb25zIGZvciBjb3Vuc2VsIHRvIHdlaWdoLCBub3QgY29uY2x1c2lvbnMgdGhhdCBhIGR1dHkgYXBwbGllcyBvciB3YXMgbWV0LiIKfQo",
+      "recordByteLength": 1058
+    },
+    {
+      "name": "record-unknown-duty-v1",
+      "note": "A well-formed record whose duty names a provision outside the pointer registry: the document is whole and it is the provision it names that this reader has no pointer for, which is the refusal DISCLOSURE_RECORD_UNKNOWN_DUTY exists for, apart from a malformed document.",
+      "expected": "DISCLOSURE_RECORD_UNKNOWN_DUTY",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAib2JsaWdvciI6ICJ0aGUgZGVwbG95ZXIgc2VydmluZyB0aGUgY29tcGxldGlvbiIsCiAgImR1dHkiOiAiYWktYWN0LTUwLTIiLAogICJzY2hlbWUiOiAicHJvdmVuYW5jZS12MSIsCiAgInNlcnZlZCI6IHsKICAgICJraW5kIjogInJlZ2lvbiIsCiAgICAic2hhMjU2IjogIjM1NzAyZmRhMjc2ZjNkMGE4MTc0MmNkNTQwNzllZWI3MDMxYWViZjA2MjA1OTkzY2ZlZDEwNTFlMmRlMjgyZGUiCiAgfSwKICAidHJhbnNmb3JtYXRpb25zIjogWwogICAgewogICAgICAibmFtZSI6ICJieXRlLWNvcHkiLAogICAgICAib3V0Y29tZSI6ICJkZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAianNvbi1yZXBhcnNlIiwKICAgICAgIm91dGNvbWUiOiAiZGV0ZWN0YWJsZSIKICAgIH0sCiAgICB7CiAgICAgICJuYW1lIjogInRleHQtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAibm90LWRldGVjdGFibGUiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJwbGFpbi10ZXh0LWV4cG9ydCIsCiAgICAgICJvdXRjb21lIjogIm5vdC1kZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAicGl4ZWwtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAidW50ZXN0ZWQiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJhdWRpby1yZW5kZXIiLAogICAgICAib3V0Y29tZSI6ICJ1bnRlc3RlZCIKICAgIH0KICBdLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgZGVzY3JpYmVzIGEgbWFya2luZyBpbiBhIEpTT04gdHJhbnNjcmlwdCByZWdpb24sIG5vdCBhIHBpeGVsIG9yIGF1ZGlvIHdhdGVybWFyay4gQSByZWFkZXIgaG9sZGluZyBvbmx5IHRoZSB0ZXh0IG9mIGEgY29tcGxldGlvbiwgY29waWVkIG9yIHJldHlwZWQgb3V0IG9mIHRoZSB0cmFuc2NyaXB0LCBoYXMgbm8gcmVnaW9uIHRvIGxvb2sgZm9yIGFuZCBjYW5ub3QgcHJvdmUgdGhlIG1hcmsgZnJvbSB0aG9zZSB3b3Jkcy4gVGhlIGR1dHkgcG9pbnRlcnMgbmFtZSBwcm92aXNpb25zIGZvciBjb3Vuc2VsIHRvIHdlaWdoLCBub3QgY29uY2x1c2lvbnMgdGhhdCBhIGR1dHkgYXBwbGllcyBvciB3YXMgbWV0LiIKfQo",
+      "recordByteLength": 1082,
+      "fault": {
+        "at": "duty",
+        "states": "a label the pointer registry does not hold"
+      }
+    },
+    {
+      "name": "record-unknown-scheme-v1",
+      "note": "A well-formed record whose scheme names a marking label outside the registry mk.sch reads. The answer is the marking registry's own code, UNSUPPORTED_SCHEME, because one registry owns one code wherever its labels arrive, and the detail names the record position.",
+      "expected": "UNSUPPORTED_SCHEME",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAib2JsaWdvciI6ICJ0aGUgZGVwbG95ZXIgc2VydmluZyB0aGUgY29tcGxldGlvbiIsCiAgImR1dHkiOiAiYWktYWN0LTUwLTQiLAogICJzY2hlbWUiOiAicHJvdmVuYW5jZS12MiIsCiAgInNlcnZlZCI6IHsKICAgICJraW5kIjogInJlZ2lvbiIsCiAgICAic2hhMjU2IjogIjM1NzAyZmRhMjc2ZjNkMGE4MTc0MmNkNTQwNzllZWI3MDMxYWViZjA2MjA1OTkzY2ZlZDEwNTFlMmRlMjgyZGUiCiAgfSwKICAidHJhbnNmb3JtYXRpb25zIjogWwogICAgewogICAgICAibmFtZSI6ICJieXRlLWNvcHkiLAogICAgICAib3V0Y29tZSI6ICJkZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAianNvbi1yZXBhcnNlIiwKICAgICAgIm91dGNvbWUiOiAiZGV0ZWN0YWJsZSIKICAgIH0sCiAgICB7CiAgICAgICJuYW1lIjogInRleHQtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAibm90LWRldGVjdGFibGUiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJwbGFpbi10ZXh0LWV4cG9ydCIsCiAgICAgICJvdXRjb21lIjogIm5vdC1kZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAicGl4ZWwtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAidW50ZXN0ZWQiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJhdWRpby1yZW5kZXIiLAogICAgICAib3V0Y29tZSI6ICJ1bnRlc3RlZCIKICAgIH0KICBdLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgZGVzY3JpYmVzIGEgbWFya2luZyBpbiBhIEpTT04gdHJhbnNjcmlwdCByZWdpb24sIG5vdCBhIHBpeGVsIG9yIGF1ZGlvIHdhdGVybWFyay4gQSByZWFkZXIgaG9sZGluZyBvbmx5IHRoZSB0ZXh0IG9mIGEgY29tcGxldGlvbiwgY29waWVkIG9yIHJldHlwZWQgb3V0IG9mIHRoZSB0cmFuc2NyaXB0LCBoYXMgbm8gcmVnaW9uIHRvIGxvb2sgZm9yIGFuZCBjYW5ub3QgcHJvdmUgdGhlIG1hcmsgZnJvbSB0aG9zZSB3b3Jkcy4gVGhlIGR1dHkgcG9pbnRlcnMgbmFtZSBwcm92aXNpb25zIGZvciBjb3Vuc2VsIHRvIHdlaWdoLCBub3QgY29uY2x1c2lvbnMgdGhhdCBhIGR1dHkgYXBwbGllcyBvciB3YXMgbWV0LiIKfQo",
+      "recordByteLength": 1082,
+      "fault": {
+        "at": "scheme",
+        "states": "a label the marking registry does not hold"
+      }
+    },
+    {
+      "name": "record-limits-withheld-v1",
+      "note": "A record leaving out the limits member, which the layout requires and whose text is the format's own sentence. A record stating no limits is a silence a reader would have to guess at, and a record wording its own limits is refused the same way: the limits are not the writer's to word.",
+      "expected": "DISCLOSURE_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAib2JsaWdvciI6ICJ0aGUgZGVwbG95ZXIgc2VydmluZyB0aGUgY29tcGxldGlvbiIsCiAgImR1dHkiOiAiYWktYWN0LTUwLTQiLAogICJzY2hlbWUiOiAicHJvdmVuYW5jZS12MSIsCiAgInNlcnZlZCI6IHsKICAgICJraW5kIjogInJlZ2lvbiIsCiAgICAic2hhMjU2IjogIjM1NzAyZmRhMjc2ZjNkMGE4MTc0MmNkNTQwNzllZWI3MDMxYWViZjA2MjA1OTkzY2ZlZDEwNTFlMmRlMjgyZGUiCiAgfSwKICAidHJhbnNmb3JtYXRpb25zIjogWwogICAgewogICAgICAibmFtZSI6ICJieXRlLWNvcHkiLAogICAgICAib3V0Y29tZSI6ICJkZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAianNvbi1yZXBhcnNlIiwKICAgICAgIm91dGNvbWUiOiAiZGV0ZWN0YWJsZSIKICAgIH0sCiAgICB7CiAgICAgICJuYW1lIjogInRleHQtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAibm90LWRldGVjdGFibGUiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJwbGFpbi10ZXh0LWV4cG9ydCIsCiAgICAgICJvdXRjb21lIjogIm5vdC1kZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAicGl4ZWwtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAidW50ZXN0ZWQiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJhdWRpby1yZW5kZXIiLAogICAgICAib3V0Y29tZSI6ICJ1bnRlc3RlZCIKICAgIH0KICBdCn0K",
+      "recordByteLength": 711,
+      "fault": {
+        "at": "limits",
+        "states": "the member the layout requires and these bytes leave out"
+      }
+    },
+    {
+      "name": "record-region-under-none-v1",
+      "note": "A record naming a served region beside a scheme that declares no region of the response is marked: the document contradicting itself about whether a region exists, which is a malformed record rather than a verdict about the deployment.",
+      "expected": "DISCLOSURE_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAib2JsaWdvciI6ICJ0aGUgZGVwbG95ZXIgc2VydmluZyB0aGUgY29tcGxldGlvbiIsCiAgImR1dHkiOiAiYWktYWN0LTUwLTQiLAogICJzY2hlbWUiOiAibm9uZSIsCiAgInNlcnZlZCI6IHsKICAgICJraW5kIjogInJlZ2lvbiIsCiAgICAic2hhMjU2IjogIjM1NzAyZmRhMjc2ZjNkMGE4MTc0MmNkNTQwNzllZWI3MDMxYWViZjA2MjA1OTkzY2ZlZDEwNTFlMmRlMjgyZGUiCiAgfSwKICAidHJhbnNmb3JtYXRpb25zIjogWwogICAgewogICAgICAibmFtZSI6ICJieXRlLWNvcHkiLAogICAgICAib3V0Y29tZSI6ICJkZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAianNvbi1yZXBhcnNlIiwKICAgICAgIm91dGNvbWUiOiAiZGV0ZWN0YWJsZSIKICAgIH0sCiAgICB7CiAgICAgICJuYW1lIjogInRleHQtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAibm90LWRldGVjdGFibGUiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJwbGFpbi10ZXh0LWV4cG9ydCIsCiAgICAgICJvdXRjb21lIjogIm5vdC1kZXRlY3RhYmxlIgogICAgfSwKICAgIHsKICAgICAgIm5hbWUiOiAicGl4ZWwtcmVuZGVyIiwKICAgICAgIm91dGNvbWUiOiAidW50ZXN0ZWQiCiAgICB9LAogICAgewogICAgICAibmFtZSI6ICJhdWRpby1yZW5kZXIiLAogICAgICAib3V0Y29tZSI6ICJ1bnRlc3RlZCIKICAgIH0KICBdLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgZGVzY3JpYmVzIGEgbWFya2luZyBpbiBhIEpTT04gdHJhbnNjcmlwdCByZWdpb24sIG5vdCBhIHBpeGVsIG9yIGF1ZGlvIHdhdGVybWFyay4gQSByZWFkZXIgaG9sZGluZyBvbmx5IHRoZSB0ZXh0IG9mIGEgY29tcGxldGlvbiwgY29waWVkIG9yIHJldHlwZWQgb3V0IG9mIHRoZSB0cmFuc2NyaXB0LCBoYXMgbm8gcmVnaW9uIHRvIGxvb2sgZm9yIGFuZCBjYW5ub3QgcHJvdmUgdGhlIG1hcmsgZnJvbSB0aG9zZSB3b3Jkcy4gVGhlIGR1dHkgcG9pbnRlcnMgbmFtZSBwcm92aXNpb25zIGZvciBjb3Vuc2VsIHRvIHdlaWdoLCBub3QgY29uY2x1c2lvbnMgdGhhdCBhIGR1dHkgYXBwbGllcyBvciB3YXMgbWV0LiIKfQo",
+      "recordByteLength": 1073,
+      "fault": {
+        "at": "served",
+        "states": "a region served beside a scheme that declares no region"
+      }
+    }
+  ]
+}
