@@ -26,6 +26,7 @@ import {
 } from './receipt.js';
 import { PROVENANCES, isProvenance, reduceProvenance, type Provenance } from './provenance.js';
 import type { CollateralSlot } from './disclosure.js';
+import { dutyLabelEntry } from './retention.js';
 import { signEd25519 } from './signing.js';
 
 /**
@@ -120,9 +121,12 @@ export interface PackChain {
 
 export interface PackDuty {
   /**
-   * A label from the retention-duty registry, which this format declares a `tstr` rather than an enum. This
-   * reader checks that it is a text string and nothing else about it, which is the narrower of the two
-   * readings available to a package that publishes no registry of its own; see the note on `duty` below.
+   * A label from the retention-duty registry, which this format declares a `tstr` rather than an enum. The
+   * reader weighs it against the registry this package publishes: a label no entry carries is refused with
+   * `PACK_DUTY_UNKNOWN_LABEL`, and a known label whose `rev` does not name the revision its entry demands is
+   * refused with `PACK_DUTY_REVISION_UNMAPPED`. The registry is the reader's question rather than the layout's,
+   * which is why the type stays open; see the note on `duty` below. A registry label makes a pack readable
+   * under a duty and never sufficient for it.
    */
   readonly art: string;
   /** unix seconds, the revision of the mapping `required` was read from. */
@@ -765,22 +769,37 @@ function readChain(raw: Map<unknown, unknown>): PackChain {
 }
 
 /**
- * The duty this pack answers, read and not judged.
+ * The duty this pack answers, read against the registry and not judged.
  *
- * `rev` is never after `at`, because a mapping revision that lands after the reads began is not the revision
- * the period was read from: that is one contradiction between two signed members, and it is refused. What is
- * refused nowhere here is a `held` short of a `required`, which is nothing of that kind. The document is
- * whole, the arithmetic comes out the way it comes out, and the duty is not met; whether it was ever owed at
- * all turns on the mapping `rev` names and on the law behind it, which this package does not interpret. So no
- * comparison of those two integers happens below, and the reader has no opinion to hand back about them.
+ * `art` is weighed against the duty-label registry this package publishes: a label no entry carries is refused
+ * by name, and a known label whose `rev` does not name the revision its entry demands is refused by name. The
+ * format still declares `art` a bare `tstr`, so the registry is the reader's question rather than the layout's,
+ * and a registry label makes a pack readable under a duty and never sufficient for it. `rev` is never after
+ * `at`, because a mapping revision that lands after the reads began is not the revision the period was read
+ * from: that is one contradiction between two signed members, and it is refused as a malformed manifest, apart
+ * from the two registry refusals. What is refused nowhere here is a `held` short of a `required`, which is
+ * nothing of that kind. The document is whole, the arithmetic comes out the way it comes out, and the duty is
+ * not met; whether it was ever owed at all turns on the mapping `rev` names and on the law behind it, which
+ * this package does not interpret. So no comparison of those two integers happens below, and the reader has no
+ * opinion to hand back about them.
  */
 function readDuty(raw: Map<unknown, unknown>, at: number): PackDuty {
   const art = raw.get('art');
   if (typeof art !== 'string') throw badManifest('duty.art must be a tstr');
+  const entry = dutyLabelEntry(art);
+  if (entry === undefined) {
+    throw new ReceiptError('PACK_DUTY_UNKNOWN_LABEL', `duty.art names ${JSON.stringify(art)}, which the duty-label registry has no entry for`);
+  }
   const rev = requireStamp(raw.get('rev'), 'duty.rev');
   const required = requireDuration(raw.get('required'), 'duty.required');
   const held = requireDuration(raw.get('held'), 'duty.held');
   if (rev > at) throw badManifest(`the mapping revision ${rev} postdates the reads at ${at}`);
+  if (rev !== entry.mappingRevision) {
+    throw new ReceiptError(
+      'PACK_DUTY_REVISION_UNMAPPED',
+      `duty.art ${JSON.stringify(art)} demands mapping revision ${String(entry.mappingRevision)} and duty.rev names ${String(rev)}`,
+    );
+  }
   return { art, rev, required, held };
 }
 

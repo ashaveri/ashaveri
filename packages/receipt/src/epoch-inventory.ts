@@ -373,10 +373,10 @@ function assertDefined(raw: JsonObject, members: readonly string[], where: strin
  * printed-line class. The four positions read here, `manifest.iss`, `manifest.ins`, a `packs[].duty.art` and a
  * `duty.short[].art`, come out of documents this format describes and does not author, and each of those declares
  * its own floor with no ceiling beside it: the deployment manifest states a minimum length for its two ids and no
- * maximum, and `pack.cddl` types a duty label as a bare `tstr` that its own reader asks nothing about but being
- * text. So no length is refused here and none is on offer: a ceiling stated on this side would refuse an
- * inventory over a manifest the deployment published and a pack that pack format seals, which is the one thing
- * a layout written to describe artifacts already in the field may not do.
+ * maximum, and `pack.cddl` types a duty label as a bare `tstr` that its own reader weighs against the duty-label
+ * registry for membership but bounds by no length. So no length is refused here and none is on offer: a ceiling
+ * stated on this side would refuse an inventory over a manifest the deployment published and a pack that pack
+ * format seals, which is the one thing a layout written to describe artifacts already in the field may not do.
  *
  * The character class is a separate question, and it is answered here on the same ground as the run label beside
  * it. These four values are printed. A reviewer reads the issuer and the instance beside the run this document
@@ -390,10 +390,11 @@ function assertDefined(raw: JsonObject, members: readonly string[], where: strin
  *
  * The cost of the wider scan is stated rather than left out, because it is the cost of any stricter reader. A
  * document another body wrote with one of the class's characters in one of these four positions is refused here,
- * and so is an inventory of a pack that signed such a duty label, because `pack.cddl` types that label as text and
- * `src/pack.ts` asks it nothing but being text: the class reaches this container's copy of the label and not the
- * pack's own signed one. That asymmetry is a finding of its own and it is left standing as one. What is published
- * is not caught by it, which was measured rather than argued: every generate key of `packages/fixtures` re-emits
+ * and so is an inventory of a pack that signed such a duty label. `pack.cddl` types that label as text and
+ * `src/pack.ts` weighs it against the registry rather than scanning its characters: a label carrying one of these
+ * characters is no entry of the registry, so the pack reader refuses it as unknown while this container refuses it
+ * by the class, the two rules reaching one label from different sides. What is published is caught by neither,
+ * which was measured rather than argued: every generate key of `packages/fixtures` re-emits
  * `packages/fixtures/data` byte for byte, and the shipped reader runs over each published vector by name in
  * `packages/fixtures/test/epoch-inventory-vectors.test.ts`.
  */

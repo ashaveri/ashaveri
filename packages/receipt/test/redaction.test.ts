@@ -39,6 +39,7 @@ import {
   type SigningKey,
 } from '../src/index.js';
 import { REDACTION_MANIFEST_MEMBERS } from '../src/redaction.js';
+import { DUTY_LABEL_REGISTRY_REVISION } from '../src/retention.js';
 
 /**
  * The redaction manifest: a signed statement that a record came out of a closed pack, and the arithmetic a
@@ -62,7 +63,7 @@ const KEY: SigningKey = signingKeyFromSeed(new Uint8Array(32).fill(41));
 const RETIRED: SigningKey = signingKeyFromSeed(new Uint8Array(32).fill(42));
 const SECOND: SigningKey = signingKeyFromSeed(new Uint8Array(32).fill(43));
 
-const BASE = 1_772_000_000;
+const BASE = DUTY_LABEL_REGISTRY_REVISION - 3;
 const SPAN_FROM = BASE - 60;
 const SPAN_TO = BASE + 3;
 const REDACTION_AT = SPAN_TO + 10;
@@ -156,7 +157,7 @@ function packManifest(
     chain: { anchor: run.anchor, head: run.head },
     duty: {
       art: '19(1)',
-      rev: SPAN_TO - 30,
+      rev: DUTY_LABEL_REGISTRY_REVISION,
       required: 3_600,
       held: SPAN_TO - Math.min(...run.items.map((one) => one.iat)),
     },

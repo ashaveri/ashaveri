@@ -47,6 +47,8 @@ export type ReceiptErrorCode =
   | 'PACK_BAD_HEADER'
   | 'PACK_UNSUPPORTED_VERSION'
   | 'PACK_BAD_MANIFEST'
+  | 'PACK_DUTY_UNKNOWN_LABEL'
+  | 'PACK_DUTY_REVISION_UNMAPPED'
   | 'PACK_DUPLICATE_ID'
   | 'PACK_RECEIPT_INVALID'
   | 'PACK_RECEIPT_STAMP_MISMATCH'
@@ -234,6 +236,21 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // in a key alike, answers here too and from the decode rather than from a field read, because by the time a
   // check could tell `1` from `1.0` the signed bytes have become one map entry.
   PACK_BAD_MANIFEST: 'pack manifest does not match the layout its declared version defines',
+  // The two the duty-label registry answers, and why they are not `PACK_BAD_MANIFEST`. The manifest is
+  // well-formed in both: `art` is a text string and `rev` is a stamp, every member of the duty block is the
+  // type and width the layout declares, and the document contradicts itself about nothing. What is refused is
+  // the label's standing against the registry this package publishes, which is a question the layout leaves
+  // open on purpose: `pack.cddl` types `art` a bare `tstr` so the format does not enumerate answers it cannot
+  // check, and the reader asks the registry which labels it can read. The two codes send a caller to two
+  // different places. An unknown label is a duty this registry has no entry for, so the action is to widen the
+  // registry from the instrument text, not to edit the pack. A known label whose `rev` does not name the
+  // revision the entry demands is a pack read from a mapping revision this registry does not stand behind, so
+  // the action is to name the revision the entry demands. Neither is a verdict about the duty: a registry
+  // label makes a pack readable under a duty and never sufficient for it, and the period the deployment
+  // states stays its own. A `rev` after the assembly instant is the older contradiction and still answers
+  // `PACK_BAD_MANIFEST`, because two signed members that cannot both be true are a fault of the document.
+  PACK_DUTY_UNKNOWN_LABEL: 'duty.art names a label the retention duty-label registry has no entry for',
+  PACK_DUTY_REVISION_UNMAPPED: 'duty.rev does not name the mapping revision the registry entry for this duty label demands',
   PACK_DUPLICATE_ID: 'two pack items answer to the same id',
   // Not a fault of the chain and not a fault of the receipt alone: an item's original is the document the pack
   // attests, and it either parses and verifies under the key the reader holds for it, which is the one the
