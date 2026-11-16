@@ -941,7 +941,7 @@ The layout, version 1, every member required, in this order:
 | `incident` | `{ id, at, states }`: the incident the deployment states, its identity, its stamp no later than the bundle's own `at`, and its narrative. Asserted: the deployment's own statement, which nothing in the record proves |
 | `hold` | `{ sha256, at, by }`: the sha256 of the exact hold-record bytes the record designates, beside the issue stamp and author copied from it. Both copied fields are bound |
 | `window` | `{ from, to }`: the window of record stamps the hold covers, copied from the hold record's window, `from` inclusive and `to` exclusive, a null `to` an open end. Bound. `to` is never before `from` |
-| `floor` | `{ days, preserveUntil, pointer }`: the preservation floor. `days` is a positive whole number the deployment states (asserted), few enough that its floor is a stamp the reader can state; `preserveUntil` is `incident.at + days * 86400`, recomputed by the reader rather than believed; `pointer` is one label from the registry below |
+| `floor` | `{ days, preserveUntil, pointer }`: the preservation floor. `days` is a positive whole number the deployment states (asserted), few enough that its floor is a stamp the reader can state and few enough that the incident stamp beside them keeps their sum inside the range a stamp holds; `preserveUntil` is `incident.at + days * 86400`, recomputed by the reader rather than believed; `pointer` is one label from the registry below |
 | `pointers` | A non-empty list from the registry below, each a pointer for counsel rather than a conclusion |
 | `limits` | The limits sentence below, verbatim. A record wording its own limits is refused |
 
@@ -962,11 +962,11 @@ so a member named twice and a float wearing an integer are refused while the cha
 distinguishable. The version is asked before any member is read.
 
 The preservation floor is a pointer for counsel, not a compliance claim. The layout door checks that
-`days` is a positive whole number few enough for its floor to be a stamp the reader states exactly, and
-that `preserveUntil` is the arithmetic of the incident stamp plus those days, both figures being inside
-one record and the check reading no external byte; it judges the number against no provision's period,
-ninety days or any other. The one provision the layout enumerates, cited as the estate's own sources
-name it:
+`days` is a positive whole number, that there are few enough of them for its floor to be a stamp the
+reader states exactly, that the incident stamp plus those days land inside the range a stamp holds, and
+that `preserveUntil` is that arithmetic, both figures being inside one record and the check reading no
+external byte; it judges the number against no provision's period, ninety days or any other. The one
+provision the layout enumerates, cited as the estate's own sources name it:
 
 | `pointers` entry | The instrument it names |
 |---|---|

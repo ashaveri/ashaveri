@@ -681,8 +681,9 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // the wrong type or width or carrying a character that forges the printed line it belongs to, a digest
   // of the wrong width or case, a stamp below zero, an incident stamped after the bundle that carries it,
   // a window closing before it opens, a floor days that is not a positive whole number or is too many
-  // days for its floor to be a stamp, a floor preserveUntil that is not the incident stamp plus the
-  // stated days, an empty pointers list, one pointer named twice, a provenance outside the three values,
+  // days for a floor to be a stamp, the incident stamp plus those days landing outside the range a stamp
+  // holds, a floor preserveUntil that is not the incident stamp plus the stated days, an empty pointers
+  // list, one pointer named twice, a provenance outside the three values,
   // and a limits member stating anything other than the format's own limits sentence. A floating-point
   // number answers here too, from the decode rather than from a field read, because by the time a check
   // could tell `1` from `1.0` the bytes have become one JavaScript number. The floor's arithmetic is

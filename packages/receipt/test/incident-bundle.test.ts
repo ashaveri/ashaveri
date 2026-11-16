@@ -42,6 +42,13 @@ const DAYS = 90;
 const PRESERVE_UNTIL = INCIDENT_AT + DAYS * 86_400;
 const POINTER = 'gsa-552-239-7001-f-5';
 
+/**
+ * The same ceiling `assertFloor` computes: the largest day count whose `days * 86400` still lands inside
+ * the integers a JavaScript number carries exactly. The module keeps the bound to itself, so the rows state
+ * it the way the guard does rather than widen the shipped surface for a test.
+ */
+const FLOOR_DAYS_MAX = Math.floor(Number.MAX_SAFE_INTEGER / 86_400);
+
 function hold(): HoldRecord {
   return {
     v: 1,
@@ -356,11 +363,58 @@ describe('the incident bundle reader refuses', () => {
       const floor = document['floor'] as Record<string, unknown>;
       floor['days'] = Number.MAX_SAFE_INTEGER;
     });
-    // Past the largest integer a JavaScript number carries exactly, `days * 86400` is a rounded float a
-    // stated value could match by luck, so the days are refused before any floor is compared to them.
+    // The days are refused by the ceiling before any floor is compared to them: past the largest integer a
+    // JavaScript number carries exactly, `days * 86400` is no figure a stamp states, and the equality at
+    // the end of the guard would refuse this document anyway, because the read lets no stated value reach
+    // it past that range. What the ceiling owns is the detail. The sum bound names `floor.days` in its own
+    // message too, so the phrase this row asserts is the one only the days ceiling's message carries, and
+    // it is what shows this refusal came from that ceiling rather than from the bound beside it.
     const fault = refusalOf(() => parseIncidentBundle(bytes));
     expect(fault.code).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
-    expect(fault.message).toContain('floor.days');
+    expect(fault.message).toContain('is more days than a floor can state');
+  });
+
+  it('a floor whose days are one past the ceiling this layout states, and a floor at the ceiling', () => {
+    // The ceiling is a stated boundary rather than a large number: one day past it is refused by the days
+    // bound itself, and the ceiling itself reads. The read sits at an incident stamp of zero because
+    // `FLOOR_DAYS_MAX * 86400` stops fewer than 86400 seconds short of the largest integer a reader holds
+    // exactly, so any incident stamp of more than that many seconds pushes the sum itself out of the range
+    // a stamp takes, and the sum bound rather than the ceiling would be the answer.
+    const past = refusalOf(() =>
+      parseIncidentBundle(
+        edited(record(), (document) => {
+          const floor = document['floor'] as Record<string, unknown>;
+          floor['days'] = FLOOR_DAYS_MAX + 1;
+        }),
+      ),
+    );
+    expect(past.code).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+    expect(past.message).toContain('is more days than a floor can state');
+    expect(past.message).toContain(String(FLOOR_DAYS_MAX + 1));
+    const atTheCeiling: IncidentBundleRecord = {
+      ...record(),
+      incident: { ...record().incident, at: 0 },
+      floor: { days: FLOOR_DAYS_MAX, preserveUntil: FLOOR_DAYS_MAX * 86_400, pointer: POINTER },
+    };
+    expect(parseIncidentBundle(incidentBundleBytes(atTheCeiling))).toEqual(atTheCeiling);
+  });
+
+  it('a floor whose incident stamp plus the stated days land outside the range a stamp holds', () => {
+    // The days stay at the fixture's ninety, so the days ceiling cannot fire and only the sum bound can: an
+    // incident stamped within ten seconds of the largest integer a reader holds exactly, plus those days,
+    // is no figure a floor states, and the refusal arrives before the stated value is compared to it. Both
+    // stamps move together because the reader refuses an incident stamped after the bundle that carries it,
+    // which would answer before the floor is read.
+    const lateIncident = Number.MAX_SAFE_INTEGER - 10;
+    const bytes = edited(record(), (document) => {
+      document['at'] = lateIncident;
+      const incident = document['incident'] as Record<string, unknown>;
+      incident['at'] = lateIncident;
+    });
+    const fault = refusalOf(() => parseIncidentBundle(bytes));
+    expect(fault.code).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
+    expect(fault.message).toContain('so no preserveUntil states this floor');
+    expect(fault.message).toContain(`incident.at=${String(lateIncident)}`);
   });
 
   it('a preserveUntil stated before the incident it preserves', () => {
@@ -464,7 +518,10 @@ describe('the bound and asserted split, over the hold the record designates', ()
     expect(verified.record.hold).toEqual(record().hold);
   });
 
-  it('accepts a stated floor of any positive whole days, recomputing preserveUntil', () => {
+  it('accepts a stated floor of one hundred twenty days, its arithmetic answered at the layout door', () => {
+    // The days are the deployment's own statement: the verifying door compares only the copied fields, and
+    // the floor's own figures were answered by `parseIncidentBundle` before a hold was handed over, so a
+    // stated period longer than the ninety the registry cites is read rather than judged.
     const days = 120;
     const base: IncidentBundleRecord = {
       ...record(),
@@ -536,5 +593,24 @@ describe('the bound and asserted split, over the hold the record designates', ()
     expect(holdFault.code).toBe('HOLD_RECORD_UNSUPPORTED_VERSION');
     expect(fault.code).toBe('INCIDENT_BUNDLE_HOLD_UNREADABLE');
     expect(fault.message).toContain(holdFault.message);
+  });
+
+  it('lets a hand-over that is not bytes at all reach the caller as the fault it is', () => {
+    // `holdBytes` is a `Uint8Array` by the option's own type, and a caller that hands anything else has
+    // misused this door rather than written a bad document. The hash the designation is checked against
+    // raises a `TypeError` over such an argument and the door passes it on unchanged: only a `ReceiptError`
+    // out of the hold's own reader is re-framed as `INCIDENT_BUNDLE_HOLD_UNREADABLE`, so a fault of the
+    // program never arrives wearing one of the bundle's document codes. The words are the hash library's
+    // own, so the row asserts the class of the fault and the absence of a code rather than a sentence this
+    // package does not own.
+    let caught: unknown;
+    try {
+      verifyIncidentBundle(incidentBundleBytes(record()), { holdBytes: 'the hold as text, not as bytes' as unknown as Uint8Array });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(TypeError);
+    expect((caught as TypeError).message).toContain('expected Uint8Array');
+    expect((caught as { code?: unknown }).code).toBeUndefined();
   });
 });

@@ -211,9 +211,13 @@ const FLOOR_DAYS_MAX = Math.floor(Number.MAX_SAFE_INTEGER / 86_400);
  * stated days is the record contradicting itself, which the layout door answers where a caller holding
  * only the bundle is refused too. Both terms are bounded before any stated value is compared to them,
  * because an equality the reader cannot state exactly is no check: past the largest integer a JavaScript
- * number carries exactly, `days * 86400` is a rounded float a stated value could match by luck. The
- * range the recomputed floor has to stay inside is the one a stamp takes, as the store states beside its
- * own stamp guard.
+ * number carries exactly, `days * 86400` is a rounded float, and no stated value reaches the comparison
+ * as one, because the read refuses every number it cannot hold exactly. The range the recomputed floor
+ * has to stay inside is the one a stamp takes, as the store states beside its own stamp guard. The bounds
+ * are what keep the refusal's own figure statable rather than a second check on the floor: the equality
+ * at the end refuses a moved floor whichever way these two land, so what each bound owns is the detail,
+ * which would otherwise print a rounded sum or a floor past the range a stamp takes as though it were a
+ * figure somebody could write down.
  */
 function assertFloor(incidentAt: number, days: number, stated: number): void {
   if (days > FLOOR_DAYS_MAX) {
