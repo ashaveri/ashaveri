@@ -56,6 +56,14 @@ export type SdkErrorCode =
   // receipt, and a caller told their clock is unbounded looks at the deployment while a caller told
   // their reading is the wrong scale looks at their own call.
   | 'CLIENT_CLOCK_OUT_OF_RANGE'
+  // The key route's boot-scoped binding document, older than the age a policy demands of it. The
+  // demand is maxKeyBindingAgeSeconds and the document is the attestation served beside the session
+  // public key, constant for a whole boot and so replayable standing evidence unless a reader weighs
+  // its age. Beside the clock code above rather than under it, and distinct from the evidence window
+  // refusals, which weigh the per-request quote a receipt names rather than this boot-scoped one. The
+  // epoch that carries the key is the ceiling the demand cannot exceed, so a binding read past its
+  // epoch window lands here too, and a policy naming no bound never reaches this code at all.
+  | 'KEY_BINDING_TOO_OLD'
   // A receipt whose anchor states that its material is not there, met by a policy that demanded an anchor
   // and reached beside the pins above, in the client's own verification rather than in the format reader.
   // One code for the two absences, because what a caller does with either is one act and the message names

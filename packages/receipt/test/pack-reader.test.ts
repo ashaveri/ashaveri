@@ -31,6 +31,7 @@ import {
   type PackCustodyEntry,
   type PackVerifyOptions,
 } from '../src/pack.js';
+import { DUTY_LABEL_REGISTRY_REVISION } from '../src/retention.js';
 import { EXPORT_CONTENT_TYPE } from '../src/export.js';
 import { sealDeploymentManifest } from '../src/manifest-seal.js';
 import { ReceiptError } from '../src/errors.js';
@@ -247,7 +248,7 @@ for (const rule of packMapRuleNames()) {
 
 const KEY = signingKeyFromSeed(new Uint8Array(32).fill(11));
 const OTHER = signingKeyFromSeed(new Uint8Array(32).fill(12));
-const BASE = 1_772_000_000;
+const BASE = DUTY_LABEL_REGISTRY_REVISION - 3;
 const SPAN_FROM = BASE - 60;
 const SPAN_TO = BASE + 3;
 
@@ -412,7 +413,7 @@ function manifestValue(over: Partial<PackManifest> = {}): PackManifest {
     prov: 'fixture',
     span: { from: SPAN_FROM, to: SPAN_TO },
     chain: { anchor: run.anchor, head: run.head },
-    duty: { art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE },
+    duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: SPAN_TO - BASE },
     items: run.items,
     custody: [],
     attached: [],
@@ -863,7 +864,7 @@ describe('the pack reader and the format it reads', () => {
     }
     // Nothing in the report is a conclusion the reader drew: no verdict on the duty, on completeness at the
     // source, or on freshness, and the integers behind those questions come back as they were signed.
-    expect(verifiedPack.manifest.duty).toEqual({ art: '19(1)', rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE });
+    expect(verifiedPack.manifest.duty).toEqual({ art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: SPAN_TO - BASE });
     const printed = JSON.stringify(verifiedPack, (_key, value: unknown) => (value instanceof Uint8Array ? 'bytes' : value)).toLowerCase();
     for (const word of ['"met"', 'requiredseconds', 'heldseconds', 'qualified', 'complete', 'fresh', 'verdict', '"passed"', '"satisfied"']) {
       expect(printed, `the reader's own report carries ${word}`).not.toContain(word);
@@ -995,7 +996,6 @@ describe('the pack reader and the format it reads', () => {
         dutyOf(root).set('held', SPAN_TO - SPAN_FROM);
       }],
       ['a period that is nothing', (root) => dutyOf(root).set('required', 0)],
-      ['a duty label this estate has never published', (root) => dutyOf(root).set('art', 'an-article-of-some-other-law')],
       ['an id at the ceiling the framing states', (root) => itemOf(root, 0).set('id', 'a'.repeat(ID_RANGE.max))],
     ];
     for (const [name, mutate] of accepted) {
@@ -1003,13 +1003,19 @@ describe('the pack reader and the format it reads', () => {
       // signature. The last two move bytes the chain hashes, so they are asked of `decodePack` alone.
       expect(answered(() => decodePack(reSealed(good, mutate))), `${name} was refused`).toBe('accepted');
     }
+    // A label no entry of the registry carries is refused by name. The format still declares `art` a `tstr`,
+    // so this is the registry's refusal rather than the layout's: the edge above keeps the format's own open
+    // type, and the registry is the reader's question weighed against it.
+    expect(
+      answered(() => decodePack(reSealed(good, (root) => dutyOf(root).set('art', 'an-article-of-some-other-law')))),
+    ).toBe('PACK_DUTY_UNKNOWN_LABEL');
   });
 
   it('keeps the duty readable and never judges it', () => {
     // A period the deployment states and a figure that falls short of it: the document is whole, the arithmetic
     // comes out the way it comes out, and nothing here answers whether the duty was met.
-    const short = manifestValue({ duty: { art: '19(1)', rev: SPAN_TO - 30, required: 31_536_000, held: 60 } });
-    const met = manifestValue({ duty: { art: '19(1)', rev: SPAN_TO - 30, required: 1, held: SPAN_TO - BASE } });
+    const short = manifestValue({ duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 31_536_000, held: 60 } });
+    const met = manifestValue({ duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 1, held: SPAN_TO - BASE } });
     const shortRead = verifyPack(signPack(short), { publicKey: KEY.publicKey });
     const metRead = verifyPack(signPack(met), { publicKey: KEY.publicKey });
     expect(shortRead.manifest.duty.held < shortRead.manifest.duty.required).toBe(true);
@@ -1018,13 +1024,17 @@ describe('the pack reader and the format it reads', () => {
     // reader's finding: the comparison that decides it belongs to whoever holds the mapping `rev` names.
     expect(Object.keys(shortRead.outcome).sort()).toEqual(Object.keys(metRead.outcome).sort());
     expect(answered(() => verifyPack(signPack(short), { publicKey: KEY.publicKey }))).toBe('accepted');
-    // The reader holds no registry of duty labels and invents none: the format declares the position a `tstr`
-    // for the reason `receipt.cddl` gives its own scheme label, so it is read and nothing else.
-    for (const art of ['19(1)', '19(2)', '26(6)', '']) {
-      const bytes = signPack(manifestValue({ duty: { art, rev: SPAN_TO - 30, required: 3_600, held: SPAN_TO - BASE } }));
+    // The reader weighs the duty-label registry this package publishes: the format still declares `art` a
+    // `tstr`, so the registry is the reader's question rather than the layout's. The three labels the registry
+    // carries are readable under the revision their entries demand, and a label no entry carries is refused by
+    // name rather than read as a duty this package has never heard of.
+    for (const art of ['19(1)', '19(2)', '26(6)']) {
+      const bytes = signPack(manifestValue({ duty: { art, rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: SPAN_TO - BASE } }));
       expect(answered(() => decodePack(bytes)), `a duty label of "${art}" was refused`).toBe('accepted');
       expect(decodePack(bytes).manifest.duty.art).toBe(art);
     }
+    const unknown = signPack(manifestValue({ duty: { art: '12(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: SPAN_TO - BASE } }));
+    expect(answered(() => decodePack(unknown))).toBe('PACK_DUTY_UNKNOWN_LABEL');
   });
 
   it('checks every original as the receipt it claims to be', () => {
@@ -1074,7 +1084,7 @@ describe('the pack reader and the format it reads', () => {
       at: end,
       span: { from: SPAN_FROM, to: end },
       chain: { anchor: run.anchor, head: run.head },
-      duty: { art: '19(1)', rev: end - 30, required: 3_600, held: end - BASE },
+      duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 3_600, held: end - BASE },
       items: run.items,
     });
     expect(answered(() => verifyPack(signPack(restamped), { publicKey: KEY.publicKey }))).toBe('accepted');
@@ -1265,7 +1275,7 @@ describe('the pack reader and the format it reads', () => {
         references.map((one, index) => (index === 0 ? { ...one, s: BASE * 1_000 } : one)),
         [tcb, rim],
         'PACK_CUSTODY_UNIT_OUTSIDE_BAND',
-        /custody\[0\]\.s states 1772000000000, which is not a whole number of Unix seconds between 1000000000 and 4294967295/u,
+        new RegExp(`custody\\[0\\]\\.s states ${String(BASE * 1_000)}, which is not a whole number of Unix seconds between 1000000000 and 4294967295`, 'u'),
       ],
       [
         'a window whose end lies past the band',

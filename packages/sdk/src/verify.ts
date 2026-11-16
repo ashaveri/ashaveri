@@ -92,8 +92,11 @@ const LATEST_CLOCK_MILLIS = 4_294_967_295_000;
  * Nothing here decides which scale the number came from; the band does that by excluding the other
  * scale's magnitude for every instant this format can be asked about, so a caller handing a plausible
  * reading never meets a guess about what they meant to write.
+ *
+ * Exported for `key-binding.ts`, which weighs a handed clock against the same band rather than restating
+ * it: a second copy of the span would let the two verifiers disagree about what a plausible reading is.
  */
-function assertClockMillis(handed: number): void {
+export function assertClockMillis(handed: number): void {
   if (
     !Number.isSafeInteger(handed) ||
     handed < EARLIEST_CLOCK_MILLIS ||
