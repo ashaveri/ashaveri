@@ -7,6 +7,7 @@ import {
   ALG_EDDSA,
   CARRIED_MAX_BYTES,
   CUSTODY_SLOTS_PER_ITEM,
+  DUTY_LABEL_REGISTRY_REVISION,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   PROVENANCES,
@@ -43,7 +44,7 @@ import {
 } from '@ashaveri/receipt';
 import { fixtureVendor, servedAnswer, servedChainOf, tcbInfo } from '@ashaveri/fixtures';
 import { labeled } from './seed.ts';
-import { FIXED_IAT, fixtureKey, fixturePayload } from './receipt-envelope.ts';
+import { fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -124,13 +125,19 @@ const KEY_MATERIAL: readonly { key: SigningKey; seed: string; role: string }[] =
   },
 ];
 
-/** The instant every published fixture in this repository is issued at, so regenerating changes no byte. */
-const BASE = FIXED_IAT;
+/**
+ * The pack suite is assembled at the duty-label registry's revision (`SPAN_TO`), so a pack here can name in
+ * `duty.rev` the revision its label demands without that revision postdating the reads; the receipts are issued
+ * three seconds earlier. The receipts inside these packs are made here rather than loaded from the receipt
+ * suite, so this clock is the pack suite's own and moves no other fixture file. Regenerating at this fixed
+ * instant changes no byte.
+ */
+const BASE = DUTY_LABEL_REGISTRY_REVISION - 3;
 const SPAN_FROM = BASE - 60;
 const SPAN_TO = BASE + 3;
 
 /** The duty the honest packs answer for: the store's own floor, met by a deployment holding to it. */
-const HONEST_DUTY = { art: '19(1)', rev: SPAN_TO - 30, required: 15_897_600, held: 15_897_600 };
+const HONEST_DUTY = { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 15_897_600, held: 15_897_600 };
 
 const digest = (bytes: Uint8Array): Uint8Array => sha256(bytes);
 const text = (value: string): Uint8Array => new TextEncoder().encode(value);
@@ -880,12 +887,40 @@ const CASES: readonly Case[] = [
   {
     name: 'duty-short-of-the-period-it-states',
     note: 'A whole pack whose `held` figure is younger than the `required` period its own revision names. The document is not at fault and the reader has no opinion to hand back: `met` is absent from the format so that a deployment signs evidence rather than its own conclusion, and the arithmetic belongs to whoever holds the mapping.',
-    bytes: signPack(manifestFor(HONEST, { duty: { art: '19(1)', rev: SPAN_TO - 30, required: 15_897_600, held: 3 } }), CURRENT),
+    bytes: signPack(manifestFor(HONEST, { duty: { art: '19(1)', rev: DUTY_LABEL_REGISTRY_REVISION, required: 15_897_600, held: 3 } }), CURRENT),
     read: PINNED_CURRENT,
     verdict: 'verify-ok',
     structural: 'verify-ok',
     walk: ['receipt-0', 'receipt-1', 'receipt-2'],
     ordering: [],
+  },
+  {
+    name: 'duty-under-a-foreign-label',
+    note: 'A whole pack answering under a label the retention layout does not enumerate: GDPR 5(1)(e), which the duty-label registry carries and the retention manifest\'s closed enum does not. The pack container declares `art` a bare text string and asks the registry which labels it can read, so this label is readable here while a retention manifest under it would be refused. The revision is the one the registry entry demands, and the period stays the deployment\'s own statement.',
+    bytes: signPack(manifestFor(HONEST, { duty: { ...HONEST_DUTY, art: '5(1)(e)' } }), CURRENT),
+    read: PINNED_CURRENT,
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+    walk: ['receipt-0', 'receipt-1', 'receipt-2'],
+    ordering: [],
+  },
+  {
+    name: 'duty-label-the-registry-does-not-carry',
+    note: 'A duty label no entry of the registry carries. The manifest is well-formed in every other respect: `art` is a text string and `rev` is the revision the registry demands, so the layout refuses nothing. What is refused is the label\'s standing against the registry, which is the reader\'s question rather than the format\'s, and the action is to widen the registry from the instrument text rather than to edit the pack.',
+    bytes: mutant(honestManifest, (root) => blockOf(root, 'duty').set('art', '12(1)')),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_DUTY_UNKNOWN_LABEL',
+    structural: 'PACK_DUTY_UNKNOWN_LABEL',
+    edited: 'duty.art, to a label the registry has no entry for',
+  },
+  {
+    name: 'duty-revision-the-entry-does-not-demand',
+    note: 'A known label whose `rev` names a revision other than the one its registry entry demands. The revision is a whole stamp no later than the assembly, so the document contradicts itself about nothing and the layout is whole; what is refused is that the pack was read from a mapping revision the registry does not stand behind. A registry label makes a pack readable under a duty and never sufficient for it.',
+    bytes: mutant(honestManifest, (root) => blockOf(root, 'duty').set('rev', DUTY_LABEL_REGISTRY_REVISION - 1)),
+    read: PINNED_CURRENT,
+    verdict: 'PACK_DUTY_REVISION_UNMAPPED',
+    structural: 'PACK_DUTY_REVISION_UNMAPPED',
+    edited: 'duty.rev, to one second before the revision the entry demands',
   },
   {
     name: 'unprotected-map-carries-a-parameter',

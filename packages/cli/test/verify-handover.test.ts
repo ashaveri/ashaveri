@@ -7,12 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   DEPLOYMENT_MANIFEST_CONTENT_TYPE,
+  DUTY_LABEL_REGISTRY_REVISION,
   EPOCH_INVENTORY_CONTENT_TYPE,
   EXPORT_CONTENT_TYPE,
   PACK_CONTENT_TYPE,
   RECEIPT_CONTENT_TYPE,
   REDACTION_CONTENT_TYPE,
   decodeCanonical,
+  decodePack,
   encodeCanonical,
   encodeExportProtectedHeader,
   generateSigningKey,
@@ -187,7 +189,9 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
   const stamps = ids.map((one) => receiptStampOf(one)).map((one, index) => (index === movedStamp ? one + 60 : one));
   const from = Math.min(...stamps);
   const to = Math.max(...stamps) + 1;
-  const at = to + 1_000;
+  // Assembly at or after the duty-label registry's revision, so `rev` can name it without postdating the
+  // reads; the receipts stay at the stamps the published fixtures state.
+  const at = Math.max(to + 1_000, DUTY_LABEL_REGISTRY_REVISION);
   let previous: Uint8Array<ArrayBufferLike> = anchor;
   const items: Map<string, unknown>[] = [];
   for (const [index, one] of ids.entries()) {
@@ -209,7 +213,7 @@ function packDocument(key: SigningKey, ids: readonly string[], movedStamp?: numb
     ['prov', manifestProv],
     ['span', new Map([['from', from], ['to', to]])],
     ['chain', new Map([['anchor', anchor], ['head', previous]])],
-    ['duty', new Map<string, unknown>([['art', 'retention-evidence'], ['rev', at - 10], ['required', 31_536_000], ['held', at - from]])],
+    ['duty', new Map<string, unknown>([['art', '19(1)'], ['rev', DUTY_LABEL_REGISTRY_REVISION], ['required', 31_536_000], ['held', at - from]])],
     ['items', items],
     // Both lists empty, and each emptiness is a statement of its own: the receipts published here state an absence
     // in both anchor slots, so the pack refers to nothing, and a pack that attaches nothing is the ordinary one.
@@ -456,7 +460,7 @@ describe('ashaveri verify-handover', () => {
     const body = json.document as Record<string, unknown>;
     expect(body.walked).toEqual({ walked: 2, declared: 2 });
     expect((body.items as unknown[]).length).toBe(2);
-    expect(body.duty).toEqual({ art: 'retention-evidence', rev: expect.any(Number), required: 31_536_000, held: expect.any(Number) });
+    expect(body.duty).toEqual({ art: '19(1)', rev: expect.any(Number), required: 31_536_000, held: expect.any(Number) });
 
     const human = runCli(['verify-handover', path, `--key=${RECEIPT_PUBLIC_B64URL}`]);
     expect(human.stdout).toContain('judges neither');
@@ -722,6 +726,11 @@ const AMENDMENT = redactionRow('removed-middle-record');
 const AMENDMENT_PATH = written('amendment.cbor', Buffer.from(published(AMENDMENT.documentBase64Url, 'amendment document'), 'base64url'));
 const AMENDMENT_PACK_PATH = written('amendment-pack.cbor', Buffer.from(published(AMENDMENT.packBase64Url, 'pack the amendment designates'), 'base64url'));
 const AMENDMENT_KEY = `--key=${published(AMENDMENT.read.pinned, 'pinned key')}`;
+// The survivor stamps are read out of the published pack the amendment designates, so the disclosure assertions
+// below state the instants the suite actually carries rather than a clock copied by hand.
+const AMENDMENT_PACK_STAMPS = decodePack(
+  Buffer.from(published(AMENDMENT.packBase64Url, 'pack the amendment designates'), 'base64url'),
+).manifest.items.map((one) => one.iat);
 const PACK_DOCUMENT_PATH = written(
   'published-pack.cbor',
   Buffer.from(published(packRow('well-formed-three-items').documentBase64Url, 'pack document'), 'base64url'),
@@ -798,12 +807,12 @@ describe('an excision amendment at the command edge', () => {
   it('names the stamp source of every survivor record, in both renderings', () => {
     // The survivors are sealed receipts this arm walked and verified, each carrying its own signed `sd`,
     // exactly like the receipts the pack arm prints one disclosure per. A reader of this report who
-    // flattened it could still read `at 1772000000` as an instant worth whatever a clock of the reader's
+    // flattened it could still read the stamp as an instant worth whatever a clock of the reader's
     // own assumed, so the disclosure travels with the record it qualifies and is stated per record.
     const human = runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`]);
     expect(human.status, human.stdout).toBe(0);
-    expect(human.stdout).toContain("receipt-0 at 1772000000: 'host clock' states that nobody measured how far its readings stand");
-    expect(human.stdout).toContain("receipt-2 at 1772000002: 'host clock' states that nobody measured how far its readings stand");
+    expect(human.stdout).toContain(`receipt-0 at ${String(AMENDMENT_PACK_STAMPS[0])}: 'host clock' states that nobody measured how far its readings stand`);
+    expect(human.stdout).toContain(`receipt-2 at ${String(AMENDMENT_PACK_STAMPS[2])}: 'host clock' states that nobody measured how far its readings stand`);
     expect(human.stdout.match(/states that nobody measured/gu)?.length).toBe(2);
 
     const json = verdictOf(runCli(['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`, '--json']));

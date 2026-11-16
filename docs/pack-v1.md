@@ -113,8 +113,8 @@ measure, so the twin states the floor and not the limit.
 | `span.to` | `integer` | yes | Unix seconds, excluded: a receipt issued at exactly this stamp belongs to the next pack, not this one. |
 | `chain.anchor` | `string` | yes | The digest the first item was chained from: thirty-two zero bytes before any retirement, otherwise the seam a trim record carried. Both arrive as the same member, and a reader does not have to know which happened to start walking. |
 | `chain.head` | `string` | yes | The digest of the last item in the chain. Publishing it inside the signature is what makes deletion detectable and makes it the deployment's own statement rather than the reader's guess. |
-| `duty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. |
-| `duty.rev` | `integer` | yes | Unix seconds, the revision of the mapping `required` was read from, and never after `at`. The member that makes the other three readable later: a claim opened years after it was signed is read against the revision it was made from. |
+| `duty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. The reader weighs the label against the registry this package publishes, and a label no entry carries is refused with `PACK_DUTY_UNKNOWN_LABEL`. A registry label makes a pack readable under a duty and never sufficient for it. |
+| `duty.rev` | `integer` | yes | Unix seconds, the revision of the mapping `required` was read from, and never after `at`. For a label the registry carries it has to name the revision that entry demands, or the pack is refused with `PACK_DUTY_REVISION_UNMAPPED`. The member that makes the other three readable later: a claim opened years after it was signed is read against the revision it was made from. |
 | `duty.required` | `integer` | yes | Seconds that revision required. The deployment's to state, and this format supplies no default for it. |
 | `duty.held` | `integer` | yes | Seconds the store has held the oldest receipt it retains, measured at `at`. At least the age of the oldest receipt in this pack, because a receipt handed over here is one the store still holds. |
 | `item.id` | `string` | yes | The store's own id for the receipt, as the record names it, between 1 and 65535 bytes, and no two items in one pack carry the same one. A refusal reports an item by name, and two items answering to one name make that report mean whichever of the two a reader met first. |
@@ -329,6 +329,8 @@ holds this table against the codes the published suite names as verdicts.
 | `INVALID_SIGNATURE` | The signature does not verify over the `Sig_structure` |
 | `PACK_UNSUPPORTED_VERSION` | The manifest declares a version no format has used |
 | `PACK_BAD_MANIFEST` | A member is absent, undefined at this version including the member this version replaced, of the wrong type or width, negative, a `prov` outside the three values or one that is not the weakest of the items, a stamp outside the span it is bounded by, a duration that contradicts the items it travels with, a list or an entry past a ceiling the format takes from its own contents, an attached header stated with no digest beside it, or a reference list that does not reach the held slots its sealed receipts state |
+| `PACK_DUTY_UNKNOWN_LABEL` | `duty.art` is a text string the layout accepts, but no entry of the duty-label registry carries it |
+| `PACK_DUTY_REVISION_UNMAPPED` | `duty.art` names a label the registry carries, but `duty.rev` does not name the mapping revision that entry demands |
 | `PACK_DUPLICATE_ID` | Two items answer to one name |
 | `PACK_RECEIPT_INVALID` | A receipt inside the container is not a receipt, or does not verify under the key its own header names |
 | `PACK_RECEIPT_STAMP_MISMATCH` | An item's chained stamp differs from the `iat` its own receipt attests |
@@ -351,6 +353,13 @@ caller that came holding something else. And `PACK_ITEM_UNREACHED` is a pack who
 is longer than the walk, which is the finding a reader that checked only the walk cannot make at all. The three
 `PACK_CUSTODY_*` answers join the first group: they are the reference list disagreeing with the receipts sealed
 beside it, whoever signed it.
+
+The two `PACK_DUTY_*` answers are a kind apart from all of these: the document is whole and contradicts itself
+about nothing, and what is refused is the duty label's standing against the registry this package publishes.
+`PACK_DUTY_UNKNOWN_LABEL` is a label no entry carries; `PACK_DUTY_REVISION_UNMAPPED` is a known label whose `rev`
+does not name the revision its entry demands. The format still declares `art` a bare `tstr`, so the registry is
+the reader's question rather than the layout's, and a registry label makes a pack readable under a duty and never
+sufficient for it.
 
 The writer refuses what its own reader would refuse, and one further thing. `signPack` runs the structural parse
 and the walk before it signs, so a gap, a fork, a run short of its head, an item outside the run, each way the

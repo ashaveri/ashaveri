@@ -193,9 +193,11 @@ export type {
   VerifiedEpochInventory,
 } from './epoch-inventory.js';
 export {
+  DUTY_LABEL_REGISTRY_REVISION,
   RETENTION_CHAIN_MEMBERS,
   RETENTION_DUTY_LABELS,
   RETENTION_DUTY_MEMBERS,
+  RETENTION_DUTY_REGISTRY,
   RETENTION_FAMILY_MEMBERS,
   RETENTION_FILE_NAMES,
   RETENTION_FILE_NAME_SET,
@@ -211,6 +213,7 @@ export {
   RETENTION_V1_MEMBERS,
   RETENTION_V2_MEMBERS,
   RETENTION_WINDOW_MEMBERS,
+  dutyLabelEntry,
   encodeRetentionDocument,
   parseRetentionDocument,
   retentionDocumentBytes,
@@ -219,6 +222,7 @@ export type {
   RetentionBody,
   RetentionChain,
   RetentionDuty,
+  RetentionDutyLabelEntry,
   RetentionFamily,
   RetentionHeld,
   RetentionManifest,

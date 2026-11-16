@@ -117,9 +117,10 @@ cannot cite the row cannot use the document, whatever layout wrote the value.
 
 The cost of that is the cost any stricter reader pays, and it is stated here rather than left to be found. A
 document another body wrote with one of those characters in a copied id is refused, and so is an inventory of a
-pack that signed such a duty label, because `pack.cddl` types its own label as text and
-`packages/receipt/src/pack.ts` asks it nothing but being text: the class reaches this container's copy of the
-label, not the pack's signed one. That asymmetry is a finding about this rule and is left standing as one.
+pack that signed such a duty label. `pack.cddl` types its own label as text and
+`packages/receipt/src/pack.ts` weighs it against the duty-label registry rather than scanning its characters: a
+label carrying one of those characters is no entry of the registry, so the pack reader refuses it as unknown
+while this container refuses it by the class, the two rules reaching one label from different sides.
 Nothing published is caught by it, which was measured and not argued: every generate key of
 `packages/fixtures` re-emits `packages/fixtures/data` byte for byte, and
 `packages/fixtures/test/epoch-inventory-vectors.test.ts` runs the shipped reader over every published row by
@@ -154,7 +155,7 @@ name.
 | `span.to` | `integer` | yes | Unix seconds, excluded: a receipt stamped exactly here belongs to the next window, which is what lets the windows of a run meet without overlapping. |
 | `packChain.anchor` | `string` | yes | The digest that pack's first record was chained from, or thirty-two zero bytes before any retirement. |
 | `packChain.head` | `string` | yes | The digest of that pack's last record. |
-| `packDuty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives for the pack's: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. It is stated at the width `pack.cddl` states it, which is none, because an inventory copies the label a pack signed, and it carries none of the characters that would make the row it is printed on unreadable. The pack's own format asks that label nothing but being text, so a pack signing an unprintable one can no longer be described by this document, which is the cost of the rule and is stated above the field table. |
+| `packDuty.art` | `string` | yes | A label from the retention-duty registry, declared text rather than an enumeration for the reason [export-v1.md](export-v1.md) gives for the pack's: this estate does not interpret the questions an article answers, and a format that enumerated answers would itself be an answer. It is stated at the width `pack.cddl` states it, which is none, because an inventory copies the label a pack signed, and it carries none of the characters that would make the row it is printed on unreadable. The pack's own format weighs that label against the duty-label registry rather than scanning its characters: an unprintable label is no entry of the registry, so the pack reader refuses it as unknown while this container refuses it by the class, which is the cost of the rule stated above the field table. |
 | `packDuty.rev` | `integer` | yes | Unix seconds, the revision of the mapping `required` was read from. |
 | `packDuty.required` | `integer` | yes | Seconds that revision required. |
 | `packDuty.held` | `integer` | yes | Seconds that store had held its oldest retained receipt, measured at `pack.at`. |
