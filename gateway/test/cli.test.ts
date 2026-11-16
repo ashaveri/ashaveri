@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
   EMPTY_BODY_SHA256_HEX,
+  HOLD_RECORD_LIMITS,
+  holdRecordBytes,
   randomNonce,
   signPopAuthorization,
   toBase64Url,
@@ -2682,4 +2684,206 @@ describe('the two weights inputs one run is given', () => {
     expect(result.status, result.stderr).toBe(1);
     expect(result.stderr).toContain('needs --weights-manifest');
   });
+});
+
+/**
+ * The hold records a run is handed.
+ *
+ * `--hold-record` is a deployment's instruction to keep, read once at start-up exactly the way its
+ * instruction record is: a named file that cannot be read, or does not parse, stops the start naming the
+ * path and the reason, and a run that names none reads none and changes nothing. What a hold may not do
+ * is move a number, so the rows that weigh a window measure the refusal for being word for word the
+ * sentence this run said before any hold existed, with the note printed beside it, and the row that
+ * serves measures the set a running process answers from, which is the one place a dropped argument at
+ * the store opening leaves a trace an operator can read.
+ */
+describe('the hold records a run is handed', () => {
+  const EIGHTEEN = JSON.stringify({ version: 1, statedRetentionDays: 184, acceptsMinimumFloor: true });
+  const DAY = 86_400;
+
+  function emptyDir(): string {
+    return mkdtempSync(join(tempDir, 'hold-empty-'));
+  }
+
+  /** The stamps every record below shares: issued a minute ago, open at both ends of nothing. */
+  function base(): Omit<Parameters<typeof holdRecordBytes>[0], 'v' | 'prov' | 'limits'> {
+    return {
+      at: Math.floor(Date.now() / 1000) - 60,
+      by: 'counsel of record',
+      window: { from: 1_700_000_000, to: 1_800_000_000 },
+      reason: 'a matter the deployment is preserving records for',
+      released: null,
+    };
+  }
+
+  /** One hold record written as its format writes it, with the digest of the bytes that went in. */
+  function holdFile(
+    record: Omit<Parameters<typeof holdRecordBytes>[0], 'v' | 'prov' | 'limits'> & { v?: 1; prov?: 'fixture'; limits?: string },
+    name: string,
+  ): { readonly path: string; readonly digest: string } {
+    const path = join(tempDir, `hold-${name}.json`);
+    const bytes = holdRecordBytes({
+      v: 1,
+      prov: 'fixture',
+      limits: HOLD_RECORD_LIMITS,
+      ...record,
+    } as Parameters<typeof holdRecordBytes>[0]);
+    writeFileSync(path, bytes);
+    return { path, digest: createHash('sha256').update(bytes).digest('hex') };
+  }
+
+  /** A signed read of one route, against a gateway `bootServing` booted. */
+  async function readRoute(
+    served: ServedGateway,
+    pop: { readonly record: { readonly id: string }; readonly privateKey: Uint8Array },
+    target: string,
+  ): Promise<number> {
+    const nonce = randomNonce();
+    const fields: PopFields = {
+      ts: Math.floor(Date.now() / 1000),
+      nonce,
+      method: 'GET',
+      target,
+      bodyDigestHex: EMPTY_BODY_SHA256_HEX,
+    };
+    const response = await ask(served, target, {
+      headers: {
+        authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
+        'x-ashaveri-nonce': toBase64Url(nonce),
+      },
+    });
+    return response.status;
+  }
+
+  it(
+    'refuses a hold file it cannot read, and reads no holds when the operator names none',
+    // Three refusals and one boot: a named path with no file on it, a file that is not JSON, a document
+    // of a version this reader does not read, and a run that names nothing at all.
+    { timeout: spawnBudget(3) + bootBudget(1) },
+    async () => {
+      const missing = run('--mock', '--hold-record', join(emptyDir(), 'not-mounted.json'));
+      expect(missing.status).toBe(2);
+      expect(missing.stderr).toContain('not-mounted.json');
+      expect(missing.stdout, 'a run that refused its hold printed a banner').not.toContain('listening on');
+
+      const malformed = join(tempDir, 'hold-not-json.json');
+      writeFileSync(malformed, '{ v: 1,', 'utf8');
+      const broken = run('--mock', '--hold-record', malformed);
+      expect(broken.status).toBe(2);
+      expect(broken.stderr).toContain('hold-not-json.json');
+
+      const wrongVersion = join(tempDir, 'hold-version-9.json');
+      writeFileSync(wrongVersion, JSON.stringify({ ...base(), v: 9 }), 'utf8');
+      const future = run('--mock', '--hold-record', wrongVersion);
+      expect(future.status).toBe(2);
+      expect(future.stderr).toContain('hold-version-9.json');
+
+      // A run that names nothing keeps serving, so its banner is read the way every other banner here is:
+      // `run` bounds a process this case expects to exit by itself.
+      const none = await readBanner('--mock', '--port', '0');
+      const printed = none.join('\n');
+      expect(printed).toContain('listening on');
+      expect(printed).not.toContain('hold record:');
+    },
+  );
+
+  it('reports the bytes it read, the window and the state of every record it is handed', async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const held = holdFile({ ...base() }, 'held');
+    const past = holdFile({ ...base(), at: 1_600_000_000, released: 1_650_000_000 }, 'past');
+    const open = holdFile({ ...base(), window: { from: 1_700_000_000, to: null }, released: now + 400 * DAY }, 'open');
+    const banner = await readBanner(
+      '--mock',
+      '--port',
+      '0',
+      '--hold-record',
+      held.path,
+      '--hold-record',
+      past.path,
+      '--hold-record',
+      open.path,
+    );
+    const printed = banner.join('\n');
+    const lines = banner.filter((each) => each.trimStart().startsWith('hold record:'));
+    expect(lines, printed).toHaveLength(3);
+
+    const heldLine = lines.find((each) => each.includes(held.path));
+    expect(heldLine, printed).toContain(`sha256 ${held.digest}`);
+    expect(heldLine).toContain('window 1700000000 to 1800000000');
+    expect(heldLine).toContain('issued at');
+    expect(heldLine).toContain('in force, released by no stamp');
+
+    const pastLine = lines.find((each) => each.includes(past.path));
+    expect(pastLine).toContain('window 1700000000 to 1800000000');
+    expect(pastLine).toContain('released at 1650000000, so not in force');
+
+    const openLine = lines.find((each) => each.includes(open.path));
+    expect(openLine).toContain('window 1700000000 to no end');
+    expect(openLine).toContain('in force at');
+    expect(openLine).toContain(`and released at ${String(now + 400 * DAY)}`);
+  });
+
+  it('refuses a receipts window shorter than the stated period beside an active hold, word for word as before', () => {
+    // A hold is an instruction to keep, never a second way to answer a shortfall: the refusal is the
+    // sentence this run said before any hold existed, and each edge prints its own note beside its own
+    // judgement, naming the bytes the note was read from.
+    const record = join(emptyDir(), 'stated.json');
+    writeFileSync(record, EIGHTEEN, 'utf8');
+    const held = holdFile({ ...base(), window: { from: 1_700_000_000, to: null } }, 'active');
+    const result = run('--mock', '--instruction-record', record, '--hold-record', held.path, '--receipts-days', '90');
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--receipts-days gives the receipts store 90 days');
+    expect(result.stderr).toContain('name --receipts-days 184 or more');
+    expect(result.stderr).toContain('--access-log-days: records under the hold');
+    expect(result.stderr).toContain('--receipts-days: records under the hold');
+    expect(result.stderr).toContain(`sha256 ${held.digest}`);
+    expect(result.stderr).toContain('neither that window nor the period this deployment stated');
+    expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
+  });
+
+  it(
+    'keeps a held receipt in the set a serving run answers from',
+    // Three completions and three reads over one boot, and one boot of the gateway.
+    { timeout: bootBudget(1) + 15_000 },
+    async () => {
+      // A durability bound of two receipts and a hold that covers every stamp this run writes: the third
+      // completion is where the count would take the first, and the walk stops at the held record
+      // instead. Drop the store's `hold` argument and the first read answers 404, which is the loss this
+      // wiring exists to prevent, and the last two reads would pass just the same.
+      const dir = join(tempDir, 'hold-serving-volume');
+      mkdirSync(dir);
+      const pop = newPopCredential({ id: 'hold-serving', scopes: ['read', 'complete'] });
+      const creds = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+      const held = holdFile({ ...base(), window: { from: 1, to: null } }, 'serving');
+      const served = await bootServing([
+        '--receipts-dir',
+        dir,
+        '--credentials-path',
+        creds,
+        '--receipts-keep',
+        '2',
+        // The bound is two receipts and the period the shipped 184 days, so the intake guard refuses the
+        // third completion long before the count reaches the held prefix. Growing past that guard is the
+        // one spelling that lets this row ask its question: what the served set holds when the count
+        // would take a record an active hold covers.
+        '--receipts-grow-past-guard',
+        '--hold-record',
+        held.path,
+      ]);
+      const ids: string[] = [];
+      try {
+        for (let i = 0; i < 3; i++) {
+          const answered = await complete(served, pop);
+          expect(answered.status, answered.text).toBe(200);
+          expect(answered.receiptId, 'the served completion was not filed').not.toBeNull();
+          ids.push(answered.receiptId!);
+        }
+        expect(await readRoute(served, pop, `/v1/receipts/${ids[0]}`), 'the count dropped a held receipt').toBe(200);
+        expect(await readRoute(served, pop, `/v1/receipts/${ids[1]}`)).toBe(200);
+        expect(await readRoute(served, pop, `/v1/receipts/${ids[2]}`)).toBe(200);
+      } finally {
+        await served.kill();
+      }
+    },
+  );
 });

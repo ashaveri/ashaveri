@@ -64,6 +64,7 @@ export {
 export type {
   ChainState,
   FileReceiptStoreOptions,
+  HoldSuspension,
   ReadingsApart,
   ReceiptRecordKind,
   ReceiptRetention,
@@ -137,6 +138,7 @@ export {
   parseAccessLine,
   renderAccessLine,
   type AccessLog,
+  type AccessLogHold,
   type AccessLogOptions,
   type AccessRecord,
   type AccessWindow,

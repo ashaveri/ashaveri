@@ -1,12 +1,18 @@
+import { createHash } from 'node:crypto';
 import { realpathSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { parseArgs } from 'node:util';
 import {
   MARKING_SCHEMES,
   MEASUREMENT_BYTES,
   POP_TIMESTAMP_TOLERANCE_SECONDS,
+  holdActiveAt,
+  holdCoversStamp,
   isMarkingScheme,
+  parseHoldRecord,
   strictVerifySource,
   stripTrailingSlashes,
+  type HoldRecord,
   type MarkingScheme,
   type TeeKind,
 } from '@ashaveri/receipt';
@@ -21,7 +27,13 @@ import {
   newPopCredential,
   type CredentialRate,
 } from './access.js';
-import { MINIMUM_RETENTION_DAYS, openFileAccessLog, openMemoryAccessLog, type AccessLog } from './aclog.js';
+import {
+  MINIMUM_RETENTION_DAYS,
+  openFileAccessLog,
+  openMemoryAccessLog,
+  type AccessLog,
+  type AccessLogHold,
+} from './aclog.js';
 import { dstackDeployment } from './dstack.js';
 import { GuestClient } from './guest.js';
 import { mockBackend, type CompletionBackend } from './backend.js';
@@ -35,7 +47,15 @@ import {
   type CustomerInstructionRecord,
 } from './instruction-record.js';
 import { openTimeSourceState, type TimeSourceStateHandle } from './time-source-state.js';
-import { ACCESS_LOG_EDGE, RECEIPTS_EDGE, daysToSeconds, judgeWindow } from './duty-window.js';
+import {
+  ACCESS_LOG_EDGE,
+  RECEIPTS_EDGE,
+  SECONDS_PER_DAY,
+  daysToSeconds,
+  holdWindowNote,
+  judgeWindow,
+  type WindowEdge,
+} from './duty-window.js';
 import { modelsFromManifest, type ManifestModels } from './weights.js';
 import {
   DEFAULT_RECEIPT_RECORD_KIND,
@@ -43,6 +63,7 @@ import {
   openFileReceiptStore,
   openMemoryReceiptStore,
   retentionBoundsFault,
+  type HoldSuspension,
   type ReceiptRecordKind,
   type ReceiptRetention,
   type ReceiptServing,
@@ -233,6 +254,18 @@ Options:
                                    that is named and cannot be read, or that is not one version this
                                    gateway reads, or that states a member it does not define, stops the
                                    start rather than being ignored.
+  --hold-record <file>             A deployment's own instruction to preserve, read beside the material
+                                   it speaks of: who issued it and when, which window of record stamps
+                                   it covers, why, and whether it has been released. May be repeated,
+                                   one file per occurrence, and every file read is reported at start-up
+                                   with the sha256 of its bytes, the window it states and its state.
+                                   The receipts store and the access log each consult what was read: a
+                                   stamp inside an active hold's window is not retired, and an access
+                                   log part whose day overlaps one is not swept. A hold suspends and
+                                   never extends, so no configured window, no stated period and no
+                                   refusal moves because a record was read. A file that is named and
+                                   cannot be read, or that is not a hold record this gateway reads,
+                                   stops the start naming which path and why; naming none reads none.
   --time-source-state <file>       Read every stamp this process signs from
                                    a state file this deployment's own clock
                                    synchronisation maintains, instead of from
@@ -355,6 +388,7 @@ interface CliOptions {
   readonly 'access-log-path'?: string;
   readonly 'access-log-days'?: string;
   readonly 'instruction-record'?: string;
+  readonly 'hold-record'?: string[];
   readonly 'time-source-state'?: string;
   readonly 'allow-bearer'?: boolean;
   readonly 'pop-tolerance'?: string;
@@ -471,6 +505,7 @@ try {
       'access-log-path': { type: 'string' },
       'access-log-days': { type: 'string' },
       'instruction-record': { type: 'string' },
+      'hold-record': { type: 'string', multiple: true },
       'time-source-state': { type: 'string' },
       'allow-bearer': { type: 'boolean' },
       'pop-tolerance': { type: 'string' },
@@ -526,6 +561,70 @@ try {
   // enforce a period nobody wrote down.
   fail(error instanceof Error ? error.message : String(error));
 }
+
+/**
+ * One hold record as this run read it: the name the operator gave, the digest of the bytes that came
+ * back from it, and its state at the instant they came back.
+ */
+interface HeldRecordFile {
+  readonly path: string;
+  readonly digestHex: string;
+  readonly record: HoldRecord;
+  readonly inForceAtStart: boolean;
+}
+
+/**
+ * The hold records this deployment named, read once, before a store or a log can open.
+ *
+ * A hold arrives exactly the way the instruction record above does: the operator named the file, so one
+ * that cannot be read or does not parse stops the start naming which path and why, and a run that names
+ * none reads none and keeps every behaviour it had. It is a list rather than one document because a
+ * deployment can have two matters under hold at once, each with its own window, and a reader that stopped
+ * at the first record no longer in force would retire material the second still covers.
+ *
+ * The state printed beside a record is its state at the instant its bytes were read, from this process's
+ * own clock. The two suspensions built below are each asked about the instant their own source hands
+ * them, so nothing printed here decides what either one keeps.
+ */
+const holdReadAt = Math.floor(HOST_CLOCK_SOURCE.nowSeconds());
+const heldRecords: HeldRecordFile[] = [];
+for (const path of values['hold-record'] ?? []) {
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(path);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    fail(
+      `--hold-record names ${path} and no bytes could be read from it: ${reason}, so a run whose operator ` +
+        'named a hold record reads it or refuses to start',
+    );
+  }
+  let record: HoldRecord;
+  try {
+    record = parseHoldRecord(bytes);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    fail(`--hold-record names ${path} and its bytes are not a hold record this gateway reads: ${reason}`);
+  }
+  heldRecords.push({
+    path,
+    digestHex: createHash('sha256').update(bytes).digest('hex'),
+    record,
+    inForceAtStart: holdActiveAt(record, holdReadAt),
+  });
+}
+/**
+ * The hold one note names: the first record in force as this run read them. A note is about the one
+ * suspension a window meets, and the banner prints every record this run read beside its own state.
+ */
+const holdForNote = heldRecords.find((held) => held.inForceAtStart);
+/** The note one edge prints beside its judgement, or nothing where no hold is in force. */
+function noteBeside(edge: WindowEdge, days: number): string | null {
+  return holdWindowNote(
+    holdForNote === undefined ? null : { path: holdForNote.path, digestHex: holdForNote.digestHex },
+    daysToSeconds(days),
+  );
+}
 const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
 /**
  * The receipts store's age bound, in whole days, defaulting to the same number the store was opened with
@@ -542,10 +641,26 @@ if (instructionRecord !== null) {
   // no longer matches the paper beside it, so the flags answer it; the floor branch contradicts itself, so
   // it stops the start on the exit that says no flag answers. Neither branch refuses a period for being
   // short: the yardstick is the number this deployment wrote down, and a shorter one is obeyed.
-  for (const agreement of [
-    judgeWindow(ACCESS_LOG_EDGE, accessLogDays, instructionRecord, MINIMUM_RETENTION_DAYS),
-    judgeWindow(RECEIPTS_EDGE, receiptsDays, instructionRecord, MINIMUM_RETENTION_DAYS),
-  ]) {
+  for (const [edge, days, agreement] of [
+    [
+      ACCESS_LOG_EDGE,
+      accessLogDays,
+      judgeWindow(ACCESS_LOG_EDGE, accessLogDays, instructionRecord, MINIMUM_RETENTION_DAYS),
+    ],
+    [
+      RECEIPTS_EDGE,
+      receiptsDays,
+      judgeWindow(RECEIPTS_EDGE, receiptsDays, instructionRecord, MINIMUM_RETENTION_DAYS),
+    ],
+  ] as const) {
+    // The note rides beside the edge it describes, on the same stream the refusal uses, whether or not
+    // this pairing was refused: a run that keeps material past a window it also configured has to say so
+    // by the window's own name, and the judgement it prints is the one this file printed before any hold
+    // could be read.
+    const note = noteBeside(edge, days);
+    if (note !== null) {
+      process.stderr.write(`signerd: ${edge.flag}: ${note}\n`);
+    }
     if (agreement.refused) {
       if (agreement.answeredBy === 'the record itself') refuseToStart(agreement.message);
       fail(agreement.message);
@@ -774,12 +889,54 @@ function receiptRecordKind(raw: string | undefined): ReceiptRecordKind {
 }
 const receiptKind = receiptRecordKind(values['receipts-record-kind']);
 
+/**
+ * The two suspensions the hold records hand out, built where the records are read and passed to the two
+ * readers that hold the material they speak of. Absent a record, both are absent, and each reader ages
+ * exactly what it aged before this flag existed.
+ *
+ * The store is asked about a stamp, because every record it holds states the instant it was issued and
+ * the retirement a stamp is weighed against reads that instant.
+ */
+const storeHold: HoldSuspension | undefined =
+  heldRecords.length === 0
+    ? undefined
+    : {
+        covers: (iat, now): boolean => heldRecords.some((held) => holdCoversStamp(held.record, iat, now)),
+      };
+
+/**
+ * Whether one day named `YYYY-MM-DD` falls inside an active hold's window, at the instant the sweep asks.
+ *
+ * A day is the unit the access log answers in and not a stamp, because the day read off a part's own name
+ * is the only fact about its age that sweep owns: a part carries many stamps and none of them is re-read
+ * to decide an age. A day is therefore the widest thing a name states, so a part whose day touches a hold
+ * by one second leaves with the whole of that day rather than with the records inside the window, and an
+ * answer narrower than the name would be a guess about bytes this sweep never opens. A name this reader
+ * cannot place on the timeline is kept, which is the same direction the sweep already faces.
+ */
+function holdsDay(day: string, nowMillis: number): boolean {
+  const now = Math.floor(nowMillis / 1_000);
+  const starts = Date.parse(`${day}T00:00:00Z`) / 1_000;
+  if (!Number.isInteger(starts)) return true;
+  const ends = starts + SECONDS_PER_DAY;
+  return heldRecords.some(
+    ({ record }) =>
+      holdActiveAt(record, now) &&
+      record.window.from < ends &&
+      (record.window.to === null || starts < record.window.to),
+  );
+}
+
+/** The access log's half of the same suspension, in the one unit its sweep can be asked in. */
+const accessLogHold: AccessLogHold | undefined =
+  heldRecords.length === 0 ? undefined : { coversDay: holdsDay };
+
 let store: ReceiptStore;
 try {
   store =
     receiptsDir === undefined
-      ? openMemoryReceiptStore({ retention, serving, receiptKind })
-      : await openFileReceiptStore({ dir: receiptsDir, retention, serving, receiptKind });
+      ? openMemoryReceiptStore({ retention, hold: storeHold, serving, receiptKind })
+      : await openFileReceiptStore({ dir: receiptsDir, retention, hold: storeHold, serving, receiptKind });
 } catch (error) {
   // A store that will not open is a fact about the deployment rather than about how signerd was
   // invoked: either the file on the volume no longer chains to itself, or it is made of receipt records
@@ -894,8 +1051,8 @@ let accessLog: AccessLog;
 try {
   accessLog =
     accessLogPath === undefined
-      ? openMemoryAccessLog({ days: accessLogDays, time })
-      : await openFileAccessLog({ dir: accessLogPath, days: accessLogDays, time });
+      ? openMemoryAccessLog({ days: accessLogDays, time, hold: accessLogHold })
+      : await openFileAccessLog({ dir: accessLogPath, days: accessLogDays, time, hold: accessLogHold });
 } catch (error) {
   // A log that will not open on a directory that exists is a fact about the volume, the same way a
   // receipt store's broken chain is, so it is reported as an exit rather than as bad usage.
@@ -1142,6 +1299,30 @@ const instructionLabel =
           ? `accepting the ${String(MINIMUM_RETENTION_DAYS)}-day floor as this deployment's own`
           : `declining the ${String(MINIMUM_RETENTION_DAYS)}-day floor as a duty of its own`
       }, so this run keeps ${String(accessLogDays)} days`;
+/**
+ * One hold record as the start-up report states it: the file, the digest of the bytes this run read from
+ * it, the window it states, and its state at the instant those bytes came back.
+ *
+ * The digest travels on the line for the reason the instruction record's does: the two suspensions are
+ * decided by these bytes and nothing else, so a reader comparing two boots has the name and the content
+ * of the instruction each one obeyed, and an edit after the boot moves the digest rather than agreeing
+ * with the sentence printed beside it.
+ */
+function holdRecordLine(held: HeldRecordFile): string {
+  const { at, by, released, window } = held.record;
+  const to = window.to === null ? 'no end' : String(window.to);
+  const state = !held.inForceAtStart
+    ? released === null
+      ? `issued at ${String(at)} after the instant this run read it, so not in force`
+      : `released at ${String(released)}, so not in force`
+    : released === null
+      ? 'in force, released by no stamp'
+      : `in force at ${String(holdReadAt)}, and released at ${String(released)} by its own stamp`;
+  return (
+    `hold record: ${held.path} sha256 ${held.digestHex}, window ${String(window.from)} to ${to}, ` +
+    `issued at ${String(at)} by ${by}; ${state}`
+  );
+}
 // The source every stamp this process signs comes from, printed as the process reads it. A receipt's
 // issuance instant is only as good as the source it was read from, and this line is where the process
 // says which that was and whether anybody bounded it. Whose claim an unmeasured reading is comes from
@@ -1215,6 +1396,7 @@ const lines: string[] = [
   `  ${credentialsLabel}`,
   `  ${logLabel}`,
   `  ${instructionLabel}`,
+  ...heldRecords.map((held) => `  ${holdRecordLine(held)}`),
 ];
 if (accessLogDays < MINIMUM_RETENTION_DAYS) {
   // The floor keeps the meaning `aclog.ts` gives it, that it is a request rather than a clamp, so a
