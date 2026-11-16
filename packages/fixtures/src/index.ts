@@ -386,6 +386,39 @@ export function loadMarkingVectors(): MarkingVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'marking-v1.json'), 'utf8')) as MarkingVectorFile;
 }
 
+/** One disclosure record case: the bytes the writer made, and the verdict the reader owes them. */
+export interface DisclosureRecordVector {
+  name: string;
+  note: string;
+  /** `verify-ok`, or the code the refusal answers with. */
+  expected: string;
+  recordBase64Url: string;
+  recordByteLength: number;
+  fault?: { at: string; states: string };
+}
+
+export interface DisclosureRecordVectorFile {
+  version: number;
+  description: string;
+  rule: {
+    registry: string;
+    reader: string;
+    writer: string;
+    dutyPointers: string[];
+    dutyCitations: Record<string, string>;
+    limits: string;
+    contentPath: { response: string; responseBase64Url: string; note: string };
+    transformations: Array<{ name: string; implemented: boolean; note: string }>;
+    encodings: string;
+  };
+  vectors: DisclosureRecordVector[];
+}
+
+/** The disclosure record beside the marking region, and the refusals its strict reader owes. */
+export function loadDisclosureRecordVectors(): DisclosureRecordVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'disclosure-record-v1.json'), 'utf8')) as DisclosureRecordVectorFile;
+}
+
 /** What a reader is handed beside an export document: companion files, endpoints, and the key it uses. */
 export interface ExportReadArguments {
   companions?: Array<{ name: string; bytesBase64Url: string }>;

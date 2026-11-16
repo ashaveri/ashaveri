@@ -314,6 +314,69 @@ And what a verifier needs is the bytes: a reader holding the words alone, pasted
 or retyped, has no region to look for, which section 6 of [threat-model.md](threat-model.md) states as
 a limit rather than as a gap on a roadmap.
 
+#### The disclosure record
+
+A marking attests a region; it does not say who owed a notice beside that region, which duty the
+notice answers, or what became of the mark when the content was copied, rendered and exported. The
+disclosure record states those things. It is a JSON document a deployment writes beside the receipt,
+read and written by `parseDisclosureRecord` and `disclosureRecordBytes` in `@ashaveri/receipt`, and it
+carries no signature: its trust arrives from whoever hands it over beside the receipt it speaks of,
+the same split the retention manifest states in section 5.3. The payload's member set does not move
+for it; the record is a document about disclosure, not a new mark.
+
+The layout, version 1, every member required, in this order:
+
+| Member | What it states |
+|---|---|
+| `v` | The layout version, `1` |
+| `obligor` | Who owed the notice, named as the deployment names itself |
+| `duty` | One duty pointer from the registry below |
+| `scheme` | A marking scheme label from the table above, the same registry `mk.sch` reads |
+| `served` | The notice text served (`kind: "text"` beside `text`), or the marked region named by its sha256 (`kind: "region"` beside `sha256`, the digest `mk.d` carries). A region beside `scheme: "none"` is the record contradicting itself, and is refused |
+| `transformations` | A non-empty list of the transformations the content path was tested through, each a `name` and an `outcome`: `detectable` where the extraction rule still locates exactly one region after the transformation, `not-detectable` where it does not, `untested` where the transformation is named and no run through it exists. An unsupported transformation is recorded rather than omitted |
+| `limits` | The limits sentence below, verbatim. A record wording its own limits is refused |
+
+The duty pointers, each a pointer for counsel rather than a conclusion:
+
+| `duty` | The provision it names |
+|---|---|
+| `ai-act-50-1` | AI Act (Regulation (EU) 2024/1689), Article 50(1) |
+| `ai-act-50-4` | AI Act (Regulation (EU) 2024/1689), Article 50(4) |
+| `ai-act-50-5` | AI Act (Regulation (EU) 2024/1689), Article 50(5) |
+| `difc-reg-10-2-2-b` | DIFC Regulation 10.2.2(b) |
+| `kr-enforcement-decree-23-2` | Korea Enforcement Decree 23(2) |
+
+Whether a duty applies to a deployment, or was met by what it served, is a judgment this layout does
+not make, and the record's own language says so. A label outside the pointer registry is refused as
+`DISCLOSURE_RECORD_UNKNOWN_DUTY`; a scheme label outside the marking registry is refused as
+`UNSUPPORTED_SCHEME`, the one code that registry owns at either position; every other structural
+refusal is `DISCLOSURE_RECORD_BAD_DOCUMENT`, and a version no layout reads is
+`DISCLOSURE_RECORD_UNSUPPORTED_VERSION`. The rows are in [error-codes.md](error-codes.md).
+
+The limits sentence every record states, and every detection answer prints:
+
+> This record describes a marking in a JSON transcript region, not a pixel or audio watermark. A
+> reader holding only the text of a completion, copied or retyped out of the transcript, has no region
+> to look for and cannot prove the mark from those words. The duty pointers name provisions for counsel
+> to weigh, not conclusions that a duty applies or was met.
+
+Detectability and digest agreement are two questions. A transformation that re-serializes a completion
+keeps the member findable while spelling its bytes differently, so the region is still detected and
+`mk.d` no longer matches it; a transformation that renders the completion's text or exports it as plain
+text carries no member at all, so the rule locates no region. The record's outcomes answer the first
+question, and the verification algorithm in section 5 answers the second.
+
+The public detection path is `ashaveri detect-mark <receipt> --response-body <file> --key <b64url>...`,
+beside `verify-receipt` in `packages/cli`. It verifies the signature, recomputes the response digest
+against `res`, locates the region by `extractMarkedRegion`, and compares the region's digest against
+`mk.d`, in the client's own order, and prints what the pair establishes beside the limits sentence
+above. A response carrying no region where the receipt claims one, which is what a direct provider
+bypass leaves when no mark was inserted, is refused as `MARK_MISMATCH`. The command reads no policy and
+consults no clock; the nonce, the request digest, the policy pins and the age windows stay the questions
+`verify-receipt` answers. The published vectors of the record, its refusals, and the transformation
+outcomes measured over the fixture content path are `packages/fixtures/data/disclosure-record-v1.json`,
+indexed in [vectors.md](vectors.md).
+
 ### 3.4 Encryption schemes
 
 `enc.sch` is a label from this table and from nothing else, at the payload version that names the

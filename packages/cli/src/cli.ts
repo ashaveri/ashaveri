@@ -6,12 +6,13 @@ import { runCredential } from './commands/credential.js';
 import { runAccessLog } from './commands/accesslog.js';
 import { runVerify } from './commands/verify.js';
 import { runVerifyReceipt } from './commands/verify-receipt.js';
+import { runDetectMark } from './commands/detect-mark.js';
 import { runVerifyHandover } from './commands/verify-handover.js';
 import { runVerifyPack } from './commands/verify-pack.js';
 import { runVerifyExport } from './commands/verify-export.js';
 import { runVerifyEpochInventory } from './commands/verify-epoch-inventory.js';
 
-const COMMANDS = ['verify', 'verify-receipt', 'verify-handover', 'verify-pack', 'verify-export', 'verify-epoch-inventory', 'keygen', 'credential', 'accesslog'] as const;
+const COMMANDS = ['verify', 'verify-receipt', 'detect-mark', 'verify-handover', 'verify-pack', 'verify-export', 'verify-epoch-inventory', 'keygen', 'credential', 'accesslog'] as const;
 
 const USAGE = `ashaveri - offline verification of dStack confidential-VM attestations and of published
 receipts, and the operator commands for the gateway's credential file and access log
@@ -30,6 +31,7 @@ Arguments:
                          [--collateral-platform <slot>=<sgx|tdx>]...
                          [--collateral-cpu-type <slot>=<hex>]...
                          [--collateral-level <slot>=<arm>=<value>]... [options]
+  ashaveri detect-mark <receipt> --response-body <file> --key <b64url>... [--json]
   ashaveri verify-handover <document> [--key <b64url>]... [--manifest-key <b64url>]...
                          [--companion <file>]... [--retention-dir <directory>] [--intel-root <file>]...
                          [--collateral-origin <slot>=<origin>]...
@@ -168,6 +170,19 @@ the verification time, and it is how an archived receipt
 is read at all: the policy's windows close against it, so judging last year's receipt by today's
 clock is a refusal with a code rather than a verdict, which is the honest answer to a question about
 a replay.
+
+detect-mark answers what the mark can and cannot prove about a receipt and the response bytes beside
+it, from files alone and with no policy. It verifies the signature under the keys --key designates,
+recomputes the response digest against res, locates the marked region by the same published extraction
+rule the client checks with, and compares the region's digest against mk.d, in that order, so a region
+taken from bytes the receipt does not attest cannot become a verdict. A response carrying no region
+where the receipt claims one, which is what a direct provider bypass leaves when no mark was inserted,
+is refused as MARK_MISMATCH rather than reported as a detection. Every run prints what the pair
+establishes and, in the same words a disclosure record carries verbatim, what the mark cannot prove: a
+JSON transcript region is not a pixel or audio watermark, and a reader holding only the text of a
+completion, copied or retyped out of the transcript, has no region to look for. The nonce, the request
+digest, the policy pins and the age windows stay open questions naming verify-receipt, and a detection
+verdict is never a verification one.
 
 The private key that keygen or credential add prints exists only in that terminal. --label
 is the one field of the credential file that can name a person, and the gateway never writes
@@ -328,7 +343,8 @@ Receipt verification options:
                      it. Nothing on a command line states a digest of that header, so none is checked against it, and
                      the report prints that too rather than letting a pair look named.
 
-Handover options, the same for verify-handover, verify-pack, verify-export and verify-epoch-inventory:
+Handover options, the same for verify-handover, verify-pack, verify-export and verify-epoch-inventory;
+detect-mark reads --key alone:
   --key <b64url>      A public key this run accepts a signature from, as the base64url of its 32
                      public bytes. Repeatable, one key per flag, and matched on the kid a document's
                      own protected header names: a pack whose span crosses a key rotation carries
@@ -336,9 +352,11 @@ Handover options, the same for verify-handover, verify-pack, verify-export and v
                      those keys verifies the pack and every receipt inside it. A document naming a kid
                      none of these designates is refused as a gap in this call, not as a fault in the
                      document. A deployment manifest is not read by these keys: see --manifest-key.
-                     All four verbs read a signed document, so one of these is required by each of
-                     them, and a run over a bundle may hand --manifest-key to all four: it is printed
-                     as not consulted wherever the document in front of the run did not use it.
+                     All four handover verbs read a signed document, so one of these is required by
+                     each of them, and detect-mark requires it for the same reason: the signature is
+                     what makes a mark this deployment's. A run over a bundle may hand --manifest-key
+                     to the four handover verbs: it is printed as not consulted wherever the document
+                     in front of the run did not use it.
                      Base64url includes a dash in its alphabet, and an argument that starts with one
                      is not read as this option's value, so pass such a key as --key=<value>.
   --companion <file>  A file that travels beside the document: one original an export item's digest is recomputed
@@ -587,6 +605,8 @@ async function main(argv: string[]): Promise<number> {
       return runVerify(positionals.slice(1), values);
     case 'verify-receipt':
       return runVerifyReceipt(positionals.slice(1), values);
+    case 'detect-mark':
+      return runDetectMark(positionals.slice(1), values);
     case 'verify-handover':
       return runVerifyHandover(positionals.slice(1), values);
     case 'verify-pack':

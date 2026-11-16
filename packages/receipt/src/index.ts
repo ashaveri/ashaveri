@@ -273,5 +273,30 @@ export type {
   CollateralValidityAnchor,
   StampDisclosure,
 } from './disclosure.js';
+export {
+  DISCLOSURE_DUTY_CITATIONS,
+  DISCLOSURE_DUTY_POINTERS,
+  DISCLOSURE_RECORD_LIMITS,
+  DISCLOSURE_RECORD_V1_MEMBERS,
+  DISCLOSURE_RECORD_VERSIONS,
+  DISCLOSURE_SERVED_KINDS,
+  DISCLOSURE_SERVED_REGION_MEMBERS,
+  DISCLOSURE_SERVED_TEXT_MEMBERS,
+  DISCLOSURE_TEXT_MAX_UNITS,
+  DISCLOSURE_TRANSFORMATION_MEMBERS,
+  DISCLOSURE_TRANSFORMATION_OUTCOMES,
+  disclosureRecordBytes,
+  encodeDisclosureRecord,
+  parseDisclosureRecord,
+} from './disclosure-record.js';
+export type {
+  DisclosureDutyPointer,
+  DisclosureRecord,
+  DisclosureServed,
+  DisclosureServedRegion,
+  DisclosureServedText,
+  DisclosureTransformation,
+  DisclosureTransformationOutcome,
+} from './disclosure-record.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';

@@ -39,6 +39,7 @@
     "generate:req": "node scripts/req-vectors.ts",
     "generate:res": "node scripts/res-vectors.ts",
     "generate:marking": "node scripts/marking-vectors.ts",
+    "generate:disclosure-record": "node scripts/disclosure-record-vectors.ts",
     "generate:chain": "node scripts/chain-vectors.ts",
     "generate:export": "node scripts/export-vectors.ts",
     "generate:manifest": "node scripts/manifest-vectors.ts",
