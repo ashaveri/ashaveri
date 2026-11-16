@@ -120,12 +120,13 @@ export type ReceiptErrorCode =
   // The hold family below, for the same reason the disclosure record's and the model inventory's exist:
   // a log line carries only the code string, and the sentences fixed beside the receipt codes name a
   // receipt. This artifact carries no signature either, so it carries no envelope: the three shared
-  // envelope refusals have no site here. The third code is a different kind of answer from the two
-  // layout codes: the record is whole and read, and what is refused is an erasure the record suspends,
-  // which is a finding about the call rather than about the document.
+  // envelope refusals have no site here. After the two layout codes come the two consultation
+  // refusals: the record is whole and read, and what is refused is an act it suspends, an erasure or a
+  // stated removal, which is a finding about the call rather than about the document.
   | 'HOLD_RECORD_UNSUPPORTED_VERSION'
   | 'HOLD_RECORD_BAD_DOCUMENT'
   | 'HOLD_ERASURE_REFUSED'
+  | 'HOLD_REDACTION_REFUSED'
   // The incident bundle family below, for the same reason the hold's and the model inventory's exist: a
   // log line carries only the code string, and the sentences fixed beside the receipt codes name a
   // receipt. This artifact carries no signature either, so it carries no envelope: the three shared
@@ -672,6 +673,16 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // deployment's own: wait for the release the record states, or issue a release, and never edit the
   // hold to make the erasure pass.
   HOLD_ERASURE_REFUSED: 'an active hold record suspends erasure of the credential this call names',
+  // Not a fault of the document either: the hold is whole and read, and the removal a redaction states
+  // takes out a record the hold covers at the instant the removal was stated. The consultation runs per
+  // removed id after the id is matched to a record of the pack, because the record's chain stamp is the
+  // figure weighed, and before the survivor fold, which would restate the chain as if the held record
+  // were already gone. The instant weighed is the manifest's and never the read time, and the window of
+  // the hold is consulted here, where the erasure arm ignores it, because a removal names one record and
+  // not a whole credential. The detail names the record and the hold's issue stamp and author, and the
+  // action is the deployment's own: wait for the release the record states, or issue a release, and then
+  // verify again, never edit the hold or the manifest to make the removal pass.
+  HOLD_REDACTION_REFUSED: 'an active hold record covers the record a redaction removes',
   // One code for the two readings of a `v` this package cannot use, as the hold record's and the model
   // inventory's are. A `v` that is not an integer at all is a malformed document, so it answers
   // `INCIDENT_BUNDLE_BAD_DOCUMENT`.
