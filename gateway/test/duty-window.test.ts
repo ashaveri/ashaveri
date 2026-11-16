@@ -165,6 +165,23 @@ describe('the hold note beside a window', () => {
     expect(holdWindowNote(null, daysToSeconds(90))).toBeNull();
   });
 
+  it('names one record per call, so a caller handed two in-force records says two sentences', () => {
+    // The sentence is about one hold's bytes and one window, which is what lets it be honest about both.
+    // A deployment running two matters suspends that window twice, so the enumeration belongs to the
+    // caller: neither of these two lines names the other, and a line that named only one of two would
+    // read to an operator who handed both as the whole answer.
+    const other = { path: 'hold-incident-8.json', digestHex: 'ef'.repeat(32) };
+    const first = holdWindowNote(held, daysToSeconds(90)) ?? 'nothing';
+    const second = holdWindowNote(other, daysToSeconds(90)) ?? 'nothing';
+    expect(first).toContain(held.path);
+    expect(first).not.toContain(other.path);
+    expect(second).toContain(other.path);
+    expect(second).not.toContain(held.path);
+    expect(second).not.toBe(first);
+    // Asked twice, and still only beside the pairing: two notes move neither number.
+    expect(judgeWindow(RECEIPTS_EDGE, 90, record({}), MINIMUM_RETENTION_DAYS).refused).toBe(true);
+  });
+
   it('leaves a window shorter than the stated period refused with the identical sentence beside an active hold', () => {
     // The pairing is measured twice, with the note asked first, so what a row can fail is a note that
     // reaches the verdict: the refusal names the same shortfall and the same remedy whichever hand holds

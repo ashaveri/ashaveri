@@ -27,7 +27,7 @@ files, so a row that stops being true fails a run rather than aging quietly.
 
 ## 1. Flags this gateway accepts
 
-Class: the operator's to declare. All 35 are declared together in `gateway/src/cli.ts`, in the block
+Class: the operator's to declare. All 36 are declared together in `gateway/src/cli.ts`, in the block
 `parseArgs` is handed, and are spelled here as an operator types them, with the leading dashes. The
 Bound column is what the code refuses outside; where a period or a duty is the deployment's own, the
 row says so rather than inventing a number for it.
@@ -70,6 +70,24 @@ row says so rather than inventing a number for it.
 | `--pop-tolerance` | The clock slack accepted for a proof-of-possession timestamp | a positive whole number of seconds | `POP_TIMESTAMP_TOLERANCE_SECONDS` | the operator's to declare | `gateway/src/cli.ts` |
 | `--peer-rate` | What one connection address may ask for, ahead of every credential check | `perMinute` and `burst`, both positive whole numbers, both required, and no spelling turns the bound off | `DEFAULT_PEER_RATE` | the operator's to declare | `gateway/src/cli.ts` |
 | `--completion-rate` | What one process may admit completions, ahead of any inference and behind every credential check | `perMinute` and `burst`, both positive whole numbers, both required, and no spelling turns the bound off. The same two fields as `--peer-rate`, in the same unit, so an operator reads one against the other: this is what a process can write, that is what one address can ask | `DEFAULT_COMPLETION_RATE` | the operator's to declare | `gateway/src/cli.ts` |
+
+Where a row names a file this deployment wrote, its Bound cell states one rule, and the rule is the
+named-by-operator one: the operator named that file, so a file that cannot be read, or whose bytes are not
+the document the reader reads, stops the start and names which path and for what reason, and a run that names
+no such flag reads none and keeps every behaviour it had before the flag existed. Reading past a named file
+would enforce a period, a source, or a preservation instruction nobody wrote down, which is why the refusal
+is the whole answer rather than a line beside a banner.
+
+`--hold-record` is read under exactly that rule, with one difference: it is repeated, one file per
+occurrence, because a deployment can have two matters under hold at once and a reader that stopped at the
+first record no longer in force would retire material the second still covers. Each named file is read once,
+at start-up, before any store or log opens, and the report prints one line per record with the sha256 of the
+bytes that came back from it, the window it states and its state at that instant; the note a window judgement
+prints beside those bytes carries the same digest. What a hold does with them is suspend retirement in the
+readers that consult it, and nothing else: no window, stated period, durability figure or retention-manifest
+number in these tables moves, and a pairing that `--receipts-days` or `--access-log-days` refused is refused
+beside an active hold with the identical sentence. The doors a hold reaches, and what each keeps, are section
+8.2 of [access-control.md](access-control.md).
 
 The two receipt bounds are counts, and each has a measured cost beside it on this store's compiled output. The
 baseline is part of every number below: one Windows host, one Node 24 process, calls issued serially, nothing

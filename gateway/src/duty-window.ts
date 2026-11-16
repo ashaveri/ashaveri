@@ -88,7 +88,10 @@ export type WindowAgainstRecord =
  * that is unchanged, which is the half of the rule that a hold never answers a shortfall and never moves
  * a stated period. `hold` arrives already narrowed to the record in force, so a deployment with none
  * hands null and reads nothing, and the digest is quoted because the note belongs in a start-up log
- * beside the bytes it was read from.
+ * beside the bytes it was read from. The narrowing is one record deep: a deployment with two matters
+ * under hold hands two records, so its caller asks twice and prints twice rather than handing this
+ * function a set it would have to describe in one sentence. A note about one hold is not a note about
+ * every hold, and a caller that had said both in one line would have said neither.
  */
 export function holdWindowNote(
   hold: { readonly path: string; readonly digestHex: string } | null,

@@ -618,6 +618,14 @@ and needs no subject, no instruction and no marker. Scrubbing answers an instruc
 other line, and files a marker. The two meet at the same file name: a scrubbed part whose records are
 all gone is removed rather than renamed, and pruning collects it by name alone.
 
+A hold reaches both of those through the readers that consult it, and reaches neither through a number. The
+day sweep keeps whole a part whose name-day overlaps an active hold, so the expiry that would have deleted
+that day deletes none of it. `refuseErasureUnderHold` answers `HOLD_ERASURE_REFUSED` for a credential an
+active hold names, or for any credential where the hold names none, before a byte moves, and weighs the
+credential rather than the window there, because an erasure takes all of a credential's material at once and
+a hold over it suspends the whole of it rather than a slice. Neither suspension states a period: a hold
+instructs that material be kept, and section 8.2 states what a deployment still configures while it does.
+
 ## 8. Retention, erasure, and who decides
 
 ### 8.1 The record as a unit
@@ -694,6 +702,27 @@ record is what such an agreement is made with, and the CLI is the surface that r
 that same comment says enforcement belongs. A deployment that wrote no record reads no record, keeps the
 windows its flags or the shipped defaults give it, and says so in its start-up report; nothing about the
 bytes the log writes, or the bytes the store appends, changes either way.
+
+A hold record is a different document, and it suspends rather than answers. `--hold-record` names the files a
+run reads at start-up beside its instruction record, and four doors consult them: the receipts store's
+retirement prefix stops at the first held record (`gateway/src/store.ts`), the access log's day sweep keeps a
+whole part whose name-day overlaps an active hold (`gateway/src/aclog.ts`), `verifyRedaction` weighs each
+removed record's own chain stamp against the holds handed beside the pack and answers
+`HOLD_REDACTION_REFUSED` before the survivor fold runs, and `refuseErasureUnderHold` weighs the credential an
+erasure names and answers `HOLD_ERASURE_REFUSED` before a byte moves. Two of those readings are wider than
+the material a hold speaks of, and both are the rule rather than an accident of it: retirement reaches only a
+prefix, so holding one receipt keeps every record newer than it with it, and a day is the widest fact a
+part's own name states, so a part that touches a hold by one second is kept whole. What none of the four
+moves is a number. `--receipts-days`, `--access-log-days`, the period an instruction record states, the
+durability bound and the period configured beside it, the bounds a trim record files and the figures a
+retention manifest states all read as this deployment configured them, and the set a held run serves is
+larger than those numbers alone describe. A window shorter than the stated period is refused beside an active
+hold with the identical sentence, because a hold is an instruction to keep and not a second way to answer a
+shortfall; the start-up report prints one note line per in-force hold beside each of the two window
+judgements, naming that record's path and the sha256 of the bytes it was read from, and prints nothing where
+no hold is in force. [receipt-spec.md](receipt-spec.md) section 4.10 carries the rest of the rule, in the
+limits sentence every hold record states verbatim: it is the deployment's own instruction to preserve and not
+a legal determination, and which duty an instruction answers to is settled outside this software.
 
 The direction of the default is the deployer's duties being longer than the window rather than
 shorter. Nothing in the writer bounds the total size of that window: the 32 MiB figure is a per-file

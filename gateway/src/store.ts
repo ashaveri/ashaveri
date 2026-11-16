@@ -507,6 +507,12 @@ export interface FileReceiptStoreOptions {
    * Suspends retirement for the records it covers, which are then kept whatever their window says.
    * Absent means nothing is suspended: the store retires exactly the prefix its `retention` states,
    * which is the answer every store file this repository has published was written under.
+   *
+   * The option belongs to one opening and not to the file, so a second process reading the same
+   * directory without one serves the shorter set beside a deployment that holds records: the held
+   * prefix leaves that opening's index at `retire` while its bytes stay in the file until the append
+   * path compacts. An opening that drops a held prefix therefore claims only what its own pairing kept,
+   * and claims nothing about what the deployment undertakes to keep.
    */
   readonly hold?: HoldSuspension;
   /** Absent means a range query resolves the whole window it is asked for. */

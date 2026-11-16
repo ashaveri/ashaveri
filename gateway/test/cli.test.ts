@@ -2841,6 +2841,44 @@ describe('the hold records a run is handed', () => {
     expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
   });
 
+  it('names every in-force hold once at each edge, when a deployment runs two matters at once', () => {
+    // Two records in force suspend the same window, so a single note line per edge would name one of the
+    // two and read, to whoever typed both flags, as the whole answer. The refusal is the one this run
+    // says with no hold named at all: a note printed twice answers a shortfall no better than one.
+    const record = join(emptyDir(), 'two-stated.json');
+    writeFileSync(record, EIGHTEEN, 'utf8');
+    const first = holdFile({ ...base(), window: { from: 1_700_000_000, to: null } }, 'first');
+    const second = holdFile({ ...base(), window: { from: 1_700_000_000, to: 1_800_000_000 } }, 'second');
+    const result = run(
+      '--mock',
+      '--instruction-record',
+      record,
+      '--hold-record',
+      first.path,
+      '--hold-record',
+      second.path,
+      '--receipts-days',
+      '90',
+    );
+    expect(result.status).toBe(2);
+    const notes = result.stderr.split('\n').filter((line) => line.includes('records under the hold at'));
+    // Two edges and two holds, so four lines, each naming one record and claiming nothing about the rest.
+    expect(notes, result.stderr).toHaveLength(4);
+    for (const flag of ['--access-log-days', '--receipts-days']) {
+      const perEdge = notes.filter((line) => line.startsWith(`signerd: ${flag}: `));
+      expect(perEdge, result.stderr).toHaveLength(2);
+      const digests = perEdge.map((line) => /sha256 ([0-9a-f]{64})/u.exec(line)?.[1] ?? 'none');
+      expect(digests.sort(), flag).toEqual([first.digest, second.digest].sort());
+      for (const line of perEdge) {
+        expect(line.match(/records under the hold at/gu), line).toHaveLength(1);
+        expect(line, line).toContain('it answers no shortfall');
+      }
+    }
+    expect(result.stderr).toContain('--receipts-days gives the receipts store 90 days');
+    expect(result.stderr).toContain('name --receipts-days 184 or more');
+    expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
+  });
+
   it(
     'keeps a held receipt in the set a serving run answers from',
     // Three completions and three reads over one boot, and one boot of the gateway.

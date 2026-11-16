@@ -614,16 +614,29 @@ for (const path of values['hold-record'] ?? []) {
   });
 }
 /**
- * The hold one note names: the first record in force as this run read them. A note is about the one
- * suspension a window meets, and the banner prints every record this run read beside its own state.
+ * The holds a note names: every record in force as this run read them, in the order the operator named
+ * them.
+ *
+ * One suspension acts on all of them, so a note naming one of two active matters would tell whoever
+ * reads the banner that only one of the records it lists reaches the window beside it. An empty list is
+ * the state of a run that named no hold, or whose every record was released before this instant, and it
+ * prints nothing.
  */
-const holdForNote = heldRecords.find((held) => held.inForceAtStart);
-/** The note one edge prints beside its judgement, or nothing where no hold is in force. */
-function noteBeside(edge: WindowEdge, days: number): string | null {
-  return holdWindowNote(
-    holdForNote === undefined ? null : { path: holdForNote.path, digestHex: holdForNote.digestHex },
-    daysToSeconds(days),
-  );
+const holdsForNote = heldRecords.filter((held) => held.inForceAtStart);
+/**
+ * The note lines one edge prints beside its judgement: one per in-force hold, and none where no hold is.
+ *
+ * The enumeration lives here and the sentence lives in `holdWindowNote`, because the sentence is about
+ * one record's bytes and one window, and a caller that had two records in force has two of those
+ * pairings to state. A note line names one path and one digest and claims nothing about the others.
+ */
+function notesBeside(edge: WindowEdge, days: number): string[] {
+  const lines: string[] = [];
+  for (const held of holdsForNote) {
+    const note = holdWindowNote({ path: held.path, digestHex: held.digestHex }, daysToSeconds(days));
+    if (note !== null) lines.push(`signerd: ${edge.flag}: ${note}`);
+  }
+  return lines;
 }
 const accessLogDays = wholeNumber(values['access-log-days'], 'access-log-days', 'days', MINIMUM_RETENTION_DAYS);
 /**
@@ -653,13 +666,13 @@ if (instructionRecord !== null) {
       judgeWindow(RECEIPTS_EDGE, receiptsDays, instructionRecord, MINIMUM_RETENTION_DAYS),
     ],
   ] as const) {
-    // The note rides beside the edge it describes, on the same stream the refusal uses, whether or not
+    // The notes ride beside the edge they describe, on the same stream the refusal uses, whether or not
     // this pairing was refused: a run that keeps material past a window it also configured has to say so
-    // by the window's own name, and the judgement it prints is the one this file printed before any hold
-    // could be read.
-    const note = noteBeside(edge, days);
-    if (note !== null) {
-      process.stderr.write(`signerd: ${edge.flag}: ${note}\n`);
+    // by the window's own name, once for every hold it read that is in force. The judgement each line
+    // stands beside is the one this file printed before any hold could be read, and no line here softens
+    // it: the refusal below is reached whichever notes were printed first.
+    for (const line of notesBeside(edge, days)) {
+      process.stderr.write(`${line}\n`);
     }
     if (agreement.refused) {
       if (agreement.answeredBy === 'the record itself') refuseToStart(agreement.message);
