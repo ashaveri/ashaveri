@@ -854,6 +854,70 @@ scope states those periods, transcribed from the cut; the family's `appSource` b
 and its archived sources with their measured digests. The periods are pointers for counsel, not
 conclusions, and no consolidated text combining the enacted and in-force versions is assembled.
 
+### 4.10 Hold record
+
+A receipt attests one response, and the retention machinery retires and erases material on the periods
+the deployment stated. Neither knows that an incident or a legal matter now asks for the material to
+stay. The hold record states that instruction: who issued it and when, which window of record stamps it
+covers, which credentials it names, why it was issued, and when it was released. It is a JSON document a
+deployment writes beside the receipts it speaks of, read and written by `parseHoldRecord` and
+`holdRecordBytes` in `@ashaveri/receipt`, and it carries no signature: its trust arrives from whoever
+hands it over, the same split the disclosure record states in section 3.3 and the model inventory in
+section 4.9. The export container is what carries it as evidence, the record's bytes riding an item's
+inline original under the export's own signature, and no member of the export contract moves for it.
+
+What the record does is suspend, never extend. The readers that consult it keep material past the
+configured window while the hold is active, and the periods the deployment stated stay exactly as
+stated: no member of this layout edits a retention policy, a configured window or an instruction
+record, and the suspension is reported beside them rather than folded into them. A reader that consults
+no hold behaves exactly as it did before, which is the limits sentence's own statement that the
+suspension reaches only readers that consult it.
+
+The layout, version 1, in this order. Every member is required except `credentials`, which a record may
+leave off:
+
+| Member | What it states |
+|---|---|
+| `v` | The layout version, `1` |
+| `prov` | Where the material came from: `live`, `captured` or `fixture`, the vocabulary [pack-v1.md](pack-v1.md) states. A fixture hold is labeled `fixture` |
+| `at` | The issue stamp, unix seconds: when the hold was issued |
+| `by` | Who issued the hold, in the deployment's own words |
+| `window` | `{ from, to }`: the window of record stamps the hold covers, `from` inclusive and `to` exclusive, a null `to` an open end. `to` is never before `from` |
+| `credentials` | The credentials the hold names, a non-empty list of unique names. Absent, the hold covers every credential; an empty list is refused rather than read as absence |
+| `reason` | Why the hold was issued, in the deployment's own words |
+| `released` | When the hold was released, unix seconds, never before `at`; null while it is in force |
+| `limits` | The limits sentence below, verbatim. A record wording its own limits is refused |
+
+The authored text members (`by`, `reason`, and each credential name) are held to the printed-line class
+the estate's text guards state: no character that ends, hides or reorders the row it is printed on, no
+pad on either side, and no wider than the 400 units the layout holds. Every stamp is a whole number of
+unix seconds no smaller than zero, read through the same strict JSON scanner the retention manifest and
+the model inventory use, so a member named twice and a float wearing an integer are refused while the
+characters are still distinguishable. The version is asked before any member is read.
+
+The consultation rules are pure functions over a parsed record, so every reader that suspends answers
+one rule rather than its own reading of the prose. `holdActiveAt(record, at)` asks whether the hold is
+in force at an instant: from the issue stamp inclusive, until the release stamp exclusive, a null
+release a hold still in force. `holdCoversStamp(record, iat, now)` asks whether a record stamped at
+`iat` is under the hold at `now`: the hold is active at `now`, and the stamp falls in the window, `from`
+inclusive and `to` exclusive, a null `to` an open end. The two instants are separate questions, so a
+hold issued today can cover last month's receipts and a released hold covers nothing however wide its
+window. `refuseErasureUnderHold(holds, credential, at)` is the erasure arm: an active hold that names
+the credential, or names none and so covers every credential, refuses the erasure as
+`HOLD_ERASURE_REFUSED` before any byte moves, and the detail names the credential and the hold's issue
+stamp and author. The window is not consulted there, because an erasure takes all of a credential's
+material at once and a hold naming that credential suspends the whole of it rather than a slice.
+
+A version no layout reads is `HOLD_RECORD_UNSUPPORTED_VERSION`; every structural refusal is
+`HOLD_RECORD_BAD_DOCUMENT`; the erasure suspension is `HOLD_ERASURE_REFUSED`. The rows are in
+[error-codes.md](error-codes.md).
+
+The limits sentence every record states:
+
+> This record is the deployment's own instruction to preserve, not a legal determination. It suspends
+> erasure and expiry only in readers that consult it, and changes no period the deployment stated.
+> Notification deadlines remain the deployment's own process obligations.
+
 ## 5. Verification algorithm
 
 The deployment manifest of section 4.4 is read first, in whichever of its two shapes this deployment

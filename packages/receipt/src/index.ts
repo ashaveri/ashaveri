@@ -327,5 +327,19 @@ export type {
   ModelInventoryVerifyOptions,
   VerifiedModelInventory,
 } from './model-inventory.js';
+export {
+  HOLD_RECORD_LIMITS,
+  HOLD_RECORD_TEXT_MAX_UNITS,
+  HOLD_RECORD_V1_MEMBERS,
+  HOLD_RECORD_VERSIONS,
+  HOLD_RECORD_WINDOW_MEMBERS,
+  encodeHoldRecord,
+  holdActiveAt,
+  holdCoversStamp,
+  holdRecordBytes,
+  parseHoldRecord,
+  refuseErasureUnderHold,
+} from './hold.js';
+export type { HoldRecord } from './hold.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';

@@ -116,7 +116,16 @@ export type ReceiptErrorCode =
   | 'MODEL_INVENTORY_MANIFEST_MISMATCH'
   | 'MODEL_INVENTORY_MANIFEST_UNREADABLE'
   | 'MODEL_INVENTORY_MANIFEST_UNSEALED'
-  | 'MODEL_INVENTORY_BOUND_DISAGREES';
+  | 'MODEL_INVENTORY_BOUND_DISAGREES'
+  // The hold family below, for the same reason the disclosure record's and the model inventory's exist:
+  // a log line carries only the code string, and the sentences fixed beside the receipt codes name a
+  // receipt. This artifact carries no signature either, so it carries no envelope: the three shared
+  // envelope refusals have no site here. The third code is a different kind of answer from the two
+  // layout codes: the record is whole and read, and what is refused is an erasure the record suspends,
+  // which is a finding about the call rather than about the document.
+  | 'HOLD_RECORD_UNSUPPORTED_VERSION'
+  | 'HOLD_RECORD_BAD_DOCUMENT'
+  | 'HOLD_ERASURE_REFUSED';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -629,6 +638,28 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // model entry carries, and the detail names the position and both values so an operator can see which
   // of the two documents has to move.
   MODEL_INVENTORY_BOUND_DISAGREES: 'a bound field of the model inventory disagrees with the manifest it designates',
+  // One code for the two readings of a `v` this package cannot use, as the model inventory's and the
+  // disclosure record's are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `HOLD_RECORD_BAD_DOCUMENT`.
+  HOLD_RECORD_UNSUPPORTED_VERSION: 'hold record declares a version this package cannot parse',
+  // Every structural refusal of the document and of the window map inside it: an absent member, a
+  // member this version does not define, a text of the wrong type or width or carrying a character
+  // that forges the printed line it belongs to, a stamp below zero, a release stamped before the hold
+  // was issued, a window closing before it opens, an empty credentials list, one credential named
+  // twice, a provenance outside the three values, and a limits member stating anything other than the
+  // format's own limits sentence. A floating-point number answers here too, from the decode rather
+  // than from a field read, because by the time a check could tell `1` from `1.0` the bytes have
+  // become one JavaScript number. What is not this code: an erasure the record suspends, which is
+  // about the call and answers `HOLD_ERASURE_REFUSED` below.
+  HOLD_RECORD_BAD_DOCUMENT: 'hold record does not match the layout its declared version defines',
+  // Not a fault of the document: the hold is whole and read, and an active one names the credential
+  // this call would erase, or names no credentials and so covers every one. The erasure is refused
+  // before it moves a byte, because a hold that suspended nothing until after the first deletion
+  // would suspend nothing at all. The detail names the credential and the hold's issue stamp and
+  // author, so an operator can see which instruction suspends the call. The action is the
+  // deployment's own: wait for the release the record states, or issue a release, and never edit the
+  // hold to make the erasure pass.
+  HOLD_ERASURE_REFUSED: 'an active hold record suspends erasure of the credential this call names',
 };
 
 /**
