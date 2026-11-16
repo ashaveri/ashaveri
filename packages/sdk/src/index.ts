@@ -32,6 +32,8 @@ export { parseManifest } from './manifest.js';
 export type { DeploymentManifest, DeclaredEpoch, ManifestKey, ManifestModel, TeeKind } from './manifest.js';
 export { adjudicateReceiptEpoch } from './epoch.js';
 export type { EpochAccepted, EpochRefused, EpochVerdict, ReceiptEpochClaim } from './epoch.js';
+export { assertKeyBindingFreshUnderPolicy } from './key-binding.js';
+export type { KeyBindingClaim } from './key-binding.js';
 export { readDeploymentManifest } from './manifest-auth.js';
 export type { ManifestAuthentication, ReadManifestResult } from './manifest-auth.js';
 export {
