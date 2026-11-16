@@ -299,5 +299,33 @@ export type {
   DisclosureTransformation,
   DisclosureTransformationOutcome,
 } from './disclosure-record.js';
+export {
+  MODEL_INVENTORY_ASSERTED_MODEL_FIELDS,
+  MODEL_INVENTORY_BOUND_MODEL_FIELDS,
+  MODEL_INVENTORY_LIMITS,
+  MODEL_INVENTORY_MANIFEST_MEMBERS,
+  MODEL_INVENTORY_MODEL_MEMBERS,
+  MODEL_INVENTORY_POINTERS,
+  MODEL_INVENTORY_POINTER_CITATIONS,
+  MODEL_INVENTORY_REVIEW_MEMBERS,
+  MODEL_INVENTORY_TEXT_MAX_UNITS,
+  MODEL_INVENTORY_V1_MEMBERS,
+  MODEL_INVENTORY_VERSIONS,
+  encodeModelInventory,
+  modelInventoryBytes,
+  parseModelInventory,
+  verifyModelInventory,
+} from './model-inventory.js';
+export type {
+  ModelInventoryAsserted,
+  ModelInventoryBound,
+  ModelInventoryManifestRef,
+  ModelInventoryModel,
+  ModelInventoryPointer,
+  ModelInventoryRecord,
+  ModelInventoryReview,
+  ModelInventoryVerifyOptions,
+  VerifiedModelInventory,
+} from './model-inventory.js';
 export { receiptToJson, receiptBytesToJson, toHex } from './json.js';
 export type { ReceiptJson } from './json.js';

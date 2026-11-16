@@ -774,6 +774,86 @@ what a model loaded, which is the entrypoint check `enclave/README.md` states. I
 reading is the one the deployment still holds: a running gateway serves the bytes it hashed at start-up, and
 a caller with no network has nothing to ask.
 
+### 4.9 Model inventory record
+
+A receipt names the model and weights digest one response was produced under, and the deployment
+manifest declares which models the deployment serves and signs that declaration. Neither says what a
+model is for, what risk category the deployment places it in, or when it was last reviewed, and an
+audit dossier asks for those things beside the bound facts. The model inventory record states them
+together and keeps the two kinds of statement apart. It is a JSON document a deployment writes beside
+the receipts it speaks of, read and written by `parseModelInventory` and `modelInventoryBytes` in
+`@ashaveri/receipt`, and it carries no signature: its trust arrives from whoever hands it over, the
+same split the disclosure record states in section 3.3. The export container is what carries it as
+evidence, the record's bytes riding an item's inline original under the export's own signature, and no
+member of the export contract moves for it.
+
+The layout, version 1, every member required, in this order:
+
+| Member | What it states |
+|---|---|
+| `v` | The layout version, `1` |
+| `prov` | Where the material came from: `live`, `captured` or `fixture`, the vocabulary [pack-v1.md](pack-v1.md) states. A fixture extract is labeled `fixture` |
+| `at` | The assembly stamp, unix seconds: the extract's date |
+| `scope` | What the extract covers, in the deployment's own words |
+| `manifest` | `{ sha256, iss, ins }`: the sha256 of the exact deployment-manifest bytes the record designates, sealed or plain, beside the issuer and instance copied from it. Both identity fields are bound |
+| `models` | A non-empty list, one entry per model the inventory states. The wire members are `id, wts, version, purpose, risk, reviews`, and the layout fixes which are bound and which are asserted: `id` and `wts` are copied from the manifest's `models[]` and checked against it; `version`, `purpose`, `risk` and `reviews` are the deployment's own statements, which nothing in the record proves. `reviews` is a non-empty list of `{ at, by }`, each `at` no later than the record's own `at`. One model named twice is refused |
+| `pointers` | A non-empty list from the registry below, each a pointer for counsel rather than a conclusion |
+| `limits` | The limits sentence below, verbatim. A record wording its own limits is refused |
+
+The parsed record groups each model entry into `bound: { id, wts }` and
+`asserted: { version, purpose, risk, reviews }`, so a reviewer holding only the record sees which
+fields are which without weighing the layout's prose. The split is the layout's, not a label a writer
+picks: the wire carries the six members flat, and the reader groups them by the rule above.
+
+The pointers, each naming one provision an inventory extract may answer, cited as the estate's own
+sources name them:
+
+| `pointers` entry | The instrument it names |
+|---|---|
+| `osfi-e23-app-1` | OSFI E-23 (model risk management guideline), Appendix 1 |
+| `mas-airg` | MAS AIRG (AI Risk Management guidelines) |
+| `naic-3-3` | NAIC 3.3 (model bulletin / governance guidance) |
+| `au-app-1-7-1-9` | Privacy Act 1988 (Cth), Schedule 1, APP 1.7-1.9 (as enacted by the Privacy and Other Legislation Amendment Act 2024, Schedule 1, Part 15, items 87-89) |
+
+Whether a provision applies to a deployment, or was met by what it ran, is a judgment this layout does
+not make, and the record's own language says so. A label outside the pointer registry is refused as
+`MODEL_INVENTORY_UNKNOWN_POINTER`; every structural refusal is `MODEL_INVENTORY_BAD_DOCUMENT`, and a
+version no layout reads is `MODEL_INVENTORY_UNSUPPORTED_VERSION`. The rows are in
+[error-codes.md](error-codes.md).
+
+The limits sentence every record states:
+
+> This record is an inventory extract, not a legal determination. Its bound fields are copied from the
+> deployment manifest it designates and are checked against that manifest when a reader is handed it;
+> its asserted fields are the deployment's own statements, which nothing in this record proves. The
+> pointers name provisions for counsel to weigh, not conclusions that a duty applies or was met. A
+> record labeled fixture describes fixture material and no live deployment.
+
+The verifying door is `verifyModelInventory`, which takes the designated manifest bytes beside the
+record, hashes them against `manifest.sha256`, reads `iss`, `ins` and `models[]` out of the payload,
+and refuses any bound field that disagrees as `MODEL_INVENTORY_BOUND_DISAGREES`. The manifest document
+is read openly, as section 4.4 states it: the extraction reads the three positions the bound fields
+turn on and leaves every other member alone, and a manifest those positions cannot be read out of is
+`MODEL_INVENTORY_MANIFEST_UNREADABLE`. Bytes that are not the ones the record designates are
+`MODEL_INVENTORY_MANIFEST_MISMATCH`. An optional `manifestPublicKey` authenticates the seal through
+`verifySealedDeploymentManifest`; a designated key beside a plain manifest is
+`MODEL_INVENTORY_MANIFEST_UNSEALED`, and the outcome states `sealed` and `authenticated` apart so a
+reading that checked the digest but not the signature never reports an authentication it did not do.
+A mutation of an asserted field is read; a mutation of a bound field is refused. That difference is
+the split's witness, and the published vectors carry the pair.
+
+The published vectors of the record, its refusals, the bound cases beside the manifests they
+designate, and the export ride are `packages/fixtures/data/model-inventory-v1.json`, indexed in
+[vectors.md](vectors.md). The fixture deployment is the one the published receipt family came from,
+stated by the manifest row `paired-with-the-published-receipt-family`; the extract is labeled fixture
+and describes no live deployment. The registry is closed at the four provisions above. The APP
+pointer names the enacted subclauses: the corpus cut records them as enacted and not yet commenced,
+commencing 10 December 2026 under the amending Act's section 2 table item 7, with item 89 applying
+the amendment to decisions made after commencement. The published APP extract is a fixture row whose
+scope states those periods, transcribed from the cut; the family's `appSource` block names the cut
+and its archived sources with their measured digests. The periods are pointers for counsel, not
+conclusions, and no consolidated text combining the enacted and in-force versions is assembled.
+
 ## 5. Verification algorithm
 
 The deployment manifest of section 4.4 is read first, in whichever of its two shapes this deployment

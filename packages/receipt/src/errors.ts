@@ -103,7 +103,20 @@ export type ReceiptErrorCode =
   // the marking registry, whichever of the two positions the label arrived at.
   | 'DISCLOSURE_RECORD_UNSUPPORTED_VERSION'
   | 'DISCLOSURE_RECORD_BAD_DOCUMENT'
-  | 'DISCLOSURE_RECORD_UNKNOWN_DUTY';
+  | 'DISCLOSURE_RECORD_UNKNOWN_DUTY'
+  // The model inventory family below, for the same reason the disclosure record's exists: a log line
+  // carries only the code string, and the sentences fixed beside the receipt codes name a receipt. This
+  // artifact carries no signature either, so it carries no envelope: the three shared envelope refusals
+  // have no site here. What the codes answer is the layout, the pointer registry, and the pair of a
+  // record with the manifest it designates, which is a finding about two documents rather than about
+  // either half alone.
+  | 'MODEL_INVENTORY_UNSUPPORTED_VERSION'
+  | 'MODEL_INVENTORY_BAD_DOCUMENT'
+  | 'MODEL_INVENTORY_UNKNOWN_POINTER'
+  | 'MODEL_INVENTORY_MANIFEST_MISMATCH'
+  | 'MODEL_INVENTORY_MANIFEST_UNREADABLE'
+  | 'MODEL_INVENTORY_MANIFEST_UNSEALED'
+  | 'MODEL_INVENTORY_BOUND_DISAGREES';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -569,6 +582,53 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // pointer for, and the action is counsel widening the registry rather than a writer fixing a field, which
   // is the same line the marking and encryption registries draw for their own labels.
   DISCLOSURE_RECORD_UNKNOWN_DUTY: 'disclosure record names a duty pointer outside the registry this package reads',
+  // One code for the two readings of a `v` this package cannot use, as the disclosure record's and the
+  // retention's are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `MODEL_INVENTORY_BAD_DOCUMENT`.
+  MODEL_INVENTORY_UNSUPPORTED_VERSION: 'model inventory declares a version this package cannot parse',
+  // Every structural refusal of the document and of the maps inside it: an absent member, a member this
+  // version does not define, a text of the wrong type or width or carrying a character that forges the
+  // printed line it belongs to, a digest of the wrong width or case, an empty models, reviews or pointers
+  // list, one model or pointer named twice, a review stamped after the extract that carries it, a
+  // provenance outside the three values, and a limits member stating anything other than the format's own
+  // limits sentence. A floating-point number answers here too, from the decode rather than from a field
+  // read, because by the time a check could tell `1` from `1.0` the bytes have become one JavaScript
+  // number. What is not this code: any disagreement between the record and the manifest it designates,
+  // which is about the pair and answers with one of the four codes below.
+  MODEL_INVENTORY_BAD_DOCUMENT: 'model inventory does not match the layout its declared version defines',
+  // The pointer is the record's own registry, the provisions the layout enumerates, and a label outside
+  // it is refused rather than read as a citation nobody checked. Not `MODEL_INVENTORY_BAD_DOCUMENT` under
+  // another name: the document is well-formed and it is the provision it names that this reader has no
+  // pointer for, and the action is counsel widening the registry from the instrument text rather than a
+  // writer fixing a field, the same line the disclosure record's duty registry draws.
+  MODEL_INVENTORY_UNKNOWN_POINTER: 'model inventory names a pointer outside the registry this package reads',
+  // The reader hashed the manifest it was given and got a different digest from the one the record
+  // designates. Either document may be whole; what is refused is reading this record against that
+  // manifest, which is a finding about which manifest the reader is holding rather than about either
+  // pair of bytes. The action is to hand over the manifest the record names, not to edit a record that
+  // is already whole.
+  MODEL_INVENTORY_MANIFEST_MISMATCH: 'the manifest handed to the reader is not the manifest the model inventory designates',
+  // The designated manifest does not state the positions the bound fields are read from: no issuer, no
+  // instance, no models, or one of those positions ill-shaped where the extraction reads it. The record
+  // may be whole and the manifest simply not declare what the bound fields claim, so this is not a
+  // malformed record and not a bound disagreement: there is nothing to compare against. The extraction
+  // reads the manifest openly, so a member version 1 of that layout does not name is left alone and
+  // never reaches this code.
+  MODEL_INVENTORY_MANIFEST_UNREADABLE: 'the designated manifest does not state the models and identity the model inventory binds against',
+  // A manifest signing key was designated and the bytes handed over are the plain document. The caller
+  // stated a demand about who may sign the manifest, and an unsigned document does not meet it; the
+  // refusal is about the designation rather than about the bytes, which may be a whole manifest. The
+  // action is to hand over the sealed document or to drop the designation, and the two are different
+  // acts, which is why this is not folded into the mismatch code.
+  MODEL_INVENTORY_MANIFEST_UNSEALED: 'a manifest signing key was designated and the manifest handed to the model inventory reader is not sealed',
+  // A bound field states one value and the designated manifest binds another, or the record names a
+  // model the manifest does not declare. The bound fields are the layout's, not a label a writer picks:
+  // the model id, the weights digest, the issuer and the instance are copied from the manifest and
+  // checked against it, and a disagreement is the record contradicting the document it designates. An
+  // asserted field has no comparison to fail, which is the difference between the two blocks a parsed
+  // model entry carries, and the detail names the position and both values so an operator can see which
+  // of the two documents has to move.
+  MODEL_INVENTORY_BOUND_DISAGREES: 'a bound field of the model inventory disagrees with the manifest it designates',
 };
 
 /**

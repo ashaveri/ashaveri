@@ -419,6 +419,69 @@ export function loadDisclosureRecordVectors(): DisclosureRecordVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'disclosure-record-v1.json'), 'utf8')) as DisclosureRecordVectorFile;
 }
 
+/** One model inventory parse case: the bytes the writer made, and the verdict the reader owes them. */
+export interface ModelInventoryVector {
+  name: string;
+  note: string;
+  /** `verify-ok`, or the code the refusal answers with. */
+  expected: string;
+  recordBase64Url: string;
+  recordByteLength: number;
+  fault?: { at: string; states: string };
+}
+
+/** One bound case: the record beside the manifest bytes it designates, and the verdict the verifying door owes the pair. */
+export interface ModelInventoryBoundCase {
+  name: string;
+  note: string;
+  /** `verify-ok`, or the code the refusal answers with. */
+  expected: string;
+  recordBase64Url: string;
+  manifestBase64Url: string;
+  publicKeyBase64Url?: string;
+  sealed?: boolean;
+  authenticated?: boolean;
+}
+
+export interface ModelInventoryVectorFile {
+  version: number;
+  description: string;
+  rule: {
+    registry: string;
+    reader: string;
+    verifier: string;
+    writer: string;
+    pointers: string[];
+    pointerCitations: Record<string, string>;
+    limits: string;
+    boundModelFields: string[];
+    assertedModelFields: string[];
+    appSource: {
+      cut: string;
+      cutSha256: string;
+      instrument: string;
+      version: string;
+      status: string;
+      commencement: string;
+      commencementBasis: string;
+      application: string;
+      inForceContext: string;
+      archivedSources: Array<{ file: string; sha256: string }>;
+      note: string;
+    };
+    manifest: { row: string; documentBase64Url: string; publicKeyBase64Url: string; note: string };
+    exportRide: { exportBase64Url: string; publicKeyBase64Url: string; itemId: string; note: string };
+    encodings: string;
+  };
+  vectors: ModelInventoryVector[];
+  boundCases: ModelInventoryBoundCase[];
+}
+
+/** The model inventory record, its refusals, and the bound cases beside the manifests they designate. */
+export function loadModelInventoryVectors(): ModelInventoryVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'model-inventory-v1.json'), 'utf8')) as ModelInventoryVectorFile;
+}
+
 /** What a reader is handed beside an export document: companion files, endpoints, and the key it uses. */
 export interface ExportReadArguments {
   companions?: Array<{ name: string; bytesBase64Url: string }>;
