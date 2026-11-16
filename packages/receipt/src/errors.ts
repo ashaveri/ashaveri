@@ -683,15 +683,15 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // a window closing before it opens, a floor days that is not a positive whole number or is too many
   // days for a floor to be a stamp, the incident stamp plus those days landing outside the range a stamp
   // holds, a floor preserveUntil that is not the incident stamp plus the stated days, an empty pointers
-  // list, one pointer named twice, a provenance outside the three values,
-  // and a limits member stating anything other than the format's own limits sentence. A floating-point
-  // number answers here too, from the decode rather than from a field read, because by the time a check
-  // could tell `1` from `1.0` the bytes have become one JavaScript number. The floor's arithmetic is
-  // answered by the layout door rather than the verifying one, because `floor.preserveUntil` relates two
-  // figures inside this one record and reads no byte outside it: the reader recomputes it rather than
-  // believing the stated value, so a caller holding only the bundle is refused too. What is not this
-  // code: a pointer outside the registry, which answers `INCIDENT_BUNDLE_UNKNOWN_POINTER`, and any
-  // disagreement with the designated hold, which answers one of the three hold codes below.
+  // list, one pointer named twice, a provenance outside the three values, and a limits member stating
+  // anything other than the format's own limits sentence. A floating-point number answers here too, from
+  // the decode rather than from a field read, because by the time a check could tell `1` from `1.0` the
+  // bytes have become one JavaScript number. The floor's arithmetic is answered by the layout door rather
+  // than the verifying one, because `floor.preserveUntil` relates two figures inside this one record and
+  // reads no byte outside it: the reader recomputes it rather than believing the stated value, so a
+  // caller holding only the bundle is refused too. What is not this code: a pointer outside the registry,
+  // which answers `INCIDENT_BUNDLE_UNKNOWN_POINTER`, and any disagreement with the designated hold, which
+  // answers one of the three hold codes below.
   INCIDENT_BUNDLE_BAD_DOCUMENT: 'incident bundle does not match the layout its declared version defines',
   // The pointer is the record's own registry, the one provision the layout enumerates, and a label
   // outside it is refused rather than read as a citation nobody checked. Not `INCIDENT_BUNDLE_BAD_DOCUMENT`

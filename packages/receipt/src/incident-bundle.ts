@@ -215,9 +215,9 @@ const FLOOR_DAYS_MAX = Math.floor(Number.MAX_SAFE_INTEGER / 86_400);
  * as one, because the read refuses every number it cannot hold exactly. The range the recomputed floor
  * has to stay inside is the one a stamp takes, as the store states beside its own stamp guard. The bounds
  * are what keep the refusal's own figure statable rather than a second check on the floor: the equality
- * at the end refuses a moved floor whichever way these two land, so what each bound owns is the detail,
- * which would otherwise print a rounded sum or a floor past the range a stamp takes as though it were a
- * figure somebody could write down.
+ * at the end refuses a moved floor whichever way these two land, so what each bound owns is the detail
+ * the refusal prints. The ceiling names the days count it refused, the sum bound names the sum of the two
+ * stated terms, and without both the equality prints a recomputed floor this layout cannot state.
  */
 function assertFloor(incidentAt: number, days: number, stated: number): void {
   if (days > FLOOR_DAYS_MAX) {

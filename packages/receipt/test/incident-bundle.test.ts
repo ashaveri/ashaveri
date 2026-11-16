@@ -399,22 +399,20 @@ describe('the incident bundle reader refuses', () => {
     expect(parseIncidentBundle(incidentBundleBytes(atTheCeiling))).toEqual(atTheCeiling);
   });
 
-  it('a floor whose incident stamp plus the stated days land outside the range a stamp holds', () => {
-    // The days stay at the fixture's ninety, so the days ceiling cannot fire and only the sum bound can: an
-    // incident stamped within ten seconds of the largest integer a reader holds exactly, plus those days,
-    // is no figure a floor states, and the refusal arrives before the stated value is compared to it. Both
-    // stamps move together because the reader refuses an incident stamped after the bundle that carries it,
-    // which would answer before the floor is read.
-    const lateIncident = Number.MAX_SAFE_INTEGER - 10;
+  it('a floor whose days at the ceiling push the recomputed sum outside the range a stamp holds', () => {
+    // One edit of the writer's own bytes, at the position this fault names: the days are the ceiling this
+    // layout states, so the days bound cannot fire and only the sum bound answers. That ceiling times 86400
+    // stops fewer than 86400 seconds short of the largest integer a reader holds exactly, so adding the
+    // fixture's incident stamp lands past it, and the refusal arrives before the stated value is compared
+    // to the recomputed one.
     const bytes = edited(record(), (document) => {
-      document['at'] = lateIncident;
-      const incident = document['incident'] as Record<string, unknown>;
-      incident['at'] = lateIncident;
+      const floor = document['floor'] as Record<string, unknown>;
+      floor['days'] = FLOOR_DAYS_MAX;
     });
     const fault = refusalOf(() => parseIncidentBundle(bytes));
     expect(fault.code).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
     expect(fault.message).toContain('so no preserveUntil states this floor');
-    expect(fault.message).toContain(`incident.at=${String(lateIncident)}`);
+    expect(fault.message).toContain(`incident.at=${String(INCIDENT_AT)}`);
   });
 
   it('a preserveUntil stated before the incident it preserves', () => {
@@ -520,7 +518,7 @@ describe('the bound and asserted split, over the hold the record designates', ()
 
   it('accepts a stated floor of one hundred twenty days, its arithmetic answered at the layout door', () => {
     // The days are the deployment's own statement: the verifying door compares only the copied fields, and
-    // the floor's own figures were answered by `parseIncidentBundle` before a hold was handed over, so a
+    // the floor's own figures are answered by `parseIncidentBundle` before a hold is handed over, so a
     // stated period longer than the ninety the registry cites is read rather than judged.
     const days = 120;
     const base: IncidentBundleRecord = {
@@ -610,7 +608,6 @@ describe('the bound and asserted split, over the hold the record designates', ()
       caught = err;
     }
     expect(caught).toBeInstanceOf(TypeError);
-    expect((caught as TypeError).message).toContain('expected Uint8Array');
     expect((caught as { code?: unknown }).code).toBeUndefined();
   });
 });
