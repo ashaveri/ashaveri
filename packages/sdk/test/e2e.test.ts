@@ -31,6 +31,7 @@ beforeAll(async () => {
   });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const address = app.addresses()[0]!;
+  if (typeof address === 'string') throw new Error('expected a TCP address');
   base = `http://127.0.0.1:${address.port}/v1`;
 });
 
