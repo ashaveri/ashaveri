@@ -415,23 +415,28 @@ detect-mark reads --key alone:
                      or an amendment this flag is printed as not consulted.
   --hold-record <file>
                      verify-handover: one file holding a hold record the amendment in front of this run is
-                     weighed against. Repeatable, one record per flag, and each file is read as the command
-                     starts. An amendment states a removal and a hold states that the record stamps inside its
-                     window are to survive, so the reading weighs each removed record's own chain stamp against
-                     the records this flag hands it, at the instant the amendment states the removal and never at
-                     this run's clock. A removal that a hold in force then covers is refused with
-                     HOLD_REDACTION_REFUSED: the sentence the format fixes for that code, then the record, the
-                     hold's issue stamp and the author that issued it. That refusal is the reader's own and
-                     arrives in the report shape every other redaction refusal arrives in, at exit 1, with no
-                     reading of the pack printed beside it; the words the hold carries in its reason member are
-                     not printed. There is no default path: name none and consult none, which is what this
-                     command did before the flag existed. A file this flag names that is not there, cannot be
-                     read, or does not parse stops the run naming the path and the reason, and one path named
-                     twice is read once. Beside a receipt, a pack, an export, a deployment manifest, an
-                     inventory or a provenance ledger the named files are read and consulted by nothing, because
-                     no such document removes a record. The accesslog scrub flag of the same name weighs a
-                     credential rather than a record stamp and stops an erasure, and the gateway's flag of the
-                     same name feeds its own store and access log at start-up: no door reads another's files.
+                     weighed against. Repeatable, and each distinct path it names is read once as the command
+                     starts, so one path typed twice yields one record rather than two. An amendment states a
+                     removal and a hold states that the record stamps inside its window are to survive, so the
+                     reading weighs each removed record's own chain stamp against the records this flag hands it,
+                     at the instant the amendment states the removal and never at this run's clock. A removal that
+                     a hold in force then covers is refused with HOLD_REDACTION_REFUSED: the sentence the format
+                     fixes for that code, then the record, the hold's issue stamp and the author that issued it.
+                     That refusal is the reader's own and arrives in the report shape every other redaction
+                     refusal arrives in, at exit 1, with no reading of the pack printed beside it; the words the
+                     hold carries in its reason member are not printed. There is no default path: name none and
+                     consult none, and no report row mentions the flag, which is what this command did before the
+                     flag existed. A file this flag names that is not there, cannot be read, or does not parse
+                     stops the run naming the path and the reason. The named files are read before the document's
+                     type is known, so beside a receipt, a pack, an export, a deployment manifest, an inventory or
+                     a provenance ledger they are read all the same, and one of them that will not read stops that
+                     run too, while the reading they came from is printed as not consulted, because no such
+                     document removes a record. Name at least one and every report this run prints states how many
+                     records it read, and gives each path beside the sha256 of the bytes read there, so a run that
+                     weighed a hold can be told from one whose argument was swallowed. The accesslog scrub flag of
+                     the same name weighs a credential rather than a record stamp and stops an erasure, and the
+                     gateway's flag of the same name feeds its own store and access log at start-up: no door reads
+                     another's files.
   --intel-root <file> A root certificate this run stands behind, PEM or DER. Repeatable, one file per flag. On
                      verify it is one family of anchors, and a policy document may leave that family to the roots
                      bundled with the library. On these verbs it is the whole of what the material a pack carries

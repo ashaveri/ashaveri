@@ -155,6 +155,9 @@ import {
 /** The flag that names the root an inventory's run files its retention artifacts under. */
 const RETENTION_DIR_FLAG = '--retention-dir';
 
+/** The flag that names the hold records an amendment's removed records are weighed against. */
+const HOLD_RECORD_FLAG = '--hold-record';
+
 /** The flags `verify-handover` reads, typed as the one parse in `cli.ts` produces them. */
 export interface VerifyHandoverFlags extends CarriedFlagValues {
   /** Every `--key` given, unvalidated at this point; see `designatedKeys`. */
@@ -265,6 +268,19 @@ interface Reading {
   readonly notChecked: readonly string[];
 }
 
+/**
+ * One hold record this run read: the name the operator gave, the digest of the bytes that came from that
+ * name, and the record those bytes parsed to.
+ *
+ * The three travel together because the disclosure row says all three about one file, and a record kept apart
+ * from the bytes it was parsed from would leave that row quoting a digest no reading of this run reached.
+ */
+interface NamedHold {
+  readonly path: string;
+  readonly digestHex: string;
+  readonly record: HoldRecord;
+}
+
 /** Everything the seven readers share: what this run was handed, and the bytes it was handed. */
 interface Inputs {
   readonly evidence: readonly DesignatedKey[];
@@ -274,9 +290,10 @@ interface Inputs {
   readonly retentionRoot: string | null;
   /**
    * What `--hold-record` named, read and parsed at the instant the run started; see `holdRecordsNamed`.
-   * Empty is the statement that the operator named no hold, and the amendment reading then consults nothing.
+   * Empty is the statement that the operator named no hold: the amendment reading then consults nothing, and
+   * no report row speaks of the flag at all.
    */
-  readonly holds: readonly HoldRecord[];
+  readonly holds: readonly NamedHold[];
   /** What this run was handed about the material a pack carries: the roots and the question. */
   readonly carried: CarriedDesignations;
 }
@@ -1132,11 +1149,13 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     resolveKey: resolveEvidence(inputs.evidence),
     // An absent pack travels on as absent rather than being refused in this file: see `handedPack`.
     packBytes: packBytes as Uint8Array,
-    // The records the operator named, in the order they were named. An empty list is what a run handed no
-    // flag forwards, and the reader weighs nothing for it, so the reading stays the one this command gave
-    // before the flag existed. A refusal the consultation reaches is the reader's own sentence about the
-    // amendment and the hold, and it arrives here as this command's redaction refusal in both renderings.
-    holds: inputs.holds,
+    // The records the operator named, in the order they were named, and nothing else: the name each was read
+    // from and the digest of those bytes stay in this command's report row, since the reader weighs records
+    // and answers for no file. An empty list is what a run handed no flag forwards, and the reader weighs
+    // nothing for it, so the reading stays the one this command gave before the flag existed. A refusal the
+    // consultation reaches is the reader's own sentence about the amendment and the hold, and it arrives here
+    // as this command's redaction refusal in both renderings.
+    holds: inputs.holds.map((one) => one.record),
   });
   const { manifest, outcome } = verified;
   return {
@@ -1588,9 +1607,13 @@ async function companionFiles(paths: readonly string[] | undefined): Promise<Rea
  * the same bytes. The dedupe is of the text as typed and not of the file behind it, and the records travel to
  * the reader in the order they were named, which is the order the consultation weighs them and so the order the
  * refusal names one record in.
+ *
+ * Each record keeps the name it came from and the digest of the bytes that were read at it, because the report
+ * row this run prints states which files it weighed and identifies each by its bytes: a name says only what the
+ * operator typed, and the same name can stand at two different files across two runs.
  */
-async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<HoldRecord[]> {
-  const holds: HoldRecord[] = [];
+async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<NamedHold[]> {
+  const holds: NamedHold[] = [];
   for (const path of new Set(paths ?? [])) {
     let bytes: Buffer;
     try {
@@ -1600,8 +1623,9 @@ async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<H
         `--hold-record names '${path}' and no bytes could be read from it: ${error instanceof Error ? error.message : String(error)}, so a run whose operator named a hold record reads it rather than answer the amendment without it`,
       );
     }
+    const digestHex = sha256Hex(bytes);
     try {
-      holds.push(parseHoldRecord(bytes));
+      holds.push({ path, digestHex, record: parseHoldRecord(bytes) });
     } catch (error) {
       if (error instanceof ReceiptError) {
         throw new UsageError(
@@ -1647,16 +1671,21 @@ async function readOneDocument(path: string): Promise<Uint8Array> {
 /**
  * Which designations this run was handed, and whether the document in front of it consulted them.
  *
- * A designation that did nothing is reported rather than dropped, and a caller looping this command
- * over a pile is expected to hand both roles to every file, so an unused designation is not a refusal:
- * a receipt key cannot authenticate a manifest and should not have to be left off the command line for
- * that to be true.
+ * A designation that did nothing is reported rather than dropped, and a designation that did something is
+ * reported too: a caller looping this command over a pile is expected to hand every flag to every file, so an
+ * unused designation is not a refusal (a receipt key cannot authenticate a manifest, and a hold has nothing to
+ * suspend in a pack that removes no record) and the answer both ways belongs in the report rather than in the
+ * operator's guess about which of the two happened.
  */
 function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] {
   const roles: Record<string, string> = {
     [KEY_FLAG]: 'signs, or is named inside, an evidence document',
     [MANIFEST_KEY_FLAG]: 'authenticates a deployment manifest',
   };
+  // The one decision the two hold rows share: an amendment is the only shape that removes a record, so it is
+  // the only shape the read holds are weighed against. Kept as one value so the row that prints the reading and
+  // the row that prints the silence can never describe different runs.
+  const holdsConsulted = contentType === REDACTION_CONTENT_TYPE;
   const consultedFor = (keys: readonly DesignatedKey[], consulted: boolean): readonly Fact[] =>
     keys.map((one) => {
       const role = roles[one.source] ?? 'names a key';
@@ -1706,6 +1735,37 @@ function designationFacts(contentType: string, inputs: Inputs): readonly Fact[] 
             label: 'not consulted',
             value: `${RETENTION_DIR_FLAG} names the root a run's retention artifacts are filed under, and ${contentType} states no run of packs, so nothing was read from ${printedToken(inputs.retentionRoot)}`,
             json: { consulted: false, contentType, root: inputs.retentionRoot },
+          },
+        ]),
+    // The holds are the one handed material this command reads whatever the document turns out to be, so the
+    // rule above is owed both halves here: a run that read files says how many it read and which bytes, and a
+    // run whose document states no removal says that nothing weighed them. Without the first half an operator
+    // who typed the flag and got the pre-flag report cannot tell a consultation from an argument that was
+    // swallowed, which is a finding about this call and therefore printed on every shape. The digests are of
+    // the bytes rather than of the names, because the names are already on the operator's own command line and
+    // say nothing about what stood at them when this run read them.
+    ...(inputs.holds.length === 0
+      ? []
+      : [
+          {
+            key: 'holdRecords',
+            label: 'hold records',
+            value: `${String(inputs.holds.length)} hold record(s) read as this run started from the paths ${HOLD_RECORD_FLAG} names, one per distinct path: ${inputs.holds.map((one) => `${printedToken(one.path)} sha256 ${one.digestHex}`).join('; ')}. Each digest is sha256 over the bytes this run read at that path, so it names what was weighed and not the file that name now holds.`,
+            json: {
+              consulted: holdsConsulted,
+              contentType,
+              records: inputs.holds.map((one) => ({ path: one.path, sha256: one.digestHex })),
+            },
+          },
+        ]),
+    ...(holdsConsulted || inputs.holds.length === 0
+      ? []
+      : [
+          {
+            key: 'holdRecordsNotConsulted',
+            label: 'not consulted',
+            value: `${HOLD_RECORD_FLAG} names the records an amendment's removed records are weighed against, and ${contentType} states no removal, so the ${String(inputs.holds.length)} hold record(s) this run read were consulted by nothing`,
+            json: { consulted: false, contentType, recordsRead: inputs.holds.length },
           },
         ]),
   ];

@@ -747,18 +747,28 @@ preserve and not a legal determination, and which duty an instruction answers to
 software.
 
 `ashaveri verify-handover` is the shipped caller that opens files for the redaction reader. Its `--hold-record`
-names the files it reads as it starts and hands to `verifyRedaction` beside the pack, one record per flag, and
-the reader then weighs each record the amendment removes against those holds: an amendment whose removal is
-covered by a hold answers `HOLD_REDACTION_REFUSED`, naming the removed record and that hold's issue stamp and
-author, in the same report shape the amendment's other refusals arrive in and with no reading of the pack
-printed beside it. The instant that consultation weighs at is the amendment's own `at`, the instant the removal
+names the files it reads as it starts and hands to `verifyRedaction` beside the pack, one record per distinct
+path named, and the reader then weighs each record the amendment removes against those holds: an amendment whose
+removal is covered by a hold answers `HOLD_REDACTION_REFUSED`, naming the removed record and that hold's issue
+stamp and author, in the same report shape the amendment's other refusals arrive in and with no reading of the
+pack printed beside it. The instant that consultation weighs at is the amendment's own `at`, the instant the removal
 was stated, and not the operator's clock: a hold issued after the statement does not rewrite the history of a
 removal already stated, and a hold released after it still covers the removal stated while it was on, which is
 what makes this door a finding about two documents rather than an answer about the day the review was run. A
-verification naming no `--hold-record` consults nothing and reads the amendment exactly as it did before the
-flag existed; a file that flag does name, and that cannot be read or does not parse, stops the run naming the
-path and the reason, because the operator pointed at an instruction and a report written around it would state
-a verification that ignored it.
+verification naming no `--hold-record` consults nothing, prints no line about the flag, and reads the amendment
+exactly as it did before the flag existed; a file that flag does name, and that cannot be read or does not parse,
+stops the run naming the path and the reason, because the operator pointed at an instruction and a report written
+around it would state a verification that ignored it.
+
+The two halves of that reading are printed apart, because they are two facts. The files are read before the
+document's type is known, so a named file that will not read stops the run beside any shape this command reads,
+and not only beside an amendment; and every report this command prints, on any shape, states how many hold
+records it read and gives each path beside the sha256 of the bytes this run read there, so the digest identifies
+what was weighed rather than the name the operator typed, and a file edited after the run shows as a digest that
+no longer matches the path beside it. Beside the six shapes that state no removal, one more line says that
+nothing consulted the records it read, the way the same report already says so of a designation the document in
+front of it carries nothing for. A refusal prints no reading at all, and the refusal the consultation reaches
+names the record it would not lift and the hold that covers it, so nothing is disclosed twice.
 
 The direction of the default is the deployer's duties being longer than the window rather than
 shorter. Nothing in the writer bounds the total size of that window: the 32 MiB figure is a per-file
