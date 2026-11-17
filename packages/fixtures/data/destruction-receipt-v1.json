@@ -1,0 +1,449 @@
+{
+  "version": 1,
+  "description": "Conformance vectors for the destruction receipt: what one destruction reached, copy class by copy class, beside the one object and the one key it took.",
+  "layout": {
+    "document": "ashaveri/destruction-receipt",
+    "versions": [
+      1
+    ],
+    "manifestMembers": [
+      "v",
+      "at",
+      "object",
+      "kind",
+      "key",
+      "reach",
+      "states"
+    ],
+    "entryMembers": [
+      "class",
+      "outcome"
+    ],
+    "copyClasses": [
+      "store",
+      "pack",
+      "export",
+      "backup",
+      "handout"
+    ],
+    "unreachableClasses": [
+      "handout"
+    ],
+    "objectKinds": [
+      "ashaveri/receipt",
+      "ashaveri/pack",
+      "ashaveri/export",
+      "ashaveri/redaction",
+      "ashaveri/epoch-inventory"
+    ],
+    "reachOutcomes": {
+      "reached": 1,
+      "notReached": 2
+    },
+    "rule": "Every copy class the format enumerates carries exactly one statement, and the class whose copies have left the deployment hands may only ever be stated not-reached. The destroyed key is named by its kid and never by its material, and the receipt is sealed by a key other than the one it names.",
+    "writerRule": "signDestructionReceipt encodes the manifest, runs it back through the whole reader, and refuses before it signs a reach the format will not carry or a statement sealed by the key it destroys.",
+    "signingKeys": [
+      {
+        "role": "signer",
+        "label": "ashaveri-fixtures/destruction-receipt-signer/v1",
+        "kid": "9d199c1bb3d4b840d694329b3f6966b67017c2b6aadda3751aacf30cf4bce28a"
+      },
+      {
+        "role": "destroyed",
+        "label": "ashaveri-fixtures/destruction-receipt-destroyed/v1",
+        "kid": "1cce9af930371f5de64c501c11b7a3b879024180ed6efe7a4d5f40d3345118a6"
+      },
+      {
+        "role": "another-callers-key",
+        "label": "ashaveri-fixtures/destruction-receipt-other/v1",
+        "kid": "9db6f9bff8541dbf1122549cfb4a8ebd5308191e10bbd7f488b5db76b17c8c59"
+      },
+      {
+        "role": "an-earlier-epoch",
+        "label": "ashaveri-fixtures/destruction-receipt-epoch-one/v1",
+        "kid": "5ccab7ac8a9609c3096d8118e867934499ca7cfadc54cc73ad98200de2ab4897"
+      }
+    ],
+    "keyNote": "Test-only, and no secret is published: each key is signingKeyFromSeed over sha256 of the label beside it, so a port reproduces every signature here from the label alone. What the suite carries of a key is the kid, which is the public label the format itself names."
+  },
+  "vectors": [
+    {
+      "name": "reached-the-copies-held",
+      "note": "Reached the deployment store and one sealed pack; did not reach the export, the backup media, or the copy that left the deployment's hands. The class beyond reach is stated not-reached, which is the honest half of the statement and not a defect of it. The designated bytes are handed, so the reader recomputes the digest and reads the type claim out of the object of its own header.",
+      "arm": "accept",
+      "structural": "verify-ok",
+      "expected": "verify-ok",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
+      "documentByteLength": 480,
+      "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw",
+      "objectByteLength": 290
+    },
+    {
+      "name": "reached-nothing-but-the-store",
+      "note": "Every class not-reached but the store. A receipt that reached the least it can is still a whole statement, and a reader is owed all five answers either way.",
+      "arm": "accept",
+      "structural": "verify-ok",
+      "expected": "verify-ok",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUComVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEC8_Z3dQq1KcOmtoXM6e_iGUUyFBZ0heCnJW6COP97Bol3NX00AAtVUjJFIBqInu9M22Nj4xLRXDZXHI-n_GYcB",
+      "documentByteLength": 480
+    },
+    {
+      "name": "designated-bytes-not-handed",
+      "note": "The first row's document, read by a caller holding nothing but these bytes. The designation is no precondition: the object is what a destruction took, and a reader that had to produce it could only ever verify a receipt whose statement was false.",
+      "arm": "accept",
+      "structural": "verify-ok",
+      "expected": "verify-ok",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
+      "documentByteLength": 480
+    },
+    {
+      "name": "reached-with-a-retired-key-named",
+      "note": "The destroyed key is a kid from an earlier epoch and the signer is the key that followed it. That pair is what the format requires of every receipt: the attestation arrives from a key still in hand.",
+      "arm": "accept",
+      "structural": "verify-ok",
+      "expected": "verify-ok",
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCBcyresipYJwwltgRjoZ5NEmcp8-txUzHOtmCAN4qtIl2RraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEA-PBu6GhzPPzPHGhWpjMVUIAV8U9d-76jG8Y8Ysla2sGmywTujjAiZlXHxl7PiBQHD95LOSpT4YQT_z8OCP6ME",
+      "documentByteLength": 480
+    },
+    {
+      "name": "class-left-unstated",
+      "note": "Four entries and no class named for the backup media. The document is complete-looking, and that is the fault: a receipt silent about one class reads as a receipt that reached everything it named.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_MISSING_COPY_CLASS",
+      "expected": "DESTRUCTION_RECEIPT_MISSING_COPY_CLASS",
+      "edit": {
+        "at": "reach",
+        "states": "one of the five copy classes carries no statement"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZATmnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaISiZWNsYXNzZXN0b3JlZ291dGNvbWUComVjbGFzc2RwYWNrZ291dGNvbWUComVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECOIuTtMdeV9iG7ZSSy3avwuXb7x0hOg8W5g3ugIgkF74NYHe8LctzpdWuGL7qafdN671hFuDMilCA3juliyPYA",
+      "documentByteLength": 456
+    },
+    {
+      "name": "handout-claimed-reached",
+      "note": "A reach claimed over the copy that left the deployment's hands. The bytes are well-formed and the claim is one this format will not carry, so the refusal names the claim rather than the shape.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_REACH_OVERREACH",
+      "expected": "DESTRUCTION_RECEIPT_REACH_OVERREACH",
+      "edit": {
+        "at": "reach[4].outcome",
+        "states": "reached at a class the format declares out of reach"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUComVjbGFzc2RwYWNrZ291dGNvbWUComVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAWZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEATqIlSu1nHQiLpwBdQoeytF3xZvF7r4R8Aupv6MPtKkJAI1njdAomuN_q3O-S1c-u-uhIsrLYWpMQnlgZIiT8B",
+      "documentByteLength": 480
+    },
+    {
+      "name": "sealed-by-the-destroyed-key",
+      "note": "The receipt names as destroyed the very kid its own protected header seals it with. A document sealed by a key proves the holder of that key signed it, so the statement refutes itself whoever signed it, and the refusal arrives before any caller key set is consulted.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_KEY_IS_SIGNER",
+      "expected": "DESTRUCTION_RECEIPT_KEY_IS_SIGNER",
+      "edit": {
+        "at": "key against header label 4",
+        "states": "the signer and the destroyed key are one key"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDRV2dSrxN8S5Wq4rv-kQU6Tihv_jyNOWLyCqk7Wz9V0yACICVw30CXLqB1980UPQd88FTtd8Dg1cfzXZCDp1UF",
+      "documentByteLength": 480
+    },
+    {
+      "name": "unknown-member-carrying-material",
+      "note": "A member the layout does not define, named for the thing a writer might reach for: sixty-four bytes of key. The closed map is what makes the sentence about key material a check rather than an intention.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "manifest",
+        "states": "a member no version of this layout defines"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAZyoYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzaG1hdGVyaWFsWEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEDB1PReHrvqfXUZRhssrGs474XoiNIAZCAwv1Ju95yswU2aiWxawA716ZN3jht_VuBlXAouSGvKKl6t9f9qtxgF",
+      "documentByteLength": 555
+    },
+    {
+      "name": "entry-member-carrying-material",
+      "note": "The same sixty-four bytes offered at a position inside one reach entry, which the entry closes as the manifest does.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "reach[0]",
+        "states": "a member the entry does not define"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAZynYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWjZWNsYXNzZXN0b3JlZ291dGNvbWUBaG1hdGVyaWFsWEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEAIR2arr-x_b1i7gSNIPOvbOjIqI9yIi7wuNgt0KBjAhxBddRrIbeWQ9pHesUgPJn9ed-K-NxeEyZNKxg2fy6QK",
+      "documentByteLength": 555
+    },
+    {
+      "name": "key-of-another-width",
+      "note": "A sixty-four-byte value where the format writes a digest width. An Ed25519 public key and a secret seed are both this size and neither has a position here: the width rule does the work, not a rule about what a member is called.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "key",
+        "states": "a bstr of a width the format never writes"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAXGnYXYBYmF0GmlDRABja2V5WEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQGvuwt8jY8cwgEW2d0oKKk0tXY7LcBu8qUSDCg1usknu9nCFwM4Eh_B8IOCGwPH9A7Ay7FjLo4WS3tBII4M7lg8",
+      "documentByteLength": 512
+    },
+    {
+      "name": "designation-of-another-width",
+      "note": "The object position shortened to sixteen bytes.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "object",
+        "states": "a bstr of a width the format never writes"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAUCnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RQAAAAAAAAAAAAAAAAAAAAAGZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hAJhNmoGY8ABjV0G0TIY4NpjbZkRQ4MpWj-AsnwsJxIHnsnQ5zZnfJGZIehD5F0KODX93rTAFJCySF2gM-NLqWBQ",
+      "documentByteLength": 463
+    },
+    {
+      "name": "kind-outside-the-registry",
+      "note": "A document kind this estate signs with but this container does not enumerate. Widening the registry is a decision about the format and not a value a writer picks.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "kind",
+        "states": "a label outside the closed registry"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVynYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5keBxhc2hhdmVyaS9kZXBsb3ltZW50LW1hbmlmZXN0ZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQF_gD61mEgHYSKi9WuHW_YiFqoDQ8F2RTFybD9XxMfyo1kRgxIGs4e3ywDkjOoQtPT6a0E6JZ_aobRM96COsGAc",
+      "documentByteLength": 491
+    },
+    {
+      "name": "class-outside-the-registry",
+      "note": "A sixth copy class named in a reach entry. An unknown name is the opposite fault from a missing one, and it answers the shape refusal rather than the completeness one.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "reach[0].class",
+        "states": "a label outside the closed registry"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZWluYm94Z291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECky19_swi2Ji4esZsyF9mflYHDFK_yExTVwbMtHy5-ddH81g4JEapG2DirEUhntRsPBUtk_3ZxZqxrrxUGuXAF",
+      "documentByteLength": 480
+    },
+    {
+      "name": "class-named-twice",
+      "note": "Two entries state one class, so the count of statements disagrees with the set of copies they name.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "reach[1].class",
+        "states": "a class the list already stated"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVKnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2VzdG9yZWdvdXRjb21lAaJlY2xhc3NmZXhwb3J0Z291dGNvbWUComVjbGFzc2ZiYWNrdXBnb3V0Y29tZQKiZWNsYXNzZ2hhbmRvdXRnb3V0Y29tZQJmb2JqZWN0WCDKVfEjfrJGBEplnBcyggEIWI15t6GIWSEtd4Qkndb2Z2ZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hAvi7-mDaXS95RFrmngXcyBFW9XSleMEPRVNY-mn7d6lcBl3w_xjVAT_q-fAeeq0uZPemlpDeGrXb-_XcvvUooAg",
+      "documentByteLength": 481
+    },
+    {
+      "name": "outcome-that-is-neither",
+      "note": "An outcome of zero, which is neither reached nor not-reached. There is no third value, no default and nothing falsy to fall into.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "reach[0].outcome",
+        "states": "a value the format does not declare"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUAomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECb1sipOLg5fQoF30WsMyG-2UiIh8f9WbPhQb_1ZhAurJqcHbBsU7fM5CTS-IoVXSuC6WSvtgK8QLBp5XfC4nEA",
+      "documentByteLength": 480
+    },
+    {
+      "name": "reach-not-a-list",
+      "note": "The reach member carrying a map in place of a list of entries.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "reach",
+        "states": "a value of another type"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBY56dhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNooWVzdG9yZfVmb2JqZWN0WCDKVfEjfrJGBEplnBcyggEIWI15t6GIWSEtd4Qkndb2Z2ZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hALpmJJVCLYdqekhBzPTp8JbR6VijmK4vwA1eA7g47JaJ45neHhWcRbC7mmAPSgPo4-_wZYwAh5Dq_xSlD8Mr8Cw",
+      "documentByteLength": 373
+    },
+    {
+      "name": "member-absent",
+      "note": "The sentence removed. Every member of this layout is required, because an optional member is a silence a reader has to guess at.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "states",
+        "states": "a required member absent"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBY66ZhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdYQAlN9dmWWRK0SoBIX3rBCqgtU6ewoSXKRhYhBglmmdT0dmHtWz-Us1pwe4jlNTILtnk5BEY91qPF2Pk5mmuJMgo",
+      "documentByteLength": 377
+    },
+    {
+      "name": "stamp-before-the-epoch",
+      "note": "A destruction stated before there were instants to state it at.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "at",
+        "states": "a stamp earlier than the epoch"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAU2nYXYBYmF0IGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQInmQGjjvjkLZHr9NQJtDhsjgujBHirrN6EHeX2qBrSfDRleP4E3OkRbDR8QO3Oh2n5HkOuieWfNCMGxwpYJ7g8",
+      "documentByteLength": 476
+    },
+    {
+      "name": "sentence-that-forges-a-line",
+      "note": "The writer's sentence carrying a right-to-left override, which would make the printed row a reader sees stop being the bytes the receipt carries. This is the one position of the layout that is opaque text, and it is read under the printed-line class the rest of the estate holds its text to.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "states",
+        "states": "a character that reorders the line it is printed on"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAQanYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3NlcmFzZWQg4oCuIGVudGlyZWx5WEDOybEduUuNVdWUlCbkYE2BJGpdTbcV98tZ6DBMjKEndmffqAmw0EelM1XOIAvhAPtRZAtBuApWDlgIaSZC2U4I",
+      "documentByteLength": 405
+    },
+    {
+      "name": "version-two",
+      "note": "A second version of a format that has never had a first one in another shape. The number moves when bytes in the older shape exist, and none do, so this is refused as a version before one member of it is read.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION",
+      "expected": "DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION",
+      "edit": {
+        "at": "v",
+        "states": "a version no layout this package reads defines"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYCYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECriE3obTxu8WjmfmmnLX2QwhnCWzhIbRuNNsangV9DC0wdJarfgA8t7TPQfeEZ-pXaHI_qhewA0-d9_dDC9uMB",
+      "documentByteLength": 480
+    },
+    {
+      "name": "another-content-type",
+      "note": "These very bytes under the content type of a pack. One deployment key seals six documents, each of which passes its own checks, and the field that says which claim a reader is holding is answered before a key is consulted.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_HEADER",
+      "expected": "DESTRUCTION_RECEIPT_BAD_HEADER",
+      "edit": {
+        "at": "protected header label 3",
+        "states": "a content type other than this formats own"
+      },
+      "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYIJ0ZnBuz1LhA1pQymz9pZrZwF8K2qt2jdRqs8wz0vOKKoFkBUadhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQMx6AgghlSN2ANOY9e5Q4whQdmL3QDd_3Lhef8MZMfJ_IWtgONOm_9PgkFU2a6SGEDs4SFopP4NR9ry4hxi8Ug4",
+      "documentByteLength": 464
+    },
+    {
+      "name": "header-carrying-a-fourth-label",
+      "note": "A header parameter the format does not declare. Its bytes are hashed into the signature, so a reader that took three labels out of a header carrying a fourth would hand on a document other than the one the issuer signed.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_HEADER",
+      "expected": "DESTRUCTION_RECEIPT_BAD_HEADER",
+      "edit": {
+        "at": "protected header",
+        "states": "a label the format does not define"
+      },
+      "documentBase64Url": "0oRYR6QBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziigkBoFkBUadhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQGG_GPzn1AykPl5oCqSankVKQVw_TJIEWTrOZih5JmVWNWLp_T9HX1UIp7Oc6SQAYUlzKxcCNG7EnFvlAsELiws",
+      "documentByteLength": 482
+    },
+    {
+      "name": "a-pack-handed-as-a-receipt",
+      "note": "A document of another family, offered whole. The refusal is the content type at the header and not a manifest fault, because none of these bytes is a member of this layout.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_HEADER",
+      "expected": "DESTRUCTION_RECEIPT_BAD_HEADER",
+      "edit": {
+        "at": "the whole document",
+        "states": "a redaction manifest read where a destruction receipt was expected"
+      },
+      "documentBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw",
+      "documentByteLength": 290
+    },
+    {
+      "name": "whole-bytes-no-key-handed",
+      "note": "The honest receipt, handed to the verifying door with no key designation of any kind. The document is whole and the reader is simply not in a position to prove it, which is a different finding from a malformed manifest and is refused as its own code.",
+      "arm": "refuse",
+      "structural": "verify-ok",
+      "expected": "DESTRUCTION_RECEIPT_UNKNOWN_KEY",
+      "edit": {
+        "at": "the call",
+        "states": "neither a public key nor a resolver handed to the reader"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
+      "documentByteLength": 480
+    },
+    {
+      "name": "key-of-another-caller",
+      "note": "Whole bytes verified against a key the reader was configured with and the receipt does not name. A wrong key and an edited document send an operator to two places, so they are refused separately.",
+      "arm": "refuse",
+      "structural": "verify-ok",
+      "expected": "DESTRUCTION_RECEIPT_KID_MISMATCH",
+      "edit": {
+        "at": "the call",
+        "states": "a public key other than the kid the header carries"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
+      "documentByteLength": 480
+    },
+    {
+      "name": "other-bytes-than-the-designation",
+      "note": "The designated digest and a document that is not the one it designates, both handed over. Either half may be whole; what is refused is reading this receipt against those bytes.",
+      "arm": "refuse",
+      "structural": "verify-ok",
+      "expected": "DESTRUCTION_RECEIPT_OBJECT_MISMATCH",
+      "edit": {
+        "at": "the call",
+        "states": "bytes hashing elsewhere than the object the manifest carries"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
+      "documentByteLength": 480,
+      "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWIimYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzcGEgc2Vjb25kIHJlbW92YWxncmVkdWNlZFggCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlncmVtb3ZlZIFpcmVjZWlwdC0yWEC2_jPZaNR-laHC0F5FecjQLAEmXhPALFDu7o3n4Jq7xdh1_GCg8k3wwmVjDj2pYgpaqrChG4zFQNFaXVSwcvkK",
+      "objectByteLength": 267
+    },
+    {
+      "name": "designated-bytes-of-another-kind",
+      "note": "The digest matches and the kind does not: the bytes are a redaction and the receipt calls them a pack. This is what the pair is required for, and no keyword and no other refusal in this family reports it.",
+      "arm": "refuse",
+      "structural": "verify-ok",
+      "expected": "DESTRUCTION_RECEIPT_KIND_DISAGREES",
+      "edit": {
+        "at": "kind against the designated bytes own header",
+        "states": "a document type the designation does not carry"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAUynYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kbWFzaGF2ZXJpL3BhY2tlcmVhY2iFomVjbGFzc2VzdG9yZWdvdXRjb21lAaJlY2xhc3NkcGFja2dvdXRjb21lAaJlY2xhc3NmZXhwb3J0Z291dGNvbWUComVjbGFzc2ZiYWNrdXBnb3V0Y29tZQKiZWNsYXNzZ2hhbmRvdXRnb3V0Y29tZQJmb2JqZWN0WCDKVfEjfrJGBEplnBcyggEIWI15t6GIWSEtd4Qkndb2Z2ZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hAtosNSK1Pgb0H-hFs5IHPIFQAqB4S-VmFDlOunHS-1mfCRHe6dI7MsxBBtva7Qc35NTamYWws8-4ewVRPUXF6Cg",
+      "documentByteLength": 475,
+      "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw",
+      "objectByteLength": 290
+    },
+    {
+      "name": "designated-bytes-not-a-signed-document",
+      "note": "The digest matches and the bytes are not a signed document of any kind. The only question asked of them here is whether they are the document the receipt names, and one answer covers both ways it fails.",
+      "arm": "refuse",
+      "structural": "verify-ok",
+      "expected": "DESTRUCTION_RECEIPT_KIND_DISAGREES",
+      "edit": {
+        "at": "kind against the designated bytes",
+        "states": "bytes no envelope reader opens"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYILNPRc1Tfhqm_5E08OHPvkK5II5iIAEnUu0ZWw7CmRiGZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDDjw2V1NKUu50Spn6FDjBLwce18f1ygzcV_FB18yhPo0gjm2GaroU3mlAUWijXf5uDJqRCTzBoPB5568Lgjw4D",
+      "documentByteLength": 480,
+      "objectBase64Url": "Ynl0ZXMgdGhhdCBhcmUgbm8gc2lnbmVkIGRvY3VtZW50IGF0IGFsbA",
+      "objectByteLength": 40
+    },
+    {
+      "name": "writer-refuses-to-sign-overreach",
+      "note": "Not a document. The encoder is asked to produce the first refusal row with the beyond-reach class stated reached, and it refuses at the point the map is written, so a deployment cannot file bytes only a reader would reject.",
+      "arm": "refuse",
+      "structural": "not-a-document",
+      "expected": "DESTRUCTION_RECEIPT_REACH_OVERREACH",
+      "edit": {
+        "at": "signDestructionReceipt",
+        "states": "the writer refusing the reach the format will not carry"
+      }
+    },
+    {
+      "name": "writer-refuses-its-own-refusal",
+      "note": "Again not a document. The encoder is asked to sign a receipt that leaves one copy class unstated and runs its own reader over the bytes before it signs them, so the refusal arrives where the bytes are made.",
+      "arm": "refuse",
+      "structural": "not-a-document",
+      "expected": "DESTRUCTION_RECEIPT_MISSING_COPY_CLASS",
+      "edit": {
+        "at": "signDestructionReceipt",
+        "states": "the writer running its own reader before signing"
+      }
+    }
+  ]
+}

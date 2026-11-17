@@ -48,6 +48,7 @@
     "generate:manifest": "node scripts/manifest-vectors.ts",
     "generate:pack": "node scripts/pack-vectors.ts",
     "generate:redaction": "node scripts/redaction-vectors.ts",
+    "generate:destruction-receipt": "node scripts/destruction-receipt-vectors.ts",
     "generate:epoch-inventory": "node scripts/epoch-inventory-vectors.ts",
     "generate:capture": "node scripts/capture-vectors.ts",
     "generate:import": "node scripts/import-vectors.ts",

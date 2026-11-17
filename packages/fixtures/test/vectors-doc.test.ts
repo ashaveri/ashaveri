@@ -156,6 +156,9 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
         ...rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null })),
         ...rows('verifyCases').map((row) => ({ verdict: field(row, 'expected'), code: null })),
       ];
+    case 'destruction-receipt-v1.json':
+      // The family states one verdict per row, at the door that answers with a key in hand.
+      return rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null }));
     case 'export-v1.json':
     case 'manifest-v1.json':
     case 'pack-v1.json':
