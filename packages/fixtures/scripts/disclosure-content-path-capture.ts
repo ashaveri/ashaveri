@@ -213,13 +213,14 @@ function throughOcr(gs: string, tesseract: string, directory: string, archive: s
 /**
  * The line an application answered a refused call with: the error stream is a string or a buffer
  * depending on how the call was asked to encode it, and it is the answer that says what was unsupported.
+ * The address of the context that spoke is stripped, because it belongs to the run and not to the answer.
  */
 function answeredLine(err: unknown): string | undefined {
   const stream = typeof err === 'object' && err !== null && 'stderr' in err ? (err as { stderr: unknown }).stderr : undefined;
   const text = typeof stream === 'string' ? stream : stream instanceof Uint8Array ? new TextDecoder().decode(stream) : '';
   return text
     .split('\n')
-    .map((line) => line.trim())
+    .map((line) => line.replace(/@\s*0[0-9a-f]{7,16}/giu, '').trim())
     .find((line) => line !== '');
 }
 
