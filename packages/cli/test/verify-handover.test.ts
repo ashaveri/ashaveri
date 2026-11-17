@@ -10,20 +10,24 @@ import {
   DUTY_LABEL_REGISTRY_REVISION,
   EPOCH_INVENTORY_CONTENT_TYPE,
   EXPORT_CONTENT_TYPE,
+  HOLD_RECORD_LIMITS,
   PACK_CONTENT_TYPE,
   RECEIPT_CONTENT_TYPE,
   REDACTION_CONTENT_TYPE,
   decodeCanonical,
   decodePack,
+  decodeRedaction,
   encodeCanonical,
   encodeExportProtectedHeader,
   generateSigningKey,
+  holdRecordBytes,
   packRecordDigest,
   packSigStructure,
   sealDeploymentManifest,
   sealExport,
   signingKeyFromSeed,
   toHex,
+  type HoldRecord,
   type SigningKey,
 } from '@ashaveri/receipt';
 import { ATTESTED_MARKING, stampedReceiptBytes } from './stamped-receipt.js';
@@ -905,6 +909,188 @@ describe('an excision amendment at the command edge', () => {
     // can only stay a source of facts rather than a mirror of the tool if this line is able to say so.
     expect(diverged.sort()).toEqual(recorded.sort());
     expect(observed.filter((one) => !one.endsWith('verify-ok')).length).toBeGreaterThanOrEqual(33);
+  });
+});
+
+/**
+ * The two figures the hold consultation weighs, read out of the published pair rather than typed here.
+ *
+ * `verifyRedaction` asks, for each record an amendment removes, whether a handed hold was in force at the
+ * instant the removal was stated and covers that record's own chain stamp. Every window below is therefore
+ * derived from one of those three numbers, because a hand-copied figure would settle which side of a hold's
+ * edge a case sits on by whoever wrote it rather than by the document.
+ */
+const AMENDMENT_REMOVAL = (() => {
+  const manifest = decodeRedaction(Buffer.from(published(AMENDMENT.documentBase64Url, 'amendment document'), 'base64url')).manifest;
+  const items = decodePack(Buffer.from(published(AMENDMENT.packBase64Url, 'pack the amendment designates'), 'base64url')).manifest.items;
+  const id = manifest.removed[0];
+  const item = items.find((one) => one.id === id);
+  if (id === undefined || item === undefined) {
+    throw new Error('the published amendment removes a record its own pack does not carry, so no window below means anything');
+  }
+  return { id, iat: item.iat, at: manifest.at };
+})();
+
+/**
+ * One hold record, stated so that its edges are steps from the amendment's own numbers.
+ *
+ * The default record is the refusing one: issued before the removal was stated, never released, and covering
+ * exactly the stamp of the record the amendment removes. Each case below moves one of those three terms and
+ * asserts what the moved figure costs, which is the only way the consultation's two questions (is the hold in
+ * force at the stated instant, and does its window reach this stamp) stay separate claims.
+ */
+function hold(over: Partial<HoldRecord> = {}): HoldRecord {
+  return {
+    v: 1,
+    prov: 'fixture',
+    at: AMENDMENT_REMOVAL.at - 60,
+    by: 'the fixture deployer',
+    window: { from: AMENDMENT_REMOVAL.iat, to: AMENDMENT_REMOVAL.iat + 1 },
+    reason: 'Fixture hold over the record the published amendment removes.',
+    released: null,
+    limits: HOLD_RECORD_LIMITS,
+    ...over,
+  };
+}
+
+/** One hold record filed at a fresh name, which returns that path. */
+function holdFile(record: HoldRecord): string {
+  return written('hold-v1.json', Buffer.from(holdRecordBytes(record)));
+}
+
+/** The same amendment, its pack and its key, with whatever hold files the case names. */
+function amendmentRun(holds: readonly string[] = [], json = false): CliResult {
+  const args = ['verify-handover', AMENDMENT_PATH, AMENDMENT_KEY, `--companion=${AMENDMENT_PACK_PATH}`];
+  for (const path of holds) args.push(`--hold-record=${path}`);
+  if (json) args.push('--json');
+  return runCli(args);
+}
+
+/**
+ * The holds a handover verification is named.
+ *
+ * An amendment states a removal and a hold states that a range of stamps is to survive, and the reader that
+ * owns the amendment settles the pair when its caller hands it records. This command is the shipped caller
+ * that opens the files an operator named and hands over what they parse to, so the refusal the consultation
+ * reaches is the reader's own, in the report shape every other redaction refusal arrives in, while a named
+ * file that will not open is this command's own answer about the caller's file. The consultation stays the
+ * reader's and the reading of paths stays here, which is why the two refusals never trade wordings.
+ */
+describe('the holds a handover verification is named', () => {
+  it('refuses an amendment removing a record an active hold covers, naming the record and the hold', () => {
+    const held = holdFile(hold());
+    const refusal = verdictOf(amendmentRun([held], true));
+    expect(refusal).toMatchObject({ ok: false, contentType: 'ashaveri/redaction', code: 'HOLD_REDACTION_REFUSED' });
+    expect(String(refusal.message)).toContain(`${AMENDMENT_REMOVAL.id} is removed by this redaction and covered by the hold issued at`);
+    expect(String(refusal.message)).toContain(`the hold issued at ${String(AMENDMENT_REMOVAL.at - 60)} by "the fixture deployer"`);
+    // The refusal arrives before the survivor fold, so no reading of the pack is reported beside it: what an
+    // operator of this path gets is the one fact that suspends the removal, and not a report of the removal
+    // that the same run just refused to vouch for.
+    expect(refusal.document).toBeUndefined();
+
+    const human = amendmentRun([held]);
+    expect(human.status).toBe(1);
+    expect(human.stdout).toBe('');
+    expect(human.stderr).toContain(`${REDACTION_CONTENT_TYPE}: verification failed (HOLD_REDACTION_REFUSED): `);
+    expect(human.stderr).toContain('a redaction states the removal of a record a handed hold covers');
+    expect(human.stderr).toContain(AMENDMENT_REMOVAL.id);
+    expect(human.stderr).toContain('"the fixture deployer"');
+    expect(human.stderr).not.toContain('unexpected error');
+  });
+
+  it('verifies the amendment untouched when the operator names no hold, byte for byte as before the flag', () => {
+    const human = amendmentRun();
+    expect(human.status).toBe(0);
+    expect(human.stderr).toBe('');
+    // Two rows copied out of the shipped build's own answer for these bytes: the removal this run reports is
+    // the removal a named hold would have suspended, so a run naming nothing has to print it untouched.
+    expect(human.stdout).toContain('  removed:          1 record(s): receipt-1');
+    expect(human.stdout).toContain('  survivors:        2 of 3 items, in the order the pack\'s links fix them');
+    expect(human.stdout).not.toContain('HOLD_REDACTION_REFUSED');
+    const json = verdictOf(amendmentRun([], true));
+    expect(json).toMatchObject({ ok: true, contentType: 'ashaveri/redaction', reader: 'verifyRedaction' });
+    expect((json.document as { removed: unknown }).removed).toEqual([AMENDMENT_REMOVAL.id]);
+  });
+
+  it('verifies the amendment where the named hold covers no stamp the amendment removes', () => {
+    // The window opens one second after the removed record's own chain stamp, so the hold is in force at the
+    // instant the removal was stated and reaches nothing this amendment names: the two questions the
+    // consultation asks stay separate, and only the covering one refuses.
+    const outside = holdFile(hold({ window: { from: AMENDMENT_REMOVAL.iat + 1, to: null } }));
+    const before = amendmentRun();
+    const after = amendmentRun([outside]);
+    expect(after.status, after.stdout).toBe(0);
+    expect(after.stderr).toBe('');
+    expect(after.stdout).toBe(before.stdout);
+  });
+
+  it('verifies the amendment where the hold was released at the instant the removal was stated', () => {
+    // A release stamp is exclusive at its own instant, so a hold released exactly when the amendment speaks is
+    // not in force then: the fold runs and the report reads as it does with no hold named at all.
+    const released = holdFile(hold({ released: AMENDMENT_REMOVAL.at }));
+    const result = amendmentRun([released]);
+    expect(result.status, result.stdout).toBe(0);
+    expect(result.stdout).toContain('  removed:          1 record(s): receipt-1');
+    expect(result.stdout).not.toContain('HOLD_REDACTION_REFUSED');
+  });
+
+  it('stops the run for a named hold file that yields no bytes, naming the path and the reason', () => {
+    const missing = join(mkdtempSync(join(tempDir, 'noholds-')), 'hold-v1.json');
+    const directory = join(mkdtempSync(join(tempDir, 'holddir-')), 'hold-v1.json');
+    mkdirSync(directory);
+    for (const path of [missing, directory]) {
+      const result = amendmentRun([path]);
+      expect(result.status, path).toBe(2);
+      expect(result.stderr, path).toContain('--hold-record names');
+      expect(result.stderr, path).toContain(path);
+      expect(result.stderr, path).toContain('no bytes could be read from it');
+      // The operator's file being unreadable is not a record under hold, so the two refusals stay tellable
+      // apart on the line: this one is about the call and answers exit 2, and no document was reported on.
+      expect(result.stderr, path).not.toContain('HOLD_REDACTION_REFUSED');
+      expect(result.stderr, path).not.toContain('unexpected error');
+      expect(result.stdout, path).toBe('');
+    }
+  });
+
+  it('stops the run for a named file that is not a hold record, naming the path and the reader\'s code', () => {
+    const notARecord = written('not-a-hold.json', 'not a hold record\n');
+    const otherVersion = written('hold-v2.json', `${JSON.stringify({ ...hold(), v: 2 }, null, 2)}\n`);
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      [notARecord, 'HOLD_RECORD_BAD_DOCUMENT'],
+      [otherVersion, 'HOLD_RECORD_UNSUPPORTED_VERSION'],
+    ];
+    for (const [path, code] of cases) {
+      const result = amendmentRun([path]);
+      expect(result.status, path).toBe(2);
+      expect(result.stderr, path).toContain('--hold-record names');
+      expect(result.stderr, path).toContain(path);
+      expect(result.stderr, path).toContain('not a hold record this command reads');
+      // The code travels on the line beside the reader's own sentence: a run that says only that the bytes are
+      // wrong leaves the operator to guess whether the file is malformed or written for a later format.
+      expect(result.stderr, path).toContain(`${code}: `);
+      expect(result.stderr, path).not.toContain('unexpected error');
+      expect(result.stdout, path).toBe('');
+    }
+  });
+
+  it('forwards every file the flag names, so the second record suspends what the first leaves open', () => {
+    // The first record is in force and reaches no stamp this amendment removes, the second reaches it exactly:
+    // a run that consulted only the first file it opened would report this removal as verified.
+    const outside = holdFile(hold({ window: { from: AMENDMENT_REMOVAL.iat + 1, to: null }, by: 'the unrelated deployer' }));
+    const first = holdFile(hold({ by: 'the first covering deployer' }));
+    const second = holdFile(hold({ at: AMENDMENT_REMOVAL.at - 30, by: 'the second covering deployer' }));
+    const refusal = verdictOf(amendmentRun([outside, first], true));
+    expect(refusal).toMatchObject({ ok: false, code: 'HOLD_REDACTION_REFUSED' });
+    expect(String(refusal.message)).toContain('"the first covering deployer"');
+    expect(String(refusal.message)).not.toContain('the unrelated deployer');
+
+    // Two records that both cover name the one the reader reached first, in the order the operator typed it:
+    // the consultation stops there, so a caller that sorted or truncated the list it forwards would move which
+    // instruction an operator reads beside the refusal without moving the refusal itself.
+    const typedFirst = verdictOf(amendmentRun([first, second], true));
+    expect(String(typedFirst.message)).toContain('"the first covering deployer"');
+    const typedSecond = verdictOf(amendmentRun([second, first], true));
+    expect(String(typedSecond.message)).toContain('"the second covering deployer"');
   });
 });
 

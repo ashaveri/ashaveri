@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import {
   ANCHOR_LEDGER_CONTENT_TYPE,
@@ -16,6 +16,7 @@ import {
   RECEIPT_CONTENT_TYPE,
   REDACTION_CONTENT_TYPE,
   decodeCanonical,
+  parseHoldRecord,
   ReceiptError,
   sha256Hex,
   verifyEpochInventory,
@@ -24,6 +25,7 @@ import {
   verifyReceipt,
   verifyRedaction,
   type EpochInventoryPack,
+  type HoldRecord,
   type VerifiedEpochInventory,
   type VerifiedExport,
   type VerifiedPack,
@@ -170,6 +172,12 @@ export interface VerifyHandoverFlags extends CarriedFlagValues {
    * states which artifacts belong to the run.
    */
   'retention-dir'?: string;
+  /**
+   * The hold record files this run must consult, one per flag, consulted by the amendment reading alone. There
+   * is no default: a run given no value for this flag reads no file and consults nothing, which is what every
+   * handover verification did before the flag existed.
+   */
+  'hold-record'?: string[];
   json?: boolean;
 }
 
@@ -264,6 +272,11 @@ interface Inputs {
   readonly companions: ReadonlyMap<string, Uint8Array>;
   /** What `--retention-dir` named, or null when the caller named nothing; see `possessionArtifacts`. */
   readonly retentionRoot: string | null;
+  /**
+   * What `--hold-record` named, read and parsed at the instant the run started; see `holdRecordsNamed`.
+   * Empty is the statement that the operator named no hold, and the amendment reading then consults nothing.
+   */
+  readonly holds: readonly HoldRecord[];
   /** What this run was handed about the material a pack carries: the roots and the question. */
   readonly carried: CarriedDesignations;
 }
@@ -1119,6 +1132,11 @@ function readRedaction(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Read
     resolveKey: resolveEvidence(inputs.evidence),
     // An absent pack travels on as absent rather than being refused in this file: see `handedPack`.
     packBytes: packBytes as Uint8Array,
+    // The records the operator named, in the order they were named. An empty list is what a run handed no
+    // flag forwards, and the reader weighs nothing for it, so the reading stays the one this command gave
+    // before the flag existed. A refusal the consultation reaches is the reader's own sentence about the
+    // amendment and the hold, and it arrives here as this command's redaction refusal in both renderings.
+    holds: inputs.holds,
   });
   const { manifest, outcome } = verified;
   return {
@@ -1553,6 +1571,50 @@ async function companionFiles(paths: readonly string[] | undefined): Promise<Rea
 }
 
 /**
+ * The hold records the named files carry, read at the instant the run starts.
+ *
+ * There is no default path for a hold, so a run given no flag reads no file and the amendment reading consults
+ * nothing, which is what this command did before the flag existed. A file the operator did name is their own
+ * statement of what suspends a removal, and a run that reported an amendment as verified without weighing it
+ * against that statement would answer a question the operator had just qualified. Absence and unreadability
+ * therefore refuse under one hand, carrying the operating system's own sentence, which is what tells the
+ * operator which of the two they typed; bytes that do not parse refuse with the reader's code beside its
+ * sentence, because a malformed document and a document written for a later version need different answers.
+ * The two refusals are worded as `accesslog.ts` words the same flag's at the erasure door, one closing clause
+ * apart, so this package's two doors say the same thing about the operator's file, and both stop the run as a
+ * usage refusal rather than reporting a document they could not weigh.
+ *
+ * One path text is read once however many times it was typed, because two occurrences name one instruction and
+ * the same bytes. The dedupe is of the text as typed and not of the file behind it, and the records travel to
+ * the reader in the order they were named, which is the order the consultation weighs them and so the order the
+ * refusal names one record in.
+ */
+async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<HoldRecord[]> {
+  const holds: HoldRecord[] = [];
+  for (const path of new Set(paths ?? [])) {
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(path);
+    } catch (error) {
+      throw new UsageError(
+        `--hold-record names '${path}' and no bytes could be read from it: ${error instanceof Error ? error.message : String(error)}, so a run whose operator named a hold record reads it rather than answer the amendment without it`,
+      );
+    }
+    try {
+      holds.push(parseHoldRecord(bytes));
+    } catch (error) {
+      if (error instanceof ReceiptError) {
+        throw new UsageError(
+          `--hold-record names '${path}' and its bytes are not a hold record this command reads: ${error.code}: ${error.message}`,
+        );
+      }
+      throw error;
+    }
+  }
+  return holds;
+}
+
+/**
  * The bytes of exactly one named document, and the one input shape refused on principle.
  *
  * A directory is a bundle, and a bundle arrives under the rules that govern a substituted root: which
@@ -1708,6 +1770,10 @@ export async function runVerifyHandover(
   const evidence = designatedKeys(values.key, KEY_FLAG);
   const manifestKeys = designatedKeys(values['manifest-key'], MANIFEST_KEY_FLAG);
   const companions = await companionFiles(values.companion);
+  // Read with the other files this run was handed, before the document is opened: a hold the operator named is
+  // a qualifier on the answer, and a run that read the document first would report on the amendment and only
+  // then notice it could not weigh it.
+  const holds = await holdRecordsNamed(values['hold-record']);
   const json = values.json === true;
   const carried = await carriedDesignations(values);
   // An empty root is refused as the gap in the call it is, the way an empty `--companion` basename is: it would
@@ -1722,7 +1788,7 @@ export async function runVerifyHandover(
   // Nothing is opened here: a root is a name until the reader for an inventory needs it, so handing this flag to
   // a receipt costs that run nothing beyond the row that says it was not consulted.
   const retentionRoot = retentionDir ?? null;
-  const inputs: Inputs = { evidence, manifest: manifestKeys, companions, retentionRoot, carried };
+  const inputs: Inputs = { evidence, manifest: manifestKeys, companions, holds, retentionRoot, carried };
   const bytes = await readOneDocument(path);
 
   let contentType: string | null = null;

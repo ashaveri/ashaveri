@@ -746,6 +746,20 @@ rule, in the limits sentence every hold record states verbatim: it is the deploy
 preserve and not a legal determination, and which duty an instruction answers to is settled outside this
 software.
 
+`ashaveri verify-handover` is the shipped caller that opens files for the redaction reader. Its `--hold-record`
+names the files it reads as it starts and hands to `verifyRedaction` beside the pack, one record per flag, and
+the reader then weighs each record the amendment removes against those holds: an amendment whose removal is
+covered by a hold answers `HOLD_REDACTION_REFUSED`, naming the removed record and that hold's issue stamp and
+author, in the same report shape the amendment's other refusals arrive in and with no reading of the pack
+printed beside it. The instant that consultation weighs at is the amendment's own `at`, the instant the removal
+was stated, and not the operator's clock: a hold issued after the statement does not rewrite the history of a
+removal already stated, and a hold released after it still covers the removal stated while it was on, which is
+what makes this door a finding about two documents rather than an answer about the day the review was run. A
+verification naming no `--hold-record` consults nothing and reads the amendment exactly as it did before the
+flag existed; a file that flag does name, and that cannot be read or does not parse, stops the run naming the
+path and the reason, because the operator pointed at an instruction and a report written around it would state
+a verification that ignored it.
+
 The direction of the default is the deployer's duties being longer than the window rather than
 shorter. Nothing in the writer bounds the total size of that window: the 32 MiB figure is a per-file
 part size, so a busy deployment grows in parts and the volume the log sits on is the real limit.
