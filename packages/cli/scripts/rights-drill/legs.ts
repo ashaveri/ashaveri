@@ -351,10 +351,14 @@ export async function legQuiesced(run: Run): Promise<LegOutcome> {
  * Leg three: erase while the served path is live, so the volume and what the deployment answered for
  * have to be reconciled rather than assumed.
  *
- * A peer's requests keep arriving across the socket while the erasure runs as a child process. Two things
- * could go quietly here and both are checked: an append landing between the scrub's last look and its
- * rename would cost a served request its line, and an erasure aimed at one subject that also reached
- * another's lines shows in the counts taken off the volume afterwards.
+ * The erasure runs, empties the subject's lines, sheds no request and files its marker, and every one of
+ * those is checked here. What is not built is the reconciliation. A peer's request that arrives between
+ * the door's last look at a part and the rename that follows it is written through a handle to bytes the
+ * rename has just set aside, and the door's own help says so: records that leave that way "appear in no
+ * count and under no digest, and no marker discloses them", and the operator is told to run it against a
+ * deployment that is not serving. So the agreed numbers are recorded every run rather than promised, and
+ * the row is NOT BUILT until something turns the promise into a mechanism. The direction that can never
+ * happen, a line on the volume that no answered request explains, is asserted every run.
  */
 export async function legCoordinated(run: Run): Promise<LegOutcome> {
   const checks: Check[] = [];
@@ -400,11 +404,21 @@ export async function legCoordinated(run: Run): Promise<LegOutcome> {
 
   const after = await readVolume(booted.logDir);
   checks.push(lit('the subject lines left on the volume', '0', String(after.of(subject.credential)), after.of(subject.credential) === 0));
-  const servedPeers = peerBefore.length + live.filter((one) => one.status === 200).length;
-  checks.push(lit('the peer lines on the volume against the peer requests answered', String(servedPeers), String(after.of(peer.credential)), after.of(peer.credential) === servedPeers));
   checks.push(lit('no request was shed by the erasure', '24 answers of status 200', `${String(live.length)} answers, ${String(live.filter((one) => one.status !== 200).length)} not 200`, live.length === 24 && live.every((one) => one.status === 200)));
   const receipts = live.filter((one) => one.receiptId !== null).length;
   checks.push(lit('every live answer carried a receipt id', '24', String(receipts), receipts === 24));
+
+  const answered = peerBefore.length + live.filter((one) => one.status === 200).length;
+  const onVolume = after.of(peer.credential);
+  checks.push(check('a line on the volume no answered request explains', 'never more than one per answer', `${String(onVolume)} lines for ${String(answered)} answers`, onVolume <= answered));
+  const reconciliation = onVolume === answered ? 'agreed this run' : `${String(answered - onVolume)} answered request(s) hold no line on the volume`;
+  notes.push(`reconciliation of the peer's lines against its answered requests: ${reconciliation}`);
+  notes.push('a run that agrees does not prove the case: the loss is a window between the door\'s read and its rename, and the door says so in its own help');
+
+  const help = await run.shipped(['--help']);
+  commands.push(help.command);
+  const states = help.stdout.includes('Run it against a deployment that is not serving.');
+  checks.push(check('what the shipped door says about a serving deployment', 'its help tells the operator not to', `exit ${help.status}, sentence ${states ? 'present' : 'absent'}`, help.status === 0 && states));
 
   let own = 0;
   for (const id of subjectIds.slice(0, 3)) {
@@ -416,19 +430,22 @@ export async function legCoordinated(run: Run): Promise<LegOutcome> {
     if ((await served(booted.port, 'GET', `/v1/receipts/${id}`, peer.token)).status === 404) refused += 1;
   }
   checks.push(lit('and another subject cannot read them', '3 refused as 404', `${String(refused)} of 3 refused`, refused === 3));
-  notes.push(`the access log after the erasure holds ${String(after.lines)} lines in ${String(after.names.filter((name) => name.startsWith('access-')).length)} part file(s), of which ${String(after.of(peer.credential))} name the peer and ${String(after.of(subject.credential))} name the erased subject`);
+  notes.push(`the access log after the erasure holds ${String(after.lines)} lines in ${String(after.names.filter((name) => name.startsWith('access-')).length)} part file(s), of which ${String(onVolume)} name the peer and ${String(after.of(subject.credential))} name the erased subject`);
   await shutdown(booted);
 
   return {
     leg: 3,
     name: 'coordinated erasure',
-    summary: 'the scrub and the serving path agreed on every line',
-    built: true,
-    verdict: 'EXERCISED',
+    summary: 'the erasure runs against a live log; nothing reconciles it with the writer',
+    built: false,
+    verdict: 'NOT BUILT',
     checks,
     commands,
     notes,
-    missing: [],
+    missing: [
+      'a reconciliation between an erasure that republishes a part by rename and the writer appending to that part: the door states that a record landing between its read and its rename appears in no count and under no digest',
+      'a receipt that accounts for every record the deployment answered for, so a reader can tell a cleared subject from a lost append',
+    ],
   };
 }
 

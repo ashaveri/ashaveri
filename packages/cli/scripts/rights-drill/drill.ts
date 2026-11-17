@@ -42,7 +42,7 @@ import {
 const LEGS: readonly { leg: number; built: boolean }[] = [
   { leg: 1, built: false },
   { leg: 2, built: true },
-  { leg: 3, built: true },
+  { leg: 3, built: false },
   { leg: 4, built: true },
   { leg: 5, built: true },
   { leg: 6, built: false },
@@ -53,18 +53,20 @@ interface Options {
   keep: boolean;
   step: boolean;
   help: boolean;
+  only: number[] | null;
 }
 
 const USAGE = `usage: node scripts/rights-drill/drill.ts [options]
 
   --record <file>   Where to write the full record. Default: a file in the system temporary directory.
   --keep            Leave the run's temporary store on the volume and print its path.
+  --only <legs>     Comma-separated leg numbers to run, in order. Default: all six.
   --step            Wait for a keypress between legs. Only on a terminal: a piped or CI run never waits.
   --help            Print this and exit 0.
 `;
 
 function parseArgs(argv: readonly string[]): Options {
-  const options: Options = { record: null, keep: false, step: false, help: false };
+  const options: Options = { record: null, keep: false, step: false, help: false, only: null };
   for (let at = 0; at < argv.length; at += 1) {
     const flag = argv[at];
     if (flag === '--help' || flag === '-h') options.help = true;
@@ -74,6 +76,14 @@ function parseArgs(argv: readonly string[]): Options {
       const value = argv[at + 1];
       if (value === undefined || value.startsWith('--')) throw new Error('drill: --record wants a file path');
       options.record = resolve(value);
+      at += 1;
+    } else if (flag === '--only') {
+      const value = argv[at + 1];
+      const legs = (value ?? '').split(',').map((one) => Number(one.trim()));
+      if (legs.length === 0 || legs.some((one) => !Number.isInteger(one) || one < 1 || one > ORDER.length)) {
+        throw new Error(`drill: --only wants leg numbers from 1 to ${String(ORDER.length)}`);
+      }
+      options.only = legs;
       at += 1;
     } else {
       throw new Error(`drill: unexpected argument '${String(flag)}'`);
@@ -142,6 +152,21 @@ function printTable(legs: readonly LegOutcome[]): void {
   }
 }
 
+/**
+ * The legs in the order they run, each labelled with what the pause before it is called.
+ *
+ * One leg at a time is selectable, because a leg that has to be read on a screen next to a failing check
+ * is a leg somebody has to be able to run alone, and the whole drill otherwise boots a gateway.
+ */
+const ORDER: readonly { leg: number; pauseBefore: string; run: (run: Run) => Promise<LegOutcome> }[] = [
+  { leg: 1, pauseBefore: '', run: legSubjectAccess },
+  { leg: 2, pauseBefore: 'the quiesced erasure', run: legQuiesced },
+  { leg: 3, pauseBefore: 'the coordinated erasure', run: legCoordinated },
+  { leg: 4, pauseBefore: 'the hold conflict', run: legHoldConflict },
+  { leg: 5, pauseBefore: 'the restore', run: legRestore },
+  { leg: 6, pauseBefore: 'the notification check', run: legNotification },
+];
+
 async function main(argv: readonly string[]): Promise<number> {
   const options = parseArgs(argv);
   if (options.help) {
@@ -168,17 +193,11 @@ async function main(argv: readonly string[]): Promise<number> {
   say(`temporary store: ${root}`);
 
   const legs: LegOutcome[] = [];
-  legs.push(await legSubjectAccess(run));
-  await pauseIfAsked(options.step, 'the quiesced erasure');
-  legs.push(await legQuiesced(run));
-  await pauseIfAsked(options.step, 'the coordinated erasure');
-  legs.push(await legCoordinated(run));
-  await pauseIfAsked(options.step, 'the hold conflict');
-  legs.push(await legHoldConflict(run));
-  await pauseIfAsked(options.step, 'the restore');
-  legs.push(await legRestore(run));
-  await pauseIfAsked(options.step, 'the notification check');
-  legs.push(await legNotification(run));
+  for (const entry of ORDER) {
+    if (options.only !== null && !options.only.includes(entry.leg)) continue;
+    if (entry.pauseBefore.length > 0) await pauseIfAsked(options.step, entry.pauseBefore);
+    legs.push(await entry.run(run));
+  }
 
   const settled = legs.map((leg) => ({ ...leg, verdict: verdictOf(leg, (LEGS.find((one) => one.leg === leg.leg) ?? { built: leg.built }).built) }));
   printTable(settled);
