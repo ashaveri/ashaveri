@@ -620,13 +620,24 @@ all gone is removed rather than renamed, and pruning collects it by name alone.
 
 A hold reaches both of those through the readers that consult it, and reaches neither through a number. The
 day sweep keeps whole a part whose name-day overlaps an active hold, so the expiry that would have deleted
-that day deletes none of it, and the records it weighs are the ones that run read from the files
+that day deletes none of it, and the records it weighs are the ones the gateway read from the files its own
 `--hold-record` named. `refuseErasureUnderHold` weighs the holds its own caller hands it rather than files it
 opens: an erasure call that hands it records is answered `HOLD_ERASURE_REFUSED` for a credential an active
 hold names, or for any credential where the hold names none, before that call moves a byte, and it weighs the
 credential rather than the window there, because an erasure takes all of a credential's material at once and
-a hold over it suspends the whole of it rather than a slice. Neither suspension states a period: a hold
-instructs that material be kept, and section 8.2 states what a deployment still configures while it does.
+a hold over it suspends the whole of it rather than a slice.
+
+`ashaveri accesslog scrub` is that erasure call, and its `--hold-record` is the only way a hold reaches it.
+The files that flag names are read at the instant the command runs and handed to the consultation above
+before the log directory is listed, so the refusal arrives naming the credential and the hold's issue stamp
+and the author who issued it while every part still holds what it held and no marker has been filed. A run
+whose operator named nothing consults nothing: there is no default path for a hold, and an erasure is not to
+go looking for an instruction nobody gave it. A hold that names no credential suspends every credential,
+which is what such a record states rather than what a reader assumes of it. A file the flag names that this
+program cannot read, or cannot parse, is refused naming that path and the reason it could not be used: the
+operator pointed at a document, and a run that erased as though no document existed would be answering a
+question nobody asked. None of this states a period: a hold instructs that material be kept, and section 8.2
+states what a deployment still configures while it does.
 
 ## 8. Retention, erasure, and who decides
 
@@ -762,7 +773,9 @@ a shorter number.
 
 ### 8.3 What erasure achieves, and its limit
 
-A scrub removes a credential's lines and files a marker. Section 7 explains what a marker is for. The
+A scrub removes a credential's lines and files a marker. Section 7 explains what a marker is for. A run
+that an active hold suspends does neither, because that question is weighed before the directory is
+listed: the volume keeps every byte and no receipt is filed for an erasure that did not happen. The
 limit: these records are the deployer's, and the deployer's lawful basis is the one that runs here,
 whether the deployer acts as controller or as processor. This document is written so that it holds in
 either case; that dual usability is a property of the text, chosen deliberately. The place a

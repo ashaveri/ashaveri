@@ -52,7 +52,7 @@ Arguments:
   ashaveri credential revoke --credentials <file> --id <id> [--json]
   ashaveri credential list --credentials <file> [--json]
   ashaveri accesslog scrub --access-log <dir> --credential <id> [--now <iso>]
-                          [--request <ref>] [--json]
+                          [--request <ref>] [--hold-record <file>]... [--json]
 
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
   <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
@@ -461,6 +461,19 @@ Credential and log options:
                      asked; a removal with no reference beside it reads the same as one with no
                      authority. Up to 200 characters, kept trimmed, and stored as null when given
                      nothing, so a marker is always asked the question.
+  --hold-record <file>
+                     accesslog scrub: one file holding a hold record this run must consult before it
+                     erases anything. Repeatable, one record per flag, and read at the instant the
+                     command runs. There is no default path: name none and consult none, which is
+                     what this command did before the flag existed. A credential an active hold names
+                     is refused with HOLD_ERASURE_REFUSED, in the hold's own words, beside the issue
+                     stamp and the author that issued it, and the refusal is weighed before the log
+                     directory is listed, so no part is opened, no marker is filed and no byte
+                     moves. A hold that names no credential suspends every one of them. A file this
+                     flag names that is not there, cannot be read, or does not parse is refused by
+                     path and reason rather than treated as no hold at all. The gateway's flag of the
+                     same name feeds its own store and access log at start-up and reaches nothing
+                     here; this one reaches only this command.
   --id <id>          Credential id, [A-Za-z0-9_-]{1,64}. Defaults to pop-<8> or bearer-<8>,
                      the prefixes the gateway's own generator uses.
   --kind pop|bearer  credential add: proof of possession, or a bearer secret. Default pop.
@@ -496,10 +509,12 @@ Exit codes:
      met by the verb pinned to that type and read the same way, a credential added or
      revoked, a listing printed, a scrub run
   1  verification or a pin failed, or a command met an error it was not written to expect
-  2  usage or input error, including a credential file this program cannot parse. A scrub can exit 2
-     having already erased records, because its refusal comes after the parts it rewrote, and every
-     refusal route puts the numbers in the message: counted there directly, named in the marker it
-     points at, or, for a part it published and can no longer read, carried in that part's own sentence.
+  2  usage or input error, including a credential file this program cannot parse. A scrub refused by a
+     hold exits 2 having moved nothing, because that question is weighed before the directory is
+     listed. A scrub can also exit 2 having already erased records, because its refusal comes after
+     the parts it rewrote, and every refusal route puts the numbers in the message: counted there
+     directly, named in the marker it points at, or, for a part it published and can no longer read,
+     carried in that part's own sentence.
      None of them turns into an object under --json, which stays a refusal on stderr, so read
      a nonzero exit from there and not from stdout.`;
 
@@ -576,6 +591,7 @@ async function main(argv: string[]): Promise<number> {
         'access-log': { type: 'string' },
         credential: { type: 'string' },
         request: { type: 'string' },
+        'hold-record': { type: 'string', multiple: true },
         id: { type: 'string' },
         kind: { type: 'string' },
         scopes: { type: 'string' },

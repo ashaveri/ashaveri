@@ -1,6 +1,6 @@
 import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { sha256Hex } from '@ashaveri/receipt';
+import { ReceiptError, parseHoldRecord, refuseErasureUnderHold, sha256Hex, type HoldRecord } from '@ashaveri/receipt';
 import { publishNew, writeGuarded } from '../atomic.js';
 import { checkId } from '../records.js';
 import { escapeInvisibleJson, UsageError, writeJson } from '../usage.js';
@@ -91,12 +91,24 @@ export interface AccessLogFlags {
   'access-log'?: string;
   credential?: string;
   request?: string;
+  /**
+   * The hold record files this run must consult, one per flag. There is no default: a run given no
+   * value for this flag consults nothing, which is how the command behaved before it existed.
+   */
+  'hold-record'?: string[];
   json?: boolean;
 }
 
 export interface ScrubOptions {
   /** The request reference, validated by `runAccessLog`. Absent here means a marker with `null`. */
   request?: string | null;
+  /**
+   * The holds this erasure consults, in the order the operator named them. Absent means no hold is
+   * consulted at all, which is the whole behaviour the command had before the flag: an empty list and
+   * no list reach the same refusal rule, and neither opens a file on its own behalf. `runAccessLog`
+   * reads the named files; this option is the seam that lets a caller hand records over without a path.
+   */
+  readonly holds?: readonly HoldRecord[];
   /**
    * The directory listing the marker's slot search works from. This is a seam and not a setting: the
    * only way to make a listing stale on purpose inside one process is to hand one over, and a listing
@@ -126,6 +138,13 @@ export async function accesslogScrub(
   // otherwise be discovered after the erasure it is meant to record, which leaves the operator the
   // choice between a receipt nothing will collect and no receipt at all.
   const at = nowMillis();
+  // Weighed here, above the listing, because a refusal that arrives after `readdir` finds a directory
+  // already opened and a marker slot already searched: an erasure a hold suspends has to move nothing,
+  // and the only way to promise that is to ask before this run touches the volume. The hold's stamps are
+  // whole unix seconds and this clock is milliseconds, so the instant is floored into the hold's unit in
+  // this one place rather than at each comparison, and the conversion is one-way: the marker and the log
+  // lines keep `at` in milliseconds, so no figure anyone has persisted is restated here.
+  refuseErasureUnderHold(options.holds ?? [], credential, Math.floor(at / 1000));
   const day = markerDay(at);
   const names = await readdirOrThrow(dir);
   const targets = names.filter((each) => ACCESS_FILE.test(each)).sort();
@@ -691,7 +710,18 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, nowMill
   // Checked before any file is rewritten: this value comes back in the summary line and in the
   // marker, and an erasure whose own report can carry a forged line is a receipt that proves nothing.
   checkId(credential, '--credential');
-  const result = await accesslogScrub(dir, credential, nowMillis, { request: requestOf(flags.request) });
+  const holds = await holdRecordsNamed(flags['hold-record']);
+  let result: ScrubResult;
+  try {
+    result = await accesslogScrub(dir, credential, nowMillis, { request: requestOf(flags.request), holds });
+  } catch (error) {
+    // A hold's refusal is a `ReceiptError` carrying the code the operator has to read, and the
+    // top-level handler prints anything that is not a `UsageError` as an unexpected error, with a stack
+    // and an exit 1: a code nobody sees is not a named refusal, and an exit that is not 2 tells the
+    // caller the input was fine. Every other error keeps the route it already had.
+    if (error instanceof ReceiptError) throw new UsageError(`${error.code}: ${error.message}`);
+    throw error;
+  }
   if (flags.json === true) {
     writeJson(result);
     return 0;
@@ -724,4 +754,45 @@ function requestOf(raw: string | undefined): string | null {
     );
   }
   return trimmed;
+}
+
+/**
+ * The hold records the files name, read at the instant the command runs.
+ *
+ * There is no default path for a hold, so a run given no flag reads no file and consults nothing, which
+ * reproduces the behaviour this command has always had. A file the operator did name is a different
+ * matter: it is their own statement of what suspends the erasure, and a run that could not read it would
+ * be erasing on the assumption that nothing was. Absence and unreadability are refused under the same
+ * hand for that reason, and the operating system's own sentence, which is carried in the refusal, is
+ * what tells the operator which of the two they typed. The same rule holds for bytes that do not parse:
+ * this command reads the format through the reader that owns it and never around it, so a hold record at
+ * a version this package does not read is named by that version's code rather than erased over.
+ *
+ * One path is read once however many times it was typed, because two occurrences name one instruction
+ * and the same bytes, and a consultation that counted one deployment's hold twice would state the same
+ * suspension twice without adding anything to it.
+ */
+async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<HoldRecord[]> {
+  const holds: HoldRecord[] = [];
+  for (const path of new Set(paths ?? [])) {
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(path);
+    } catch (error) {
+      throw new UsageError(
+        `--hold-record names '${path}' and no bytes could be read from it: ${reasonOf(error)}, so a run whose operator named a hold record reads it or refuses to erase`,
+      );
+    }
+    try {
+      holds.push(parseHoldRecord(bytes));
+    } catch (error) {
+      if (error instanceof ReceiptError) {
+        throw new UsageError(
+          `--hold-record names '${path}' and its bytes are not a hold record this command reads: ${error.code}: ${error.message}`,
+        );
+      }
+      throw error;
+    }
+  }
+  return holds;
 }
