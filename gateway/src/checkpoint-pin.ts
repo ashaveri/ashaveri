@@ -76,13 +76,28 @@ function pinBody(pin: Omit<HeadPin, 'signature'>): Buffer {
  * to whether a pin is independent.
  */
 export function pinKeyId(publicKey: string): string {
-  const jwk = createPublicKey(publicKey).export({ format: 'jwk' });
+  const jwk = createPublicKey(publicKey).export({ format: 'jwk' }) as { x?: string };
+  if (typeof jwk.x !== 'string') {
+    throw new HeadPinError('PIN_FORM', 'the key handed over is not an Ed25519 key this reader can name');
+  }
   return rawPinKeyId(jwk.x);
 }
 
 /** The identity of a raw Ed25519 public key, given as base64url, which is how a manifest publishes one. */
 export function rawPinKeyId(publicKeyBase64Url: string): string {
   return createHash('sha256').update(Buffer.from(publicKeyBase64Url, 'base64url')).digest('hex');
+}
+
+/**
+ * The PEM a raw Ed25519 public key corresponds to, so a verifier can weigh a key a manifest published.
+ *
+ * A deployment publishes the raw 32 bytes; a signature is checked against a key object, and the two have to
+ * name one key. A reader that could not make that step could not ask whether a pin came from the key the
+ * deployment says signs its receipts.
+ */
+export function pinPublicKeyOfRaw(publicKeyBase64Url: string): string {
+  const der = Buffer.from(`302a300506032b6570032100${Buffer.from(publicKeyBase64Url, 'base64url').toString('hex')}`, 'hex');
+  return createPublicKey({ key: der, format: 'der', type: 'spki' }).export({ type: 'spki', format: 'pem' }).toString();
 }
 
 /** A fresh pinning key. Callers generate it where the issuance keys cannot reach it. */
