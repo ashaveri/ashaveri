@@ -5,6 +5,7 @@ import {
   RECEIPTS_EDGE,
   daysToSeconds,
   decideDutyWindow,
+  holdWindowNote,
   judgeWindow,
 } from '../src/duty-window.js';
 import type { CustomerInstructionRecord } from '../src/instruction-record.js';
@@ -133,5 +134,72 @@ describe('a window weighed against the record the deployment wrote', () => {
     if (!judge.refused) throw new Error('a window shorter than a stated two years was not refused');
     expect(judge.message).toContain('states 730 days as the period this deployment owes');
     expect(judge.message).not.toContain(`${MINIMUM_RETENTION_DAYS} days as the period`);
+  });
+});
+
+/**
+ * The hold note one edge prints beside its judgement.
+ *
+ * A hold is a deployment's instruction to keep, and a window is a deployment's instruction about how
+ * long it keeps: the two are stated apart and this file weighs only one pairing of numbers, so what a
+ * hold may add to an edge is a sentence beside the verdict and nothing inside it. These cases hold the
+ * sentence's own wording and the fact that the verdict does not move, which is the half of the contract
+ * that says a hold never silently extends a period a deployment stated and never answers a shortfall.
+ */
+describe('the hold note beside a window', () => {
+  const held = { path: 'hold-incident-7.json', digestHex: 'cd'.repeat(32) };
+
+  it('states that held records are kept past the window named, and that neither number moves', () => {
+    // The sentence is pinned whole rather than searched for fragments: the wording is the claim, and an
+    // edit that folded the shortfall away or widened the stated period would still leave every fragment
+    // this case could match on.
+    expect(holdWindowNote(held, daysToSeconds(90))).toBe(
+      `records under the hold at ${held.path} sha256 ${held.digestHex} are kept past the ${String(
+        daysToSeconds(90),
+      )} seconds this run configures while that hold is in force, and the hold changes neither that window ` +
+        'nor the period this deployment stated: it answers no shortfall',
+    );
+  });
+
+  it('names nothing when no hold is in force', () => {
+    expect(holdWindowNote(null, daysToSeconds(90))).toBeNull();
+  });
+
+  it('names one record per call, so a caller handed two in-force records says two sentences', () => {
+    // The sentence is about one hold's bytes and one window, which is what lets it be honest about both.
+    // A deployment running two matters suspends that window twice, so the enumeration belongs to the
+    // caller: neither of these two lines names the other, and a line that named only one of two would
+    // read to an operator who handed both as the whole answer.
+    const other = { path: 'hold-incident-8.json', digestHex: 'ef'.repeat(32) };
+    const first = holdWindowNote(held, daysToSeconds(90)) ?? 'nothing';
+    const second = holdWindowNote(other, daysToSeconds(90)) ?? 'nothing';
+    expect(first).toContain(held.path);
+    expect(first).not.toContain(other.path);
+    expect(second).toContain(other.path);
+    expect(second).not.toContain(held.path);
+    expect(second).not.toBe(first);
+    // Asked twice, and still only beside the pairing: two notes move neither number.
+    expect(judgeWindow(RECEIPTS_EDGE, 90, record({}), MINIMUM_RETENTION_DAYS).refused).toBe(true);
+  });
+
+  it('leaves a window shorter than the stated period refused with the identical sentence beside an active hold', () => {
+    // The note is asked before the pairing, so what a row can fail is a note that reaches the verdict. The
+    // refusal is pinned whole, because "identical" here means the sentence this edge has always said: the
+    // same shortfall and the same remedy, whichever hand holds a hold record. What the note may not do is
+    // quote the stated period as though it had been met, which the two absences below measure. That a hold
+    // moves no number inside the verdict is the `judgeWindow` rows above, weighed with no note asked at
+    // all, and repeating that call twice here would compare one pure reading with itself.
+    const note = holdWindowNote(held, daysToSeconds(90));
+    if (note === null) throw new Error('an active hold handed the edge produced no note');
+    const judge = judgeWindow(RECEIPTS_EDGE, 90, record({}), MINIMUM_RETENTION_DAYS);
+    if (!judge.refused) throw new Error('a receipts window shorter than the stated period was not refused');
+    expect(judge.message).toBe(
+      `--receipts-days gives the receipts store 90 days and ${path} states 184 days as the period this ` +
+        'deployment owes, so the window named at start-up is shorter than the period its own instruction ' +
+        'record states; name --receipts-days 184 or more, or point --instruction-record at the record this ' +
+        'deployment wrote',
+    );
+    expect(note).not.toContain('184');
+    expect(note).not.toContain('so the shortfall is answered');
   });
 });

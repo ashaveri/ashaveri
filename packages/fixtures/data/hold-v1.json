@@ -1,0 +1,596 @@
+{
+  "version": 1,
+  "description": "The hold record beside the receipts it asks to be kept: the layout its strict reader reads, one edit of the writer's own bytes per refusal, and the answers the three shipped consultation doors give the calls these rows state. The record is unsigned, so this family needs no key material and publishes none: a hold's bytes are the whole of what a reader is handed, and its trust arrives from whoever hands them over beside the receipts it speaks of. Every row but `hold-unknown-provenance-v1` carries `prov: fixture` and speaks of fixture material; that one row is refused precisely because its label is outside the three the vocabulary holds, so it states no provenance this family claims. The window the accepted records carry covers the instant the published receipt fixtures are issued at, so a coverage row can be read against a stamp this repository already publishes. The layout rows state the verdict `parseHoldRecord` answers for the bytes beside them, and because this layout names no pointer registry those are the only two codes a document is refused with: `HOLD_RECORD_UNSUPPORTED_VERSION` for a version no layout reads and `HOLD_RECORD_BAD_DOCUMENT` for every structural fault. The consultation rows state which door answered, the holds it was handed as the bytes it is given, the call, and the answer the shipped door gave: erasure states `verify-ok` where no instruction suspends the call and `HOLD_ERASURE_REFUSED` where one does, active states `active` or `inactive`, coverage states `covers` or `does-not-cover`. Two pairs are published as pairs because each half is unreadable without the other: the reach measured at one second either side of a bound that a reader can leave out, and the one hold whose window the erasure arm declines to weigh while the coverage arm reads it and answers the other way.",
+  "rule": {
+    "registry": "docs/receipt-spec.md section 4.10",
+    "reader": "parseHoldRecord in @ashaveri/receipt",
+    "writer": "holdRecordBytes in @ashaveri/receipt",
+    "consultations": {
+      "active": "holdActiveAt in @ashaveri/receipt",
+      "coverage": "holdCoversStamp in @ashaveri/receipt",
+      "erasure": "refuseErasureUnderHold in @ashaveri/receipt"
+    },
+    "doors": "The door column names which of the three answered a row. Erasure takes the list of holds, a credential and an instant, and states verify-ok or HOLD_ERASURE_REFUSED. Active takes one record and an instant, and states active or inactive. Coverage takes one record, the stamp of a record and the instant it is weighed at, and states covers or does-not-cover. A non-refusal answer is a word rather than a code because a reach is neither accepted nor refused.",
+    "versions": [
+      1
+    ],
+    "members": [
+      "v",
+      "prov",
+      "at",
+      "by",
+      "window",
+      "credentials",
+      "reason",
+      "released",
+      "limits"
+    ],
+    "windowMembers": [
+      "from",
+      "to"
+    ],
+    "limits": "This record is the deployment's own instruction to preserve, not a legal determination. It suspends erasure and expiry only in readers that consult it, and changes no period the deployment stated. Notification deadlines remain the deployment's own process obligations.",
+    "textMaxUnits": 400,
+    "instants": {
+      "issue": 1772000000,
+      "windowFrom": 1771913600,
+      "windowTo": 1772086400,
+      "released": 1772000100,
+      "receiptFixtureStamp": 1772000000,
+      "note": "Unix seconds. The issue stamp is the instant every published receipt fixture is issued at, the window reaches one day either side of it, and the release is one hundred seconds after the issue, which is the span the three rows around a boundary are measured across. Nothing here is a deployment's date: these are fixture instants, stated so a port can hand its own reader the same numbers."
+    },
+    "unsigned": "A hold record carries no signature, as the disclosure record and the model inventory carry none. No row of this family is sealed, no key is published beside one, and no digest of a record is claimed by anything here: what a reader weighs is the layout and the consultation, and the export container is what carries these bytes as evidence under its own signature.",
+    "encodings": "byte strings unpadded base64url, instants whole numbers of unix seconds"
+  },
+  "vectors": [
+    {
+      "name": "hold-fixture-v1",
+      "note": "A whole record: issued at the instant the published receipt fixtures are issued at, covering the window a day either side of it, naming two credentials, stating a reason in the deployer's own words, released at nothing, and closing with the format's limits sentence verbatim. These are the bytes every refusal row below edits one position of.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 680
+    },
+    {
+      "name": "hold-covers-every-credential-v1",
+      "note": "A record leaving the credentials member off and opening its window with no end: `to` is null and `credentials` is absent, which are the layout's two statements of an open reach. The member is the one a record may omit, and an omission is read here rather than defaulted, so the writer emits no empty list for it and the reader below refuses one.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IG51bGwKICB9LAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 596
+    },
+    {
+      "name": "hold-released-v1",
+      "note": "A record that released itself one hundred seconds after it was issued. A release is a value the same member carries as an open hold's null, so the accepted shape of a closed hold is published beside the open one rather than left for a port to infer from a refusal row.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 686
+    },
+    {
+      "name": "hold-reason-at-width-limit-v1",
+      "note": "A record whose reason is exactly 400 units wide, the ceiling this layout states for every authored text member. The row is the measured half of the bound: the width is the number the rule block publishes, and the accepted bytes beside the refusal one unit wider are what say so.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiQSBmaXh0dXJlIHJlYXNvbiBwYWRkZWQgdG8gdGhlIHdpZGVzdCBhdXRob3JlZCB0ZXh0IHRoaXMgbGF5b3V0IHJlYWRzOiBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcCIsCiAgInJlbGVhc2VkIjogbnVsbCwKICAibGltaXRzIjogIlRoaXMgcmVjb3JkIGlzIHRoZSBkZXBsb3ltZW50J3Mgb3duIGluc3RydWN0aW9uIHRvIHByZXNlcnZlLCBub3QgYSBsZWdhbCBkZXRlcm1pbmF0aW9uLiBJdCBzdXNwZW5kcyBlcmFzdXJlIGFuZCBleHBpcnkgb25seSBpbiByZWFkZXJzIHRoYXQgY29uc3VsdCBpdCwgYW5kIGNoYW5nZXMgbm8gcGVyaW9kIHRoZSBkZXBsb3ltZW50IHN0YXRlZC4gTm90aWZpY2F0aW9uIGRlYWRsaW5lcyByZW1haW4gdGhlIGRlcGxveW1lbnQncyBvd24gcHJvY2VzcyBvYmxpZ2F0aW9ucy4iCn0K",
+      "recordByteLength": 948
+    },
+    {
+      "name": "hold-reason-one-unit-wide-v1",
+      "note": "The row above with one character added to its reason, 401 units at one position and nothing else moved. A text bound is worth nothing unless it refuses at the step past it, and a reader that truncates rather than refuses would accept a record whose printed row it had already shortened.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiQSBmaXh0dXJlIHJlYXNvbiBwYWRkZWQgdG8gdGhlIHdpZGVzdCBhdXRob3JlZCB0ZXh0IHRoaXMgbGF5b3V0IHJlYWRzOiBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHAiLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9Cg",
+      "recordByteLength": 949,
+      "fault": {
+        "at": "reason",
+        "states": "authored text 401 units wide against the 400 this layout holds"
+      }
+    },
+    {
+      "name": "hold-version-two-v1",
+      "note": "A record declaring a version nothing has published. The version is asked before any member is read, because which member list applies is the one question a wrong version cannot be talked out of, and this is the only refusal this layout answers with a code of its own.",
+      "expected": "HOLD_RECORD_UNSUPPORTED_VERSION",
+      "recordBase64Url": "ewogICJ2IjogMiwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 680,
+      "fault": {
+        "at": "v",
+        "states": "a version no layout this package reads defines"
+      }
+    },
+    {
+      "name": "hold-version-not-an-integer-v1",
+      "note": "A record spelling its version as text. The number is asked of a closed list, and a string that looks like one of its members is not that member: the answer is the malformed-document code rather than the unsupported-version one, because the reader never reaches the question of which layout applies.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogIjEiLAogICJwcm92IjogImZpeHR1cmUiLAogICJhdCI6IDE3NzIwMDAwMDAsCiAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIiwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImNyZWRlbnRpYWxzIjogWwogICAgImNyZWQtZml4dHVyZS1oZWxkIiwKICAgICJjcmVkLWZpeHR1cmUtZWxzZXdoZXJlIgogIF0sCiAgInJlYXNvbiI6ICJGaXh0dXJlIGhvbGQgb3ZlciB0aGUgbWF0ZXJpYWwgdGhlIHB1Ymxpc2hlZCByZWNlaXB0cyBhdHRlc3QsIGlzc3VlZCBzbyB0aGF0IHRoaXMgc3VpdGUgcmVhZHMgaXRzIG93biBieXRlcyBhZ2FpbnN0IGEgcnVsZSBpdCBzaGlwcy4iLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9Cg",
+      "recordByteLength": 682,
+      "fault": {
+        "at": "v",
+        "states": "a version spelled as text where the layout holds an integer"
+      }
+    },
+    {
+      "name": "hold-member-named-twice-v1",
+      "note": "The writer's bytes with the version member written a second time, the two spellings identical. A JSON parse would keep the last and say nothing while the bytes carry both, so the strict reading refuses the document while the characters are still distinguishable, and which spelling a caller meant stops being a question a reader answers by accident.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAidiI6IDEsCiAgInByb3YiOiAiZml4dHVyZSIsCiAgImF0IjogMTc3MjAwMDAwMCwKICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiLAogICJ3aW5kb3ciOiB7CiAgICAiZnJvbSI6IDE3NzE5MTM2MDAsCiAgICAidG8iOiAxNzcyMDg2NDAwCiAgfSwKICAiY3JlZGVudGlhbHMiOiBbCiAgICAiY3JlZC1maXh0dXJlLWhlbGQiLAogICAgImNyZWQtZml4dHVyZS1lbHNld2hlcmUiCiAgXSwKICAicmVhc29uIjogIkZpeHR1cmUgaG9sZCBvdmVyIHRoZSBtYXRlcmlhbCB0aGUgcHVibGlzaGVkIHJlY2VpcHRzIGF0dGVzdCwgaXNzdWVkIHNvIHRoYXQgdGhpcyBzdWl0ZSByZWFkcyBpdHMgb3duIGJ5dGVzIGFnYWluc3QgYSBydWxlIGl0IHNoaXBzLiIsCiAgInJlbGVhc2VkIjogbnVsbCwKICAibGltaXRzIjogIlRoaXMgcmVjb3JkIGlzIHRoZSBkZXBsb3ltZW50J3Mgb3duIGluc3RydWN0aW9uIHRvIHByZXNlcnZlLCBub3QgYSBsZWdhbCBkZXRlcm1pbmF0aW9uLiBJdCBzdXNwZW5kcyBlcmFzdXJlIGFuZCBleHBpcnkgb25seSBpbiByZWFkZXJzIHRoYXQgY29uc3VsdCBpdCwgYW5kIGNoYW5nZXMgbm8gcGVyaW9kIHRoZSBkZXBsb3ltZW50IHN0YXRlZC4gTm90aWZpY2F0aW9uIGRlYWRsaW5lcyByZW1haW4gdGhlIGRlcGxveW1lbnQncyBvd24gcHJvY2VzcyBvYmxpZ2F0aW9ucy4iCn0K",
+      "recordByteLength": 690,
+      "fault": {
+        "at": "record",
+        "states": "the member name v, stated twice in the file's own text"
+      }
+    },
+    {
+      "name": "hold-float-stamp-v1",
+      "note": "The issue stamp written as a fraction that equals the integer it imitates. By the time a field check could ask which spelling the writer chose the two are one JavaScript number, so the reading refuses the spelling rather than the value, and a stamp two documents disagree about in text alone stays a disagreement a reader sees.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLjAsCiAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIiwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImNyZWRlbnRpYWxzIjogWwogICAgImNyZWQtZml4dHVyZS1oZWxkIiwKICAgICJjcmVkLWZpeHR1cmUtZWxzZXdoZXJlIgogIF0sCiAgInJlYXNvbiI6ICJGaXh0dXJlIGhvbGQgb3ZlciB0aGUgbWF0ZXJpYWwgdGhlIHB1Ymxpc2hlZCByZWNlaXB0cyBhdHRlc3QsIGlzc3VlZCBzbyB0aGF0IHRoaXMgc3VpdGUgcmVhZHMgaXRzIG93biBieXRlcyBhZ2FpbnN0IGEgcnVsZSBpdCBzaGlwcy4iLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9Cg",
+      "recordByteLength": 682,
+      "fault": {
+        "at": "at",
+        "states": "a number written as a fraction where the layout holds an integer"
+      }
+    },
+    {
+      "name": "hold-unknown-member-v1",
+      "note": "A well-formed record carrying one member the top level does not define. The layout closes every map it declares, so an unknown member is a malformed document rather than a member a reader agreed to forget, and a hold that silently carried a fifth instruction would be read as the three doors this package ships.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIsCiAgImZ1dHVyZSI6ICJhIG1lbWJlciBubyB2ZXJzaW9uIG5hbWVzIgp9Cg",
+      "recordByteLength": 721,
+      "fault": {
+        "at": "record",
+        "states": "a top-level member the layout does not define"
+      }
+    },
+    {
+      "name": "hold-unknown-window-member-v1",
+      "note": "A record whose window block carries a member the window does not define, beside the two it does. The closure rule reaches the map inside the record and not only the record itself: a time zone stated beside a pair of unix seconds is a second answer to a question the layout already answered, and a reader cannot tell which end moved.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAsCiAgICAidHoiOiAiYSB6b25lIG5vIG1lbWJlciBvZiB0aGlzIGxheW91dCBob2xkcyIKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 731,
+      "fault": {
+        "at": "window",
+        "states": "a window member the layout does not define"
+      }
+    },
+    {
+      "name": "hold-reason-withheld-v1",
+      "note": "A record with its reason member left out. Every member but credentials is required, and the reason is the one a reviewer of a suspension reads first: a hold that states nothing about why it exists is a document a reader would have to supply a purpose to.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9Cg",
+      "recordByteLength": 532,
+      "fault": {
+        "at": "reason",
+        "states": "the member the layout requires and these bytes leave out"
+      }
+    },
+    {
+      "name": "hold-window-closes-before-opens-v1",
+      "note": "A record whose window ends before it starts. Both ends are inside one document, so the disagreement is a fault of the layout rather than a finding about the matter, and a window nothing can fall inside would read as a hold covering no records while stating it covers some.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzE5MTM1OTkKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 680,
+      "fault": {
+        "at": "window.to",
+        "states": "a window end before the window start beside it"
+      }
+    },
+    {
+      "name": "hold-negative-stamp-v1",
+      "note": "A record opening its window at one second before the unix epoch. Every stamp is a whole number of unix seconds no smaller than zero, and a negative reach is refused rather than read as an open start, because the layout already states an open start as a null at the other end.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogLTEsCiAgICAidG8iOiAxNzcyMDg2NDAwCiAgfSwKICAiY3JlZGVudGlhbHMiOiBbCiAgICAiY3JlZC1maXh0dXJlLWhlbGQiLAogICAgImNyZWQtZml4dHVyZS1lbHNld2hlcmUiCiAgXSwKICAicmVhc29uIjogIkZpeHR1cmUgaG9sZCBvdmVyIHRoZSBtYXRlcmlhbCB0aGUgcHVibGlzaGVkIHJlY2VpcHRzIGF0dGVzdCwgaXNzdWVkIHNvIHRoYXQgdGhpcyBzdWl0ZSByZWFkcyBpdHMgb3duIGJ5dGVzIGFnYWluc3QgYSBydWxlIGl0IHNoaXBzLiIsCiAgInJlbGVhc2VkIjogbnVsbCwKICAibGltaXRzIjogIlRoaXMgcmVjb3JkIGlzIHRoZSBkZXBsb3ltZW50J3Mgb3duIGluc3RydWN0aW9uIHRvIHByZXNlcnZlLCBub3QgYSBsZWdhbCBkZXRlcm1pbmF0aW9uLiBJdCBzdXNwZW5kcyBlcmFzdXJlIGFuZCBleHBpcnkgb25seSBpbiByZWFkZXJzIHRoYXQgY29uc3VsdCBpdCwgYW5kIGNoYW5nZXMgbm8gcGVyaW9kIHRoZSBkZXBsb3ltZW50IHN0YXRlZC4gTm90aWZpY2F0aW9uIGRlYWRsaW5lcyByZW1haW4gdGhlIGRlcGxveW1lbnQncyBvd24gcHJvY2VzcyBvYmxpZ2F0aW9ucy4iCn0K",
+      "recordByteLength": 672,
+      "fault": {
+        "at": "window.from",
+        "states": "a stamp below zero where the layout holds unix seconds"
+      }
+    },
+    {
+      "name": "hold-released-before-issue-v1",
+      "note": "A record released one second before it was issued. The same self-contradiction the window states at its own two ends, and the same reason: a release that precedes the instruction is a document that cannot say whether anything is suspended, and a reader weighing `at <= now && now < released` would answer false everywhere without ever reporting the fault.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcxOTk5OTk5LAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 686,
+      "fault": {
+        "at": "released",
+        "states": "a release stamp before the issue stamp in the same record"
+      }
+    },
+    {
+      "name": "hold-empty-credentials-v1",
+      "note": "A record stating its credentials list as empty. Absence is the statement that the hold covers every credential and an empty list is the statement that it covers none while looking like it names some, which are two instructions and only one of them is what the layout carries.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFtdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 623,
+      "fault": {
+        "at": "credentials",
+        "states": "the list this member requires to be non-empty, emptied"
+      }
+    },
+    {
+      "name": "hold-credential-named-twice-v1",
+      "note": "A record naming one credential twice and another once. The list is a set of names the erasure arm tests membership of, so a duplicate says nothing new while making a refusal ambiguous about which entry it answers, and the unique rule is what keeps the list a statement rather than a transcript.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIsCiAgICAiY3JlZC1maXh0dXJlLWhlbGQiCiAgXSwKICAicmVhc29uIjogIkZpeHR1cmUgaG9sZCBvdmVyIHRoZSBtYXRlcmlhbCB0aGUgcHVibGlzaGVkIHJlY2VpcHRzIGF0dGVzdCwgaXNzdWVkIHNvIHRoYXQgdGhpcyBzdWl0ZSByZWFkcyBpdHMgb3duIGJ5dGVzIGFnYWluc3QgYSBydWxlIGl0IHNoaXBzLiIsCiAgInJlbGVhc2VkIjogbnVsbCwKICAibGltaXRzIjogIlRoaXMgcmVjb3JkIGlzIHRoZSBkZXBsb3ltZW50J3Mgb3duIGluc3RydWN0aW9uIHRvIHByZXNlcnZlLCBub3QgYSBsZWdhbCBkZXRlcm1pbmF0aW9uLiBJdCBzdXNwZW5kcyBlcmFzdXJlIGFuZCBleHBpcnkgb25seSBpbiByZWFkZXJzIHRoYXQgY29uc3VsdCBpdCwgYW5kIGNoYW5nZXMgbm8gcGVyaW9kIHRoZSBkZXBsb3ltZW50IHN0YXRlZC4gTm90aWZpY2F0aW9uIGRlYWRsaW5lcyByZW1haW4gdGhlIGRlcGxveW1lbnQncyBvd24gcHJvY2VzcyBvYmxpZ2F0aW9ucy4iCn0K",
+      "recordByteLength": 705,
+      "fault": {
+        "at": "credentials[2]",
+        "states": "the credential credentials[0] already names"
+      }
+    },
+    {
+      "name": "hold-unknown-provenance-v1",
+      "note": "A record naming a provenance outside the three the vocabulary holds. The label is what tells a reader whether these bytes speak of fixture material, and a fourth word is refused rather than read as the nearest one, because a hold claiming live material it cannot show is the exact misreading this member exists to prevent.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJzeW50aGV0aWMiLAogICJhdCI6IDE3NzIwMDAwMDAsCiAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIiwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImNyZWRlbnRpYWxzIjogWwogICAgImNyZWQtZml4dHVyZS1oZWxkIiwKICAgICJjcmVkLWZpeHR1cmUtZWxzZXdoZXJlIgogIF0sCiAgInJlYXNvbiI6ICJGaXh0dXJlIGhvbGQgb3ZlciB0aGUgbWF0ZXJpYWwgdGhlIHB1Ymxpc2hlZCByZWNlaXB0cyBhdHRlc3QsIGlzc3VlZCBzbyB0aGF0IHRoaXMgc3VpdGUgcmVhZHMgaXRzIG93biBieXRlcyBhZ2FpbnN0IGEgcnVsZSBpdCBzaGlwcy4iLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9Cg",
+      "recordByteLength": 682,
+      "fault": {
+        "at": "prov",
+        "states": "a provenance outside the three the vocabulary holds"
+      }
+    },
+    {
+      "name": "hold-limits-reworded-v1",
+      "note": "A record wording its own limits. The limits are the format's sentence, verbatim, and a record widening or narrowing them is a document of a shape the layout does not define: the one thing a reader of a suspension must not have to weigh is whether the record's own account of its limits is true.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyBob2xkIGhhcyBubyBsaW1pdHMuIgp9Cg",
+      "recordByteLength": 436,
+      "fault": {
+        "at": "limits",
+        "states": "a limits sentence the format does not own"
+      }
+    },
+    {
+      "name": "hold-forging-character-in-author-v1",
+      "note": "A record whose author carries one character of the printed-line class, the code point that reverses the order the rest of the row renders in. Every authored text is asked of that class because a hold is printed beside the receipts it suspends: a name that reorders a row makes the line a reviewer reads a different document than the bytes.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGXigK5kZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "recordByteLength": 674,
+      "fault": {
+        "at": "by",
+        "states": "a character that forges the printed line it is printed on"
+      }
+    },
+    {
+      "name": "hold-padded-reason-v1",
+      "note": "A record whose reason carries a space at either end. A printed row does not pad itself, and the text that survives a trim is not the text that was signed over by nothing: the rule is one check on the authored values rather than a repair, because a reader that trimmed would answer for a reason the record never stated.",
+      "expected": "HOLD_RECORD_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiIEZpeHR1cmUgaG9sZCBvdmVyIHRoZSBtYXRlcmlhbCB0aGUgcHVibGlzaGVkIHJlY2VpcHRzIGF0dGVzdCwgaXNzdWVkIHNvIHRoYXQgdGhpcyBzdWl0ZSByZWFkcyBpdHMgb3duIGJ5dGVzIGFnYWluc3QgYSBydWxlIGl0IHNoaXBzLiAiLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9Cg",
+      "recordByteLength": 682,
+      "fault": {
+        "at": "reason",
+        "states": "authored text padded on either side"
+      }
+    }
+  ],
+  "consultations": [
+    {
+      "name": "erasure-named-credential-mid-hold-refused",
+      "note": "An erasure of a credential the hold names, weighed at an instant well inside the hold's reach. The refusal is the whole point of the record: the call stops by name before any byte moves, and the detail carries the credential and the hold's own issue stamp and author so an operator can see which instruction suspended it.",
+      "door": "erasure",
+      "expected": "HOLD_ERASURE_REFUSED",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772001000,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-at-issue-instant-refused",
+      "note": "The same call at the issue stamp exactly. The hold is in force from that instant inclusive, so a record written at the second it was issued already suspends an erasure handed the same second, and a port that opened the reach one step late would let the first second of a hold pass.",
+      "door": "erasure",
+      "expected": "HOLD_ERASURE_REFUSED",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-one-second-before-issue-allowed",
+      "note": "The same call one second before the issue stamp. Nothing is suspended, because the instruction did not exist yet, and the row beside this one is what says the difference is the bound and not an accident of the number: one second moves the answer.",
+      "door": "erasure",
+      "expected": "verify-ok",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1771999999,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-unheld-credential-allowed",
+      "note": "An erasure of a credential the hold does not name, weighed while the hold is in force. A hold suspends the material it speaks of and nothing else, which is the difference between an instruction and a freeze on the whole deployment.",
+      "door": "erasure",
+      "expected": "verify-ok",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772001000,
+        "credential": "cred-nobody-holds"
+      }
+    },
+    {
+      "name": "erasure-open-hold-covers-every-credential-refused",
+      "note": "An erasure of a credential no record names, under the hold that leaves the credentials member off entirely. Absence is the deployment's statement that the whole of its material is under the instruction, so the one hold shape that names nothing suspends everything, and a reader that read the omission as an empty list would erase the material the record was written to protect.",
+      "door": "erasure",
+      "expected": "HOLD_ERASURE_REFUSED",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IG51bGwKICB9LAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772001000,
+        "credential": "cred-never-named-by-anyone"
+      }
+    },
+    {
+      "name": "erasure-one-second-before-release-refused",
+      "note": "An erasure of the held credential one second before the release stamp. The hold is still in force, and the row is the pair that makes the release boundary a fact about the instant rather than about the record being closed: the bytes are identical here and at the two rows beside this one.",
+      "door": "erasure",
+      "expected": "HOLD_ERASURE_REFUSED",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000099,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-at-release-instant-allowed",
+      "note": "The same call at the release stamp exactly. The reach runs until the release exclusive, so the instant a hold names as its release is the first instant the erasure proceeds, and a port that closed the reach inclusively would suspend one second more than the record asked for while claiming to obey it.",
+      "door": "erasure",
+      "expected": "verify-ok",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000100,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-long-after-release-allowed",
+      "note": "The same call one second past the release. A released hold suspends nothing at any later instant, which is the comparison a reader is most likely to leave out: without it a hold that released itself would suspend forever, the opposite of what a release states.",
+      "door": "erasure",
+      "expected": "verify-ok",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000101,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-open-hold-long-after-issue-refused",
+      "note": "An erasure a long way past the issue stamp, under a hold stating no release. A null release is a hold still in force however far the clock runs, so the row is the other half of the rule above: the absence of a release is a statement, and it suspends indefinitely until the record is replaced.",
+      "door": "erasure",
+      "expected": "HOLD_ERASURE_REFUSED",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1782000000,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-with-no-holds-handed-allowed",
+      "note": "An erasure handed no holds at all. A reader that consults nothing behaves exactly as it did before the record existed, which is the limits sentence's own statement that the suspension reaches only readers that consult it, and the empty list is the shape of that caller.",
+      "door": "erasure",
+      "expected": "verify-ok",
+      "holdsBase64Url": [],
+      "call": {
+        "at": 1772000000,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-second-hold-of-the-list-names-it-refused",
+      "note": "An erasure under a list of two holds, the first naming another credential and the second naming this one. The scan answers for every instruction a deployment is under rather than only the first it meets, so a caller holding two live matters is not free to erase what the second of them protects.",
+      "door": "erasure",
+      "expected": "HOLD_ERASURE_REFUSED",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtZWxzZXdoZXJlIgogIF0sCiAgInJlYXNvbiI6ICJGaXh0dXJlIGhvbGQgb3ZlciB0aGUgbWF0ZXJpYWwgdGhlIHB1Ymxpc2hlZCByZWNlaXB0cyBhdHRlc3QsIGlzc3VlZCBzbyB0aGF0IHRoaXMgc3VpdGUgcmVhZHMgaXRzIG93biBieXRlcyBhZ2FpbnN0IGEgcnVsZSBpdCBzaGlwcy4iLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9Cg",
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772001000,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "erasure-window-not-weighed-refused",
+      "note": "An erasure under a hold whose window lies wholly before the instant the call is weighed at. The erasure arm does not read the window: an erasure takes all of a credential's material at once, so a hold naming that credential suspends the whole of it rather than the slice its window happens to cover. The coverage row beside this one reads the same bytes and answers the other way, which is the pair that keeps the two arms apart.",
+      "door": "erasure",
+      "expected": "HOLD_ERASURE_REFUSED",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTk5OTgwMCwKICAgICJ0byI6IDE3NzE5OTk5MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772001000,
+        "credential": "cred-fixture-held"
+      }
+    },
+    {
+      "name": "active-before-issue-inactive",
+      "note": "The reach asked of one instant, one second before the issue stamp: not in force. This is the door the erasure arm and the coverage arm both stand on, published apart so a port that gets the reach right at one of them can be shown to get it wrong at the other.",
+      "door": "active",
+      "expected": "inactive",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1771999999
+      }
+    },
+    {
+      "name": "active-at-issue-instant-active",
+      "note": "The same question at the issue stamp: in force, inclusive. The two rows beside this one fix both ends of the reach, and nothing in the published bytes tells a reader which way round they run.",
+      "door": "active",
+      "expected": "active",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000
+      }
+    },
+    {
+      "name": "active-one-second-before-release-active",
+      "note": "The question one second before a stated release: still in force. The release lifts the reach at the instant it names and not before it, which is the comparison the layout's whole point turns on.",
+      "door": "active",
+      "expected": "active",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000099
+      }
+    },
+    {
+      "name": "active-at-release-instant-inactive",
+      "note": "The question at the release stamp exactly: not in force. The reach is exclusive of its end, and the row beside this one is the same record one second earlier, so the boundary is measured rather than asserted.",
+      "door": "active",
+      "expected": "inactive",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000100
+      }
+    },
+    {
+      "name": "active-open-hold-long-after-active",
+      "note": "The question a long way past the issue stamp of a hold stating no release: in force. A null release is an open end, not a missing value, and a reader that treated it as zero would report every open hold as expired.",
+      "door": "active",
+      "expected": "active",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1782000000
+      }
+    },
+    {
+      "name": "coverage-window-start-inclusive-covers",
+      "note": "A record stamped at the window's own start, weighed while the hold is in force: covered. `from` is inclusive, which is the difference between a hold that begins with a record and one that quietly drops it, and the row beside this one is the same call one second earlier.",
+      "door": "coverage",
+      "expected": "covers",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "iat": 1771913600
+      }
+    },
+    {
+      "name": "coverage-one-second-before-window-does-not-cover",
+      "note": "The same call at one second before the window opens: not covered. The hold is active and the stamp is the only thing that moved, so the answer is about the window and not about the reach.",
+      "door": "coverage",
+      "expected": "does-not-cover",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "iat": 1771913599
+      }
+    },
+    {
+      "name": "coverage-last-instant-inside-window-covers",
+      "note": "A record stamped one second before the window closes: covered. The published receipt fixtures carry an item stamp one second before their own issue stamp, which sits inside this window, so the row is the ordinary case rather than a boundary drawn for its own sake.",
+      "door": "coverage",
+      "expected": "covers",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "iat": 1772086399
+      }
+    },
+    {
+      "name": "coverage-window-end-exclusive-does-not-cover",
+      "note": "A record stamped at the window's end exactly: not covered. `to` is exclusive, which is what makes two holds whose windows meet at one instant state two disjoint sets of records rather than one record under two instructions.",
+      "door": "coverage",
+      "expected": "does-not-cover",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "iat": 1772086400
+      }
+    },
+    {
+      "name": "coverage-open-window-end-covers",
+      "note": "A record stamped long after the window of the hold that states no end: covered. A null `to` is an open end at the same door where a null `released` is an open reach, and a reader that read either as zero answers the other way on both.",
+      "door": "coverage",
+      "expected": "covers",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IG51bGwKICB9LAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "iat": 1782000000
+      }
+    },
+    {
+      "name": "coverage-released-hold-covers-nothing",
+      "note": "A record stamped squarely inside the window of a hold that has since released, weighed at the release instant: not covered. The window is wide and the instruction is spent, which is the pair of questions this door keeps apart: a released hold covers nothing however wide its window, and no removal is suspended by an instruction that was withdrawn.",
+      "door": "coverage",
+      "expected": "does-not-cover",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000100,
+        "iat": 1771913610
+      }
+    },
+    {
+      "name": "coverage-receipt-fixture-stamp-covers",
+      "note": "A record stamped at the instant the published receipt fixtures are issued at, weighed at that same instant under the hold issued then: covered. The row is the family's join to the bytes beside it, and it is the reason the window reaches a day either side of the issue rather than forward from it: the receipts a hold speaks of were written before the instruction that suspends their retirement.",
+      "door": "coverage",
+      "expected": "covers",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "iat": 1772000000
+      }
+    },
+    {
+      "name": "coverage-stamp-older-than-the-hold-covers",
+      "note": "A record stamped an hour before the hold was issued, weighed at the issue instant: covered. The issue stamp says when the instruction was given and the window says which records it reaches, so a hold issued today covers yesterday's receipts, and a reader that compared a stamp against `at` instead of against the window would let the oldest material the instruction names be retired first.",
+      "door": "coverage",
+      "expected": "covers",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772000000,
+        "iat": 1771996400
+      }
+    },
+    {
+      "name": "coverage-past-window-does-not-cover",
+      "note": "The same record stamped and weighed at an instant the window of the hold beside it does not reach, the mirror of the erasure row that reads these very bytes and refuses anyway. Two doors, one record, two answers, and the difference is the window: which is exactly what the erasure arm declines to weigh.",
+      "door": "coverage",
+      "expected": "does-not-cover",
+      "holdsBase64Url": [
+        "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTk5OTgwMCwKICAgICJ0byI6IDE3NzE5OTk5MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+      ],
+      "call": {
+        "at": 1772001000,
+        "iat": 1772001000
+      }
+    }
+  ]
+}

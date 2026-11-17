@@ -118,9 +118,11 @@ at a rate the bound supports, and a store that has retained fewer than two recei
 rate at all, which is that condition's own precondition. The span is a rate over the retained set and
 not a record that every receipt across the period survived; the retention assessment, `assessRetention`
 in `@ashaveri/sdk`, answers that question. The threshold is a fraction of
-the bound and defaults to the bound itself: the retained set never exceeds the count that retires it,
-so that default is the one state a store already refuses to open at, which is why a deployment that
-configures nothing behaves here exactly as it did before this pairing was read while serving.
+the bound and defaults to the bound itself: a retained set that nothing suspends never exceeds the count that
+retires it, so that default is the state a store already refuses to open at, which is why a deployment that
+configures nothing behaves here exactly as it did before this pairing was read while serving. A set that does
+stand past the bound is one a retirement was told to suspend, and the opening refuses it before a request
+reaches this guard.
 
 Growing past the guard is permitted as a named decision and not as a value of the threshold.
 `--receipts-grow-past-guard` turns the refusal off, off being its default: with it the volume keeps
@@ -618,6 +620,32 @@ and needs no subject, no instruction and no marker. Scrubbing answers an instruc
 other line, and files a marker. The two meet at the same file name: a scrubbed part whose records are
 all gone is removed rather than renamed, and pruning collects it by name alone.
 
+A hold reaches both of those through the readers that consult it, and reaches neither through a number. The
+day sweep keeps whole a part whose name-day overlaps an active hold, so the expiry that would have deleted
+that day deletes none of it, and the records it weighs are the ones the gateway read from the files its own
+`--hold-record` named. `refuseErasureUnderHold` weighs the holds its own caller hands it rather than files it
+opens: an erasure call that hands it records is answered `HOLD_ERASURE_REFUSED` for a credential an active
+hold names, or for any credential where the hold names none, before that call moves a byte, and it weighs the
+credential rather than the window there, because an erasure takes all of a credential's material at once and
+a hold over it suspends the whole of it rather than a slice.
+
+`ashaveri accesslog scrub` is that erasure call, and its `--hold-record` is the only way a hold reaches it.
+The files that flag names are read as the command runs and handed to the consultation above before the log
+directory is listed, so the refusal arrives naming the credential and the hold's issue stamp and the author
+who issued it while every part still holds what it held and no marker has been filed. The instant that
+consultation weighs at is the instant the run stamps, and the operator names it, since `--now` states exactly
+that instant: name an instant before a hold was issued and it suspends nothing this run erases, name one
+inside a span a release has since closed and it suspends an erasure the wall clock would allow, and name no
+`--now` and the wall clock is what is weighed. The refusal is therefore the deployment's own guard rail, set
+by the clock its operator types, and not something an outside party can rely on to make an erasure
+impossible. A run whose operator named nothing consults nothing: there is no default path for a hold, and an
+erasure is not to go looking for an instruction nobody gave it. A hold that names no credential suspends every
+credential, which is what such a record states rather than what a reader assumes of it. A file the flag names
+that this program cannot read, or cannot parse, is refused naming that path and the reason it could not be
+used: the operator pointed at a document, and a run that erased as though no document existed would be
+answering a question nobody asked. None of this states a period: a hold instructs that material be kept, and
+section 8.2 states what a deployment still configures while it does.
+
 ## 8. Retention, erasure, and who decides
 
 ### 8.1 The record as a unit
@@ -695,6 +723,70 @@ that same comment says enforcement belongs. A deployment that wrote no record re
 windows its flags or the shipped defaults give it, and says so in its start-up report; nothing about the
 bytes the log writes, or the bytes the store appends, changes either way.
 
+A hold record is a different document, and it suspends rather than answers. `--hold-record` names the files a
+run reads at start-up beside its instruction record, and two doors consult what that reading hands them: the
+receipts store's retirement prefix stops at the first held record (`gateway/src/store.ts`), and the access
+log's day sweep keeps a whole part whose name-day overlaps an active hold (`gateway/src/aclog.ts`). Two others
+consult holds handed to them by their own callers rather than files they open: `verifyRedaction` weighs each
+removed record's own chain stamp against the records handed beside the pack and answers
+`HOLD_REDACTION_REFUSED` before the survivor fold runs (`packages/receipt/src/redaction.ts`), and
+`refuseErasureUnderHold` weighs the credential an erasure call names against the records that call hands it
+and answers `HOLD_ERASURE_REFUSED` before the call moves a byte (`packages/receipt/src/hold.ts`). A reader
+handed no records consults none, which is the state a run naming no `--hold-record` leaves its two doors in.
+Three of those readings are wider than the material a hold speaks of, and each is the rule rather than an
+accident of it: retirement reaches only a prefix, so holding one receipt keeps every record newer than it with
+it; a day is the widest fact a part's own name states, so a part that touches a hold by one second is kept
+whole; and neither expiry door weighs the `credentials` list at all, so a hold naming one credential suspends
+the retirement of every record whose stamp falls inside that window, whichever credential issued it. What none
+of the four doors moves is a number. `--receipts-days`, `--access-log-days`, the period an instruction record
+states, the durability bound and the period configured beside it, the bounds a trim record files and the
+figures a retention manifest states all read as this deployment configured them, and the set a held run serves
+is larger than those numbers alone describe. The intake guard section 1 describes consults no hold and reads
+that enlarged set, and so does the store's own opening, which weighs a set standing past its durability bound
+exactly as it weighs one standing at it: a held volume past the bound is refused at the start, ahead of the
+first completion, rather than opened and left to throttle traffic for the length of the instruction. That
+refusal states the arithmetic of the two configured numbers and the retained stamps, and names nothing else,
+because the door that weighs them is record-agnostic and holds no fact that would say which instruction kept
+the prefix. The start-up report is where that is read, one line per hold record the run read; a start stopped
+at the door prints no such line, and the instruction it was handed is the one its own command line named. The
+guard's refusal carries the same arithmetic and one term more: how many of the retained receipts a suspension
+the store was handed keeps rather than the bounds it was configured with, and zero where it was handed none.
+That term is a count of the store's own index and not a naming of any record, because a count is what the
+store is asked, and the instruction behind it stays the report's to state. The levers an operator has over
+the pairing are `--receipts-keep`, `--receipts-guard-at` and `--receipts-grow-past-guard`, never an edited
+hold record. A window shorter than the stated period is refused beside an active hold with the
+identical sentence, because a hold is an instruction to keep and not a second way to answer a shortfall; the
+start-up report prints one note line per in-force hold beside each of the two window judgements, naming that
+record's path and the sha256 of the bytes it was read from, and prints nothing where no hold is in force.
+[receipt-spec.md](receipt-spec.md) section 4.10 carries the rest of the
+rule, in the limits sentence every hold record states verbatim: it is the deployment's own instruction to
+preserve and not a legal determination, and which duty an instruction answers to is settled outside this
+software.
+
+`ashaveri verify-handover` is the shipped caller that opens files for the redaction reader. Its `--hold-record`
+names the files it reads as it starts and hands to `verifyRedaction` beside the pack, one record per distinct
+path named, and the reader then weighs each record the amendment removes against those holds: an amendment whose
+removal is covered by a hold answers `HOLD_REDACTION_REFUSED`, naming the removed record and that hold's issue
+stamp and author, in the same report shape the amendment's other refusals arrive in and with no reading of the
+pack printed beside it. The instant that consultation weighs at is the amendment's own `at`, the instant the removal
+was stated, and not the operator's clock: a hold issued after the statement does not rewrite the history of a
+removal already stated, and a hold released after it still covers the removal stated while it was on, which is
+what makes this door a finding about two documents rather than an answer about the day the review was run. A
+verification naming no `--hold-record` consults nothing, prints no line about the flag, and reads the amendment
+exactly as it did before the flag existed; a file that flag does name, and that cannot be read or does not parse,
+stops the run naming the path and the reason, because the operator pointed at an instruction and a report written
+around it would state a verification that ignored it.
+
+The two halves of that reading are printed apart, because they are two facts. The files are read before the
+document's type is known, so a named file that will not read stops the run beside any shape this command reads,
+and not only beside an amendment; and every report this command prints, on any shape, states how many hold
+records it read and gives each path beside the sha256 of the bytes this run read there, so the digest identifies
+what was weighed rather than the name the operator typed, and a file edited after the run shows as a digest that
+no longer matches the path beside it. Beside the six shapes that state no removal, one more line says that
+nothing consulted the records it read, the way the same report already says so of a designation the document in
+front of it carries nothing for. A refusal prints no reading at all, and the refusal the consultation reaches
+names the record it would not lift and the hold that covers it, so nothing is disclosed twice.
+
 The direction of the default is the deployer's duties being longer than the window rather than
 shorter. Nothing in the writer bounds the total size of that window: the 32 MiB figure is a per-file
 part size, so a busy deployment grows in parts and the volume the log sits on is the real limit.
@@ -727,7 +819,9 @@ a shorter number.
 
 ### 8.3 What erasure achieves, and its limit
 
-A scrub removes a credential's lines and files a marker. Section 7 explains what a marker is for. The
+A scrub removes a credential's lines and files a marker. Section 7 explains what a marker is for. A run
+that an active hold suspends does neither, because that question is weighed before the directory is
+listed: the volume keeps every byte and no receipt is filed for an erasure that did not happen. The
 limit: these records are the deployer's, and the deployer's lawful basis is the one that runs here,
 whether the deployer acts as controller or as processor. This document is written so that it holds in
 either case; that dual usability is a property of the text, chosen deliberately. The place a

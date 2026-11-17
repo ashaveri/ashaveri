@@ -67,6 +67,25 @@ export interface AccessLog {
   close(): Promise<void>;
 }
 
+/**
+ * The question this log asks about one day before its sweep collects a part: does something other than
+ * this window keep it.
+ *
+ * It is an injected predicate and not a record type, for the reason `store.ts` gives its own suspension:
+ * which instruction names a day, what span it covers and whether it still stands belong to the
+ * deployment, and weighing them where the ages are read keeps one rule rather than two. A day is handed
+ * as the `YYYY-MM-DD` string read off the file name, because that is the only fact about age this sweep
+ * owns: `store.ts` asks about a record's stamp, and this arm asks about the day a part is named for,
+ * since a part carries many stamps and none of them may be re-read to decide an age.
+ */
+export interface AccessLogHold {
+  /**
+   * Whether the day named in a part's own name is kept at the instant `nowMillis` the sweep reads.
+   * A day the caller answers false for is aged exactly as it was before this option existed.
+   */
+  coversDay(day: string, nowMillis: number): boolean;
+}
+
 export interface AccessLogOptions {
   /**
    * A request, not a clamp: `MINIMUM_RETENTION_DAYS` is the default when no value is named, and it
@@ -79,6 +98,13 @@ export interface AccessLogOptions {
    * other.
    */
   days?: number;
+  /**
+   * Suspends the sweep for the days it covers, which are then kept whatever this window says. Absent
+   * means nothing is suspended: every part whose name-day is past the window is collected, which is the
+   * answer every log this repository has published was aged under. It is an argument of one opening,
+   * like the store's, so an opening without one reaches no instruction and ages what it always aged.
+   */
+  hold?: AccessLogHold;
   maxBytesPerFile?: number;
   /**
    * The clock this log ages by, in milliseconds, for a caller that has one to hand. It draws the
@@ -179,12 +205,21 @@ export interface MemoryAccessLog extends AccessLog {
 
 export function openMemoryAccessLog(options: AccessLogOptions = {}): MemoryAccessLog {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
+  const hold = options.hold;
   const time = options.time ?? HOST_CLOCK_SOURCE;
   const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.nowSeconds()) * 1000);
   let kept: AccessRecord[] = [];
   let closed = false;
+  /**
+   * A record is dropped when its age passes the window and no hold covers the day its own stamp falls
+   * on. The day is taken the way the file arm takes it, from the stamp rather than from a name, so a
+   * held day survives whole here as it does there: dropping the records a hold names would be the loss
+   * the suspension exists to prevent.
+   */
   async function pruneLocked(at: number): Promise<void> {
-    kept = kept.filter((entry) => entry.t > at - days * DAY_MS);
+    kept = kept.filter(
+      (entry) => entry.t > at - days * DAY_MS || (hold !== undefined && hold.coversDay(dayOf(entry.t), at)),
+    );
   }
   return {
     async record(entry) {
@@ -258,6 +293,7 @@ function whenNotFound<T>(fallback: T): (err: unknown) => T {
 
 export async function openFileAccessLog(options: AccessLogOptions & { dir: string }): Promise<AccessLog> {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
+  const hold = options.hold;
   const maxBytes = options.maxBytesPerFile ?? MAX_ACCESS_FILE_BYTES;
   const time = options.time ?? HOST_CLOCK_SOURCE;
   const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.nowSeconds()) * 1000);
@@ -297,16 +333,24 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
    * Age is read from the file name, not from a stat time. A volume can be mounted
    * with whatever timestamps a copy gave it, and a rotation that trusted those would
    * delete the newest data on an operator's bad `cp -a`.
+   *
+   * A held day is kept whole. The sweep is already conservative in one direction, since a part is kept
+   * while its name-day is inside the window and a day is the widest age it can read, so a part whose day
+   * overlaps an active hold leaves with the whole of a day rather than with the records inside the hold:
+   * keeping the part is the only answer this posture can give without opening the file. One reading of the
+   * clock decides both halves of that, so the cut the name is weighed against and the instant the
+   * suspension is asked about are the same instant, as they are in the store's retirement.
    */
   async function pruneLocked(): Promise<void> {
-    const cutoff = dayOf(nowMillis() - days * DAY_MS);
+    const now = nowMillis();
+    const cutoff = dayOf(now - days * DAY_MS);
     for (const candidate of await listNamed(RETENTION_SWEEP_NAME)) {
-      if (candidate.day < cutoff) {
-        // Only a file that vanished between the listing and this call is forgiven. Swallowing every
-        // failure would let a directory the process cannot delete age out of the retention in the
-        // operator's head while its bytes stayed on the volume.
-        await unlink(join(dir, candidate.name)).catch(whenNotFound(undefined));
-      }
+      if (candidate.day >= cutoff) continue;
+      if (hold !== undefined && hold.coversDay(candidate.day, now)) continue;
+      // Only a file that vanished between the listing and this call is forgiven. Swallowing every
+      // failure would let a directory the process cannot delete age out of the retention in the
+      // operator's head while its bytes stayed on the volume.
+      await unlink(join(dir, candidate.name)).catch(whenNotFound(undefined));
     }
   }
 

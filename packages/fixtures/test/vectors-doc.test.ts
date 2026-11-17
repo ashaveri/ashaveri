@@ -135,6 +135,27 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
     case 'disclosure-record-v1.json':
     case 'model-inventory-v1.json':
       return rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null }));
+    case 'hold-v1.json':
+      // The layout rows state the verdict the reader gave, as the record suites above do. The consultation
+      // rows state the answer a door gave, and only an erasure refusal among them refuses anything:
+      // `active`, `inactive`, `covers` and `does-not-cover` report a reach, which is neither accepted nor
+      // refused, so this reading takes the code-shaped answers and leaves the words to their own suite.
+      return [
+        ...rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null })),
+        ...rows('consultations')
+          .map((row) => field(row, 'expected'))
+          .filter((answer) => /^[A-Z][A-Z0-9_]*$/u.test(answer))
+          .map((answer) => ({ verdict: answer, code: null })),
+      ];
+    case 'incident-bundle-v1.json':
+      // The layout rows state what `parseIncidentBundle` answered and the verification rows state what
+      // `verifyIncidentBundle` answered, each as the accepted word or the code of the refusal, so both arrays
+      // carry verdicts in the shape this reading takes. Nothing here decides which of the two doors a row
+      // belongs to: the family states that in the array a row sits in.
+      return [
+        ...rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null })),
+        ...rows('verifyCases').map((row) => ({ verdict: field(row, 'expected'), code: null })),
+      ];
     case 'export-v1.json':
     case 'manifest-v1.json':
     case 'pack-v1.json':

@@ -446,3 +446,76 @@ describe('openFileAccessLog', () => {
     await rm(dir, { recursive: true, force: true });
   });
 });
+
+/**
+ * A sweep the deployment tells to hold.
+ *
+ * The rule this log already lives by is that ages come from names: a part is aged by the day in its own
+ * name and never by a timestamp a copy could have left behind. A suspension therefore arrives as a
+ * question about a day, and its answer decides whether the sweep reaches for `unlink`. Both arms are
+ * measured here, the file sweep that ages whole parts and the in-memory filter that ages whole records,
+ * because a mock run rehearses the durable one.
+ */
+describe('a sweep a hold suspends', () => {
+  const HELD = '2026-01-02';
+
+  /** The suspension a case hands: it keeps exactly the days it is given, and records what it was asked. */
+  function holdingDays(days: Iterable<string>, asked: string[]): { coversDay(day: string): boolean } {
+    const held = new Set(days);
+    return {
+      coversDay: (day: string): boolean => {
+        asked.push(day);
+        return held.has(day);
+      },
+    };
+  }
+
+  it('keeps a part whose day is held, of either family, and collects the aged day that is not', async () => {
+    const dir = await tempDir();
+    const at = Date.parse('2026-03-01T00:00:00Z');
+    const asked: string[] = [];
+    await writeFile(join(dir, 'access-2026-01-01-000.jsonl'), '', 'utf8');
+    await writeFile(join(dir, `access-${HELD}-000.jsonl`), '', 'utf8');
+    await writeFile(join(dir, `scrub-${HELD}-000.jsonl`), '{"t":1,"credential":"a","removed":0,"files":0}\n', 'utf8');
+    await writeFile(join(dir, 'scrub-2026-01-01-000.jsonl'), '{"t":1,"credential":"b","removed":1,"files":0}\n', 'utf8');
+    const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at, hold: holdingDays([HELD], asked) });
+    await log.record(entry({ rid: 'sweep', t: at }));
+    const names = await readdir(dir);
+    expect(names).toContain(`access-${HELD}-000.jsonl`);
+    expect(names).toContain(`scrub-${HELD}-000.jsonl`);
+    expect(names).not.toContain('access-2026-01-01-000.jsonl');
+    expect(names).not.toContain('scrub-2026-01-01-000.jsonl');
+    // Asked by the day read off the name, which is the only fact this sweep owns about a file.
+    expect(asked).toContain('2026-01-01');
+    expect(asked).toContain(HELD);
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('collects every aged part when the suspension covers no day at all', async () => {
+    // An answer of false has to be indistinguishable from no suspension: a sweep that kept a part nobody
+    // held would make the window depend on a wiring detail rather than on an instruction.
+    const dir = await tempDir();
+    const at = Date.parse('2026-03-01T00:00:00Z');
+    await writeFile(join(dir, 'access-2026-01-01-000.jsonl'), '', 'utf8');
+    await writeFile(join(dir, 'access-2026-01-02-000.jsonl'), '', 'utf8');
+    const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at, hold: holdingDays([], []) });
+    await log.record(entry({ rid: 'sweep', t: at }));
+    const names = await readdir(dir);
+    expect(names).not.toContain('access-2026-01-01-000.jsonl');
+    expect(names).not.toContain('access-2026-01-02-000.jsonl');
+    await log.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('keeps a memory record whose own day is held and drops the one that is not', async () => {
+    // A day taken from the record's own stamp, asked the same way the file arm asks it: the held day
+    // survives an age test it would otherwise fail, and the aged day nothing holds is dropped.
+    const log = openMemoryAccessLog({ days: 2, nowMillis: () => T0, hold: holdingDays(['2026-02-22'], []) });
+    await log.record(entry({ rid: 'held', t: Date.parse('2026-02-22T10:00:00Z') }));
+    await log.record(entry({ rid: 'aged', t: Date.parse('2026-02-20T10:00:00Z') }));
+    await log.record(entry({ rid: 'fresh' }));
+    expect(log.entries().map((each) => each.rid)).toEqual(['held', 'fresh']);
+    await log.close();
+  });
+});

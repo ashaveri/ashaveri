@@ -854,6 +854,175 @@ scope states those periods, transcribed from the cut; the family's `appSource` b
 and its archived sources with their measured digests. The periods are pointers for counsel, not
 conclusions, and no consolidated text combining the enacted and in-force versions is assembled.
 
+### 4.10 Hold record
+
+A receipt attests one response, and the retention machinery retires and erases material on the periods
+the deployment stated. Neither knows that an incident or a legal matter now asks for the material to
+stay. The hold record states that instruction: who issued it and when, which window of record stamps it
+covers, which credentials it names, why it was issued, and when it was released. It is a JSON document a
+deployment writes beside the receipts it speaks of, read and written by `parseHoldRecord` and
+`holdRecordBytes` in `@ashaveri/receipt`, and it carries no signature: its trust arrives from whoever
+hands it over, the same split the disclosure record states in section 3.3 and the model inventory in
+section 4.9. The export container is what carries it as evidence, the record's bytes riding an item's
+inline original under the export's own signature, and no member of the export contract moves for it.
+
+What the record does is suspend, never extend. The readers that consult it keep material past the
+configured window while the hold is active, and the periods the deployment stated stay exactly as
+stated: no member of this layout edits a retention policy, a configured window or an instruction
+record, and the suspension is reported beside them rather than folded into them. A reader that consults
+no hold behaves exactly as it did before, which is the limits sentence's own statement that the
+suspension reaches only readers that consult it.
+
+The layout, version 1, in this order. Every member is required except `credentials`, which a record may
+leave off:
+
+| Member | What it states |
+|---|---|
+| `v` | The layout version, `1` |
+| `prov` | Where the material came from: `live`, `captured` or `fixture`, the vocabulary [pack-v1.md](pack-v1.md) states. A fixture hold is labeled `fixture` |
+| `at` | The issue stamp, unix seconds: when the hold was issued |
+| `by` | Who issued the hold, in the deployment's own words |
+| `window` | `{ from, to }`: the window of record stamps the hold covers, `from` inclusive and `to` exclusive, a null `to` an open end. `to` is never before `from` |
+| `credentials` | The credentials the hold names, a non-empty list of unique names. Absent, the hold covers every credential; an empty list is refused rather than read as absence |
+| `reason` | Why the hold was issued, in the deployment's own words |
+| `released` | When the hold was released, unix seconds, never before `at`; null while it is in force |
+| `limits` | The limits sentence below, verbatim. A record wording its own limits is refused |
+
+The authored text members (`by`, `reason`, and each credential name) are held to the printed-line class
+the estate's text guards state: no character that ends, hides or reorders the row it is printed on, no
+pad on either side, and no wider than the 400 units the layout holds. Every stamp is a whole number of
+unix seconds no smaller than zero, read through the same strict JSON scanner the retention manifest and
+the model inventory use, so a member named twice and a float wearing an integer are refused while the
+characters are still distinguishable. The version is asked before any member is read.
+
+The consultation rules are pure functions over a parsed record, so every reader that suspends answers
+one rule rather than its own reading of the prose. `holdActiveAt(record, at)` asks whether the hold is
+in force at an instant: from the issue stamp inclusive, until the release stamp exclusive, a null
+release a hold still in force. `holdCoversStamp(record, iat, now)` asks whether a record stamped at
+`iat` is under the hold at `now`: the hold is active at `now`, and the stamp falls in the window, `from`
+inclusive and `to` exclusive, a null `to` an open end. The two instants are separate questions, so a
+hold issued today can cover last month's receipts and a released hold covers nothing however wide its
+window. `refuseErasureUnderHold(holds, credential, at)` is the erasure arm: an active hold that names
+the credential, or names none and so covers every credential, refuses the erasure as
+`HOLD_ERASURE_REFUSED` before any byte moves, and the detail names the credential and the hold's issue
+stamp and author. The window is not consulted there, because an erasure takes all of a credential's
+material at once and a hold naming that credential suspends the whole of it rather than a slice.
+
+`verifyRedaction` is the redaction arm: handed the parsed holds beside the pack, it weighs each removed
+record's own chain stamp with `holdCoversStamp(record, iat, manifest.at)`, at the instant the removal was
+stated rather than at the reading, so a hold issued after the statement does not rewrite it and a hold
+released after it still covers the removal stated while it was on. The window decides there and the
+credential list does not, because a `PackItem` names an id and a stamp rather than a credential, so a hold
+over one credential refuses removals of records belonging to another, which is over-refusal an operator can
+hit rather than a silent permission. The consultation runs per removed record after the id is matched to a
+record of that pack and before the survivor fold, so a held removal is answered by name and is never
+reported as a chain mismatch.
+
+A version no layout reads is `HOLD_RECORD_UNSUPPORTED_VERSION`; every structural refusal is
+`HOLD_RECORD_BAD_DOCUMENT`; the erasure suspension is `HOLD_ERASURE_REFUSED`; the redaction refusal is
+`HOLD_REDACTION_REFUSED`. The rows are in [error-codes.md](error-codes.md).
+
+The published vectors of the record, its refusals and the answers the three shipped consultation doors give
+the calls those rows state are `packages/fixtures/data/hold-v1.json`, indexed in [vectors.md](vectors.md).
+
+The limits sentence every record states:
+
+> This record is the deployment's own instruction to preserve, not a legal determination. It suspends
+> erasure and expiry only in readers that consult it, and changes no period the deployment stated.
+> Notification deadlines remain the deployment's own process obligations.
+
+### 4.11 Incident preservation bundle
+
+A hold record states an instruction to preserve, and the receipts attest the responses the hold covers.
+Neither says which incident prompted the hold, how long the deployment undertakes to keep the material
+past the incident, or which provision that undertaking is weighed against. The incident preservation
+bundle states those things together and keeps the two kinds of statement apart, the same split the model
+inventory draws in section 4.9. It is a JSON document a deployment writes beside the receipts and the
+hold it speaks of, read and written by `parseIncidentBundle` and `incidentBundleBytes` in
+`@ashaveri/receipt`, and it carries no signature: its trust arrives from whoever hands it over, the same
+split the disclosure record states in section 3.3 and the hold record in section 4.10. The export
+container is what carries it as evidence, the record's bytes riding an item's inline original under the
+export's own signature, and no member of the export contract moves for it.
+
+The layout, version 1, every member required, in this order:
+
+| Member | What it states |
+|---|---|
+| `v` | The layout version, `1` |
+| `prov` | Where the material came from: `live`, `captured` or `fixture`, the vocabulary [pack-v1.md](pack-v1.md) states. A fixture bundle is labeled `fixture` |
+| `at` | The assembly stamp, unix seconds: the bundle's date |
+| `incident` | `{ id, at, states }`: the incident the deployment states, its identity, its stamp no later than the bundle's own `at`, and its narrative. Asserted: the deployment's own statement, which nothing in the record proves |
+| `hold` | `{ sha256, at, by }`: the sha256 of the exact hold-record bytes the record designates, beside the issue stamp and author copied from it. Both copied fields are bound |
+| `window` | `{ from, to }`: the window of record stamps the hold covers, copied from the hold record's window, `from` inclusive and `to` exclusive, a null `to` an open end. Bound. `to` is never before `from` |
+| `floor` | `{ days, preserveUntil, pointer }`: the preservation floor. `days` is a positive whole number the deployment states (asserted), few enough that its floor is a stamp the reader can state and few enough that the incident stamp beside them keeps their sum inside the range a stamp holds; `preserveUntil` is `incident.at + days * 86400`, recomputed by the reader rather than believed; `pointer` is one label from the registry below |
+| `pointers` | A non-empty list from the registry below, each a pointer for counsel rather than a conclusion |
+| `limits` | The limits sentence below, verbatim. A record wording its own limits is refused |
+
+The copied hold fields (`hold.at`, `hold.by`, `window.from`, `window.to`) are bound: they are copied from
+the hold record and checked against its bytes when a reader is handed them. The incident's identity,
+stamp and narrative, and the floor `days` as a number, are asserted: they are the deployment's own word,
+and nothing in the hold compares against them. The split is the layout's, not a label a writer picks. A
+mutation of a bound field is refused; a mutation of an asserted field is read. That difference is the
+split's witness.
+
+The authored text members (`incident.id` and `incident.states`) are held to the printed-line class the
+estate's text guards state: no character that ends, hides or reorders the row it is printed on, no pad on
+either side, and no wider than the 400 units the layout holds. The copied hold author carries no ceiling
+on this side, for the reason the model inventory gives beside its own copied positions: a narrowing here
+would refuse a bundle over a hold the deployment issued. Every stamp is a whole number of unix seconds no
+smaller than zero, read through the same strict JSON scanner the hold record and the model inventory use,
+so a member named twice and a float wearing an integer are refused while the characters are still
+distinguishable. The version is asked before any member is read.
+
+The preservation floor is a pointer for counsel, not a compliance claim. The layout door checks that
+`days` is a positive whole number, that there are few enough of them for its floor to be a stamp the
+reader states exactly, that the incident stamp plus those days land inside the range a stamp holds, and
+that `preserveUntil` is that arithmetic, both figures being inside one record and the check reading no
+external byte; it judges the number against no provision's period, ninety days or any other. The one
+provision the layout enumerates, cited as the estate's own sources name it:
+
+| `pointers` entry | The instrument it names |
+|---|---|
+| `gsa-552-239-7001-f-5` | GSA 552.239-7001 (f)(5) (Federal Acquisition Regulation; incident preservation, ninety days) |
+
+Whether the provision applies to a deployment, or was met by what it preserved, is a judgment this layout
+does not make, and the record's own language says so. The registry is closed at this one provision. The
+floor number is the deployment's own statement and the pointer is counsel's to weigh; no corpus cut of
+the instrument exists in the estate, so the citation is prose only and carries no digest and no corpus
+path.
+
+The seventy-two-hour notification is a process obligation of the deployment, not a product claim. Nothing
+in this layout states it, proves it, or carries a member for it: the closed member list above is the
+witness, and the limits sentence says in the format's own words that the notification remains the
+deployment's own process obligation, which nothing in this record states or proves.
+
+A version no layout reads is `INCIDENT_BUNDLE_UNSUPPORTED_VERSION`; every structural refusal is
+`INCIDENT_BUNDLE_BAD_DOCUMENT`; a pointer outside the registry is `INCIDENT_BUNDLE_UNKNOWN_POINTER`. The
+rows are in [error-codes.md](error-codes.md).
+
+The limits sentence every record states:
+
+> The preservation floor is a pointer for counsel, not a compliance claim. The seventy-two-hour
+> notification is a process obligation of the deployment, which nothing in this record states or proves.
+> The asserted fields are the deployment's own.
+
+The verifying door is `verifyIncidentBundle`, which takes the designated hold bytes beside the record,
+hashes them against `hold.sha256`, reads the hold through `parseHoldRecord`, and refuses any copied field
+that disagrees as `INCIDENT_BUNDLE_BOUND_DISAGREES`, naming the position and both values. Bytes that are
+not the ones the record designates are `INCIDENT_BUNDLE_HOLD_MISMATCH`; a hold its own reader refuses,
+for whatever reason it gives, is `INCIDENT_BUNDLE_HOLD_UNREADABLE`, that refusal carried in the detail.
+The floor's arithmetic is not this door's question: `parseIncidentBundle` recomputes `preserveUntil` from
+the incident stamp and the stated days and refuses a stamp that is not that arithmetic as
+`INCIDENT_BUNDLE_BAD_DOCUMENT`, the record contradicting its own figures rather than a bound field
+disagreeing with the hold, so a reader handed only the bundle is refused too. An asserted field is never
+compared, because there is nothing in the hold to compare it to. The bundle verifies offline with its
+floor stated: a reader holding the record and the hold it designates needs no network and no provision's
+text to check the pair.
+
+The published vectors of the record, its refusals, the verification cases beside the hold bytes they
+designate, and the export ride are `packages/fixtures/data/incident-bundle-v1.json`, indexed in
+[vectors.md](vectors.md).
+
 ## 5. Verification algorithm
 
 The deployment manifest of section 4.4 is read first, in whichever of its two shapes this deployment

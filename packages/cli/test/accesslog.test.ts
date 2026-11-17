@@ -2,9 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
+import { HOLD_RECORD_LIMITS, holdRecordBytes, type HoldRecord } from '@ashaveri/receipt';
 import { ACCESS_PART_NAME, openFileAccessLog, parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
 import { ACCESS_FILE, accesslogScrub, chooseScrubName, modeOf, type ScrubMarker, type ScrubPartRecord } from '../src/commands/accesslog.js';
 import { noteSpawn } from './support/spawn-budget.js';
@@ -1089,5 +1090,329 @@ describe('the names a scrub will open', () => {
       // are held on the volume under a name nothing will ever age out.
       if (isPart) expect(RETENTION_SWEEP_NAME.test(name), name).toBe(true);
     }
+  });
+});
+
+/**
+ * The holds a scrub is told about.
+ *
+ * The record bytes come from the hold's own writer, so a refusal is a reading of the shipped format
+ * rather than of a document assembled here, and a named file stands in its own directory: a hold record
+ * is not a log part, and one lying inside the volume under test would let a case that asserts nothing
+ * moved pass on a name that appeared.
+ *
+ * The consultation is at the erasure instant the `--now` above states, in the hold's own unit, which is
+ * why every stamp below is derived from it rather than copied: the release edge and the issue edge are
+ * both one step from that instant, and a transcription would settle which side of the edge a case is
+ * testing by the person who wrote it.
+ */
+const ERASURE_SECONDS = Math.floor(Date.parse(SCRUBBED_AT) / 1000);
+
+function hold(over: Partial<HoldRecord> = {}): HoldRecord {
+  return {
+    v: 1,
+    prov: 'fixture',
+    at: ERASURE_SECONDS - 86_400,
+    by: 'the fixture deployer',
+    window: { from: ERASURE_SECONDS - 172_800, to: null },
+    credentials: ['svc-a'],
+    reason: 'Fixture hold over the credential this suite is asked to erase.',
+    released: null,
+    limits: HOLD_RECORD_LIMITS,
+    ...over,
+  };
+}
+
+/** A hold that names no credential at all, which the format states by leaving the member off. */
+function holdNamingNothing(): HoldRecord {
+  const { credentials: _credentials, ...rest } = hold();
+  return rest;
+}
+
+/** One hold record filed at a fresh name in its own directory, which returns that path. */
+function holdFile(record: HoldRecord): string {
+  const path = join(mkdtempSync(join(tempDir, 'holds-')), 'hold-v1.json');
+  writeFileSync(path, holdRecordBytes(record));
+  return path;
+}
+
+/**
+ * The SHA-256 of a file's whole bytes, read as bytes: the hold record is CBOR, so a digest taken over
+ * text decoded and re-encoded from it would not be the digest of what the run opened, and the
+ * disclosure line is only worth asserting against a reading that is not the one it prints.
+ */
+function bytesDigest(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+/** A directory holding one part of the subject and one of another, which is what every case erases. */
+function heldVolume(): string {
+  return dirWith(onePart('svc-a', 'svc-b'));
+}
+
+/** Every name in a volume with the whole of its bytes, base64 so the comparison is of bytes. */
+function volumeBytes(dir: string): Record<string, string> {
+  const seen: Record<string, string> = {};
+  for (const name of readdirSync(dir).sort()) {
+    seen[name] = readFileSync(join(dir, name)).toString('base64');
+  }
+  return seen;
+}
+
+describe('the holds a scrub is named', () => {
+  it('refuses a credential an active hold names, before the volume is opened at all', () => {
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const result = scrub(dir, 'svc-a', '--hold-record', holdFile(hold()));
+    expect(result.status).toBe(2);
+    // The code is on the line because the line is the whole answer: the command turns the hold's
+    // `ReceiptError` into the `UsageError` the top-level handler prints escaped and exits 2 on, so this
+    // refusal reaches the operator in the shape every other input error already arrives in.
+    expect(result.stderr).toContain('HOLD_ERASURE_REFUSED: an active hold record suspends erasure of the credential this call names');
+    expect(result.stderr).toContain('credential "svc-a" is under the hold issued at');
+    expect(result.stderr).toContain('"the fixture deployer"');
+    expect(result.stderr).toContain("Try 'ashaveri --help' for usage.");
+    expect(result.stderr).not.toContain('unexpected error');
+    expect(result.stdout).toBe('');
+    // Nothing moved, which is the claim the position of the consultation carries: no part was opened,
+    // so none was rewritten, no part was deleted and no marker was filed.
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('refuses every credential when the hold names none, which is the documented absence rule', () => {
+    // A hold with no `credentials` member is the deployment's statement that all of its material is
+    // under the instruction, so the erasure owed to any one name is suspended with the rest.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const result = scrub(dir, 'svc-a', '--hold-record', holdFile(holdNamingNothing()));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('HOLD_ERASURE_REFUSED');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('reads every file the operator names, so a second flag carries a second matter under hold', () => {
+    // The first record suspends nothing about this credential and the second suspends everything: a
+    // reader that stopped at the first record it could not act on would erase material the second
+    // still covers, which is the reason the flag is a list rather than one document.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const result = scrub(
+      dir,
+      'svc-a',
+      '--hold-record',
+      holdFile(hold({ credentials: ['svc-c'] })),
+      '--hold-record',
+      holdFile(hold()),
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('HOLD_ERASURE_REFUSED');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('reads one file once when its path is typed twice, and states the refusal once', () => {
+    // The dedupe `holdRecordsNamed` applies is of the path text as typed, so these two spellings are one
+    // string and reach the consultation as one record. Either way the operator reads one line: the
+    // consultation stops at the first hold in force, so a record counted twice could not state the same
+    // suspension twice even if it were read twice.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const path = holdFile(hold());
+    const result = scrub(dir, 'svc-a', '--hold-record', path, '--hold-record', path);
+    expect(result.status).toBe(2);
+    expect(result.stderr.match(/HOLD_ERASURE_REFUSED/gu) ?? []).toHaveLength(1);
+    expect(result.stderr).toContain('credential "svc-a" is under the hold issued at');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('erases a credential a named hold does not name', () => {
+    const dir = heldVolume();
+    const result = scrub(dir, 'svc-a', '--hold-record', holdFile(hold({ credentials: ['svc-c'] })));
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('removed 1 record for svc-a');
+    expect(markers(dir)).toEqual(['scrub-2026-02-26-000.jsonl']);
+  });
+
+  it('discloses the hold records it read when none of them suspended the erasure', () => {
+    // The refusal path names the hold that stopped the run; this is the other answer, and before this row
+    // it printed the pre-flag report. An operator who typed the flag and got that line back could not tell
+    // a record weighed and found not to cover from an argument the parser swallowed, so a designation is
+    // disclosed rather than dropped, exactly as the handover door discloses the ones it reads.
+    //
+    // Two records, neither covering, and the second typed twice: the count is therefore the reading's and
+    // not the typing's, and the digests are computed here from the file bytes by `node:crypto`, which is
+    // not the implementation the line prints, so the pair cannot agree by quoting one figure twice.
+    const first = holdFile(hold({ credentials: ['svc-c'] }));
+    const second = holdFile(hold({ credentials: ['svc-d'] }));
+    const dir = heldVolume();
+    const result = scrub(
+      dir,
+      'svc-a',
+      '--hold-record', first,
+      '--hold-record', second,
+      '--hold-record', second,
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('2 hold record(s) read from the paths --hold-record names');
+    expect(result.stdout).toContain(basename(first));
+    expect(result.stdout).toContain(basename(second));
+    expect(result.stdout).toContain(`sha256 ${bytesDigest(first)}`);
+    expect(result.stdout).toContain(`sha256 ${bytesDigest(second)}`);
+    // The outcome line carries the other half: the erasure proceeded, and what made it a proceeding rather
+    // than a suspension is that none of the records read covers the credential this run erased.
+    expect(result.stdout).toContain('removed 1 record for svc-a in 1 file, and none of the 2 hold record(s) this run read covers svc-a');
+    expect(result.stdout).toContain('over the bytes this run read at that path');
+    expect(markers(dir)).toEqual(['scrub-2026-02-26-000.jsonl']);
+  });
+
+  it('carries the same disclosure on the machine shape, and nothing at all when no flag was named', () => {
+    // Two shapes, one answer: a caller that reads the JSON cannot get the count out of the prose and a
+    // caller that reads the prose is not handed a member that says zero. The absent flag is the run this
+    // command was before the hold existed, so the disclosure is absent rather than empty, and the shape a
+    // later case pins stays the shape this one pins.
+    const coveringNothing = holdFile(hold({ credentials: ['svc-c'] }));
+    const named = JSON.parse(scrub(heldVolume(), 'svc-a', '--hold-record', coveringNothing, '--json').stdout) as {
+      removed: number;
+      files: number;
+      marker: string | null;
+      holdRecords?: { read: number; records: Array<{ path: string; sha256: string }> };
+    };
+    expect(named.holdRecords).toEqual({
+      read: 1,
+      records: [{ path: coveringNothing, sha256: bytesDigest(coveringNothing) }],
+    });
+
+    const bare = JSON.parse(scrub(heldVolume(), 'svc-a', '--json').stdout) as Record<string, unknown>;
+    expect(bare).toEqual({ removed: 1, files: 1, marker: 'scrub-2026-02-26-000.jsonl' });
+    const unsaid = scrub(heldVolume(), 'svc-a');
+    expect(unsaid.stdout).not.toContain('hold record');
+    expect(unsaid.stdout).toContain('removed 1 record for svc-a in 1 file');
+  });
+
+  it('erases when the release stamp is at or before the erasure instant', () => {
+    // `holdActiveAt` reads the release exclusive, so the instant equal to it is already outside the
+    // hold, and a stamp one step behind is outside twice over. Both are stated from the hold's own
+    // issue instant, which has to be no later than either release or the reader refuses the record.
+    for (const released of [ERASURE_SECONDS, ERASURE_SECONDS - 1]) {
+      const dir = heldVolume();
+      const result = scrub(dir, 'svc-a', '--hold-record', holdFile(hold({ at: ERASURE_SECONDS - 1, released })));
+      expect(result.status, `released at ${String(released)}`).toBe(0);
+      expect(result.stdout).toContain('removed 1 record for svc-a');
+      expect(markers(dir)).toEqual(['scrub-2026-02-26-000.jsonl']);
+    }
+  });
+
+  it('refuses while the release stamp still lies ahead of the erasure instant', () => {
+    // The other side of the same edge: a hold released an instant after this one is in force now, and
+    // a run that read the release stamp as a date rather than as an instant would erase it anyway.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const result = scrub(dir, 'svc-a', '--hold-record', holdFile(hold({ released: ERASURE_SECONDS + 60 })));
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('HOLD_ERASURE_REFUSED');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('refuses on the credential alone, so a window that excludes this instant suspends the erasure', () => {
+    // The erasure arm weighs `credentials` against the name this run erases and `at` and `released` against
+    // the erasure instant, and never consults `window`: an erasure takes all of a credential's material at
+    // once, so a hold over that credential suspends the whole of it rather than the slice its window
+    // states. The record below is active at the erasure instant and its window opens a minute after it, so
+    // a consultation that began asking the window would erase what this row refuses.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const result = scrub(
+      dir,
+      'svc-a',
+      '--hold-record',
+      holdFile(hold({ window: { from: ERASURE_SECONDS + 60, to: ERASURE_SECONDS + 3_600 } })),
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('HOLD_ERASURE_REFUSED');
+    expect(result.stderr).toContain('credential "svc-a" is under the hold issued at');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('consults no hold the operator did not name, whatever stands in the directory', () => {
+    // The file is inside the volume, at a name the scrub lists and can read, and no flag names it:
+    // there is no default path for holds, so a run that reached for one would reproduce none of the
+    // behaviour this command had before the flag existed.
+    const dir = heldVolume();
+    writeFileSync(join(dir, 'hold-v1.json'), holdRecordBytes(hold()));
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('removed 1 record for svc-a');
+    expect(markers(dir)).toEqual(['scrub-2026-02-26-000.jsonl']);
+    expect(readFileSync(join(dir, 'hold-v1.json'), 'utf8')).toContain('"by"');
+  });
+
+  it('refuses a named hold file that is not there, naming the path', () => {
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const missing = join(mkdtempSync(join(tempDir, 'noholds-')), 'hold-v1.json');
+    const result = scrub(dir, 'svc-a', '--hold-record', missing);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('--hold-record names');
+    expect(result.stderr).toContain(missing);
+    // This is the operator's file being missing, not a credential under hold, so the two refusals stay
+    // distinguishable on the line the operator reads.
+    expect(result.stderr).not.toContain('HOLD_ERASURE_REFUSED');
+    expect(result.stderr).not.toContain('unexpected error');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('refuses a named hold file it cannot read, naming the path', () => {
+    // A directory is the unreadable both systems answer the same way: the read gives `EISDIR` here and
+    // on Linux, where a permission bit is another question and a uid of zero ignores that one.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const path = join(mkdtempSync(join(tempDir, 'hold-dir-')), 'hold-v1.json');
+    mkdirSync(path);
+    const result = scrub(dir, 'svc-a', '--hold-record', path);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(path);
+    expect(result.stderr).toContain('no bytes could be read from it');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('refuses a named file whose bytes are not a hold record, naming the code and the path', () => {
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const path = holdFile(hold());
+    writeFileSync(path, 'not a hold record\n');
+    const result = scrub(dir, 'svc-a', '--hold-record', path);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('not a hold record this command reads');
+    expect(result.stderr).toContain('HOLD_RECORD_BAD_DOCUMENT');
+    expect(result.stderr).toContain(path);
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('refuses a named hold record at a version this package does not read, naming that version', () => {
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const path = holdFile(hold());
+    // The version is the first thing the reader weighs, before any member of the layout, so this document
+    // is refused for the version it claims rather than for anything the version would have gone on to ask.
+    writeFileSync(path, `${JSON.stringify({ ...hold(), v: 2 }, null, 2)}\n`);
+    const result = scrub(dir, 'svc-a', '--hold-record', path);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('not a hold record this command reads');
+    expect(result.stderr).toContain('HOLD_RECORD_UNSUPPORTED_VERSION');
+    expect(result.stderr).toContain('hold record version 2 is not a layout this package reads');
+    expect(result.stderr).toContain(path);
+    // The operator's file being unreadable is not a credential under hold, so the two refusals stay
+    // distinguishable on the line, whichever of its two faults the reader reached.
+    expect(result.stderr).not.toContain('HOLD_ERASURE_REFUSED');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
   });
 });

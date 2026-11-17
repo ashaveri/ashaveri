@@ -49,10 +49,15 @@ two unions sharing one string is a deliberate decision rather than a collision t
 
 ```bash
 pnpm --filter @ashaveri/fixtures generate           # data/manifest.json, data/keys/, data/receipts/
+pnpm --filter @ashaveri/fixtures generate:challenge # data/challenge-v1.json
 pnpm --filter @ashaveri/fixtures generate:pop       # data/pop-v1.json
 pnpm --filter @ashaveri/fixtures generate:req       # data/req-v1.json
 pnpm --filter @ashaveri/fixtures generate:res       # data/res-v1.json
 pnpm --filter @ashaveri/fixtures generate:marking   # data/marking-v1.json
+pnpm --filter @ashaveri/fixtures generate:disclosure-record # data/disclosure-record-v1.json
+pnpm --filter @ashaveri/fixtures generate:hold      # data/hold-v1.json
+pnpm --filter @ashaveri/fixtures generate:incident-bundle # data/incident-bundle-v1.json
+pnpm --filter @ashaveri/fixtures generate:model-inventory # data/model-inventory-v1.json
 pnpm --filter @ashaveri/fixtures generate:chain     # data/chain-v1.json
 pnpm --filter @ashaveri/fixtures generate:export    # data/export-v1.json
 pnpm --filter @ashaveri/fixtures generate:manifest  # data/manifest-v1.json
@@ -60,6 +65,9 @@ pnpm --filter @ashaveri/fixtures generate:pack      # data/pack-v1.json
 pnpm --filter @ashaveri/fixtures generate:redaction # data/redaction-v1.json
 pnpm --filter @ashaveri/fixtures generate:epoch-inventory # data/epoch-inventory-v1.json
 pnpm --filter @ashaveri/fixtures generate:capture   # data/capture-v1.json
+pnpm --filter @ashaveri/fixtures generate:import    # data/import-v1.json
+pnpm --filter @ashaveri/fixtures generate:retention-assessment # data/retention-assessment-v1.json
+pnpm --filter @ashaveri/fixtures generate:scan-allowlist # .gitleaks.toml, derived from the files above
 ```
 
 The generators derive their key material and most of their digests from a labelled SHA-256 seed
@@ -68,7 +76,7 @@ from the generator itself. Nothing is drawn at random, so the output is reproduc
 hand-edited vector is visible the moment anyone re-runs a generator.
 If your change was not meant to move a vector, regenerating produces an empty diff. That is the check
 the vectors job runs, `git diff --exit-code packages/fixtures/data` after the aggregate command and each
-of the eleven named generators above. A non-empty diff you did not intend means your change moved a signed
+of the nineteen named generators above. A non-empty diff you did not intend means your change moved a signed
 byte.
 
 **A measured number, re-run rather than hand-written.** One command regenerates the latency figures for

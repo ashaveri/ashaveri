@@ -5,6 +5,7 @@ import { ed25519 } from '@noble/curves/ed25519';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import {
+  HOLD_RECORD_LIMITS,
   PACK_CONTENT_TYPE,
   REDACTION_CONTENT_TYPE,
   ReceiptError,
@@ -16,9 +17,11 @@ import {
   encodePackProtectedHeader,
   encodeRedactionManifest,
   encodeRedactionProtectedHeader,
+  holdRecordBytes,
   issueReceipt,
   packRecordDigest,
   packSigStructure,
+  parseHoldRecord,
   redactionPackDigest,
   redactionSigStructure,
   redactionSurvivorChain,
@@ -31,6 +34,7 @@ import {
   toHex,
   verifyPack,
   verifyRedaction,
+  type HoldRecord,
   type PackItem,
   type PackManifest,
   type RedactionManifest,
@@ -316,6 +320,32 @@ const readWith = (pack: SealedPack, key: SigningKey = KEY): RedactionVerifyOptio
 const honest = honestRedaction(PACK, ['receipt-1']);
 const honestRead = () => verifyRedaction(honest, readWith(PACK));
 
+/**
+ * A real hold record, round-tripped through the shipped writer and reader, so a case hands the consultation
+ * what a deployment hands over rather than an object assembled for the case. The default is in force at
+ * `REDACTION_AT` and covers every stamp of the pack this file seals.
+ */
+function hold(over: Partial<HoldRecord> = {}): HoldRecord {
+  return parseHoldRecord(
+    holdRecordBytes({
+      v: 1,
+      prov: 'fixture',
+      at: REDACTION_AT - 100,
+      by: 'the fixture deployer',
+      window: { from: BASE - 10, to: null },
+      reason: 'Fixture hold over the records this suite removes from the pack it seals.',
+      released: null,
+      limits: HOLD_RECORD_LIMITS,
+      ...over,
+    }),
+  );
+}
+
+/** The same read with holds handed beside the pack, which is the whole of the new argument. */
+function readWithHolds(pack: SealedPack, holds: readonly HoldRecord[], key: SigningKey = KEY): RedactionVerifyOptions {
+  return { ...readWith(pack, key), holds };
+}
+
 describe('the redaction writer and its own reader', () => {
   it('assembles a document through the published pieces exactly as it signs one', () => {
     // The refusals below are built from the pieces, so the pieces have to be the writer's own bytes or a
@@ -538,6 +568,81 @@ describe('the removal set: every name present, nothing else gone', () => {
       toHex(packRecordDigest({ ...SEAM_PACK.manifest.items[2]!, prev: SEAM_PACK.manifest.chain.anchor })),
     );
     expect(toHex(read.outcome.reduced)).not.toBe(toHex(read.outcome.originalHead));
+  });
+});
+
+describe('a hold consulted about a removal', () => {
+  it('refuses the removal of a record a live hold covers', () => {
+    const held = hold();
+    let caught: unknown;
+    try {
+      verifyRedaction(honest, readWithHolds(PACK, [held]));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ReceiptError);
+    expect((caught as ReceiptError).code).toBe('HOLD_REDACTION_REFUSED');
+    // The detail names the record and carries the hold in the `issued at ... by ...` grammar the erasure
+    // refusal uses, so an operator is told which instruction refuses; a bare digit run would match any stamp.
+    expect((caught as ReceiptError).message).toContain('receipt-1');
+    expect((caught as ReceiptError).message).toContain(`issued at ${String(held.at)} by "the fixture deployer"`);
+  });
+
+  it('reads a hold released before the removal was stated', () => {
+    // The statement was made at `manifest.at`, and a hold released before that instant was not in force when
+    // the removal was stated, so the read is the shipped one even though the window covers the stamp.
+    expect(thrownCode(() => verifyRedaction(honest, readWithHolds(PACK, [hold({ released: REDACTION_AT - 1 })])))).toBe('accepted');
+  });
+
+  it('reads a hold issued after the removal was stated', () => {
+    // A hold issued after the statement does not rewrite the history of a removal already stated.
+    expect(thrownCode(() => verifyRedaction(honest, readWithHolds(PACK, [hold({ at: REDACTION_AT + 1 })])))).toBe('accepted');
+    // The same hold issued at the instant itself is in force there, inclusive, and refuses.
+    expect(thrownCode(() => verifyRedaction(honest, readWithHolds(PACK, [hold({ at: REDACTION_AT })])))).toBe('HOLD_REDACTION_REFUSED');
+  });
+
+  it('reads a hold whose window misses the removed record', () => {
+    // `receipt-1` was chained at `BASE + 1`, so a window opening at `BASE + 2` covers no stamp the removal
+    // touches even while the hold is in force at the instant of the statement.
+    expect(thrownCode(() => verifyRedaction(honest, readWithHolds(PACK, [hold({ window: { from: BASE + 2, to: null } })])))).toBe('accepted');
+  });
+
+  it('names the held record when a removal of two covers only the second', () => {
+    const removed = honestRedaction(PACK, ['receipt-0', 'receipt-1']);
+    const secondOnly = hold({ window: { from: BASE + 1, to: BASE + 2 } });
+    let caught: unknown;
+    try {
+      verifyRedaction(removed, readWithHolds(PACK, [secondOnly]));
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ReceiptError);
+    expect((caught as ReceiptError).code).toBe('HOLD_REDACTION_REFUSED');
+    expect((caught as ReceiptError).message).toContain('receipt-1');
+    expect((caught as ReceiptError).message).not.toContain('receipt-0');
+  });
+
+  it('names the held removal before the survivor fold can misreport it', () => {
+    // A mis-stated `reduced` beside a covered removal: the fold alone refuses it, the hold alone refuses the
+    // honest document, and read together the held removal is answered by name because the consultation runs
+    // at the match and the fold never hashes a chain as though a forbidden removal had already happened.
+    const misstated = mutant(PACK, ['receipt-1'], (root) =>
+      root.set('reduced', redactionSurvivorDigest(PACK.manifest.chain.anchor, [PACK.manifest.items[0]!])),
+    );
+    expect(thrownCode(() => verifyRedaction(misstated, readWith(PACK)))).toBe('REDACTION_SURVIVOR_CHAIN_MISMATCH');
+    expect(thrownCode(() => verifyRedaction(misstated, readWithHolds(PACK, [hold()])))).toBe('HOLD_REDACTION_REFUSED');
+  });
+
+  it('reads with no holds handed exactly as it does without the option', () => {
+    const without = honestRead();
+    for (const read of [verifyRedaction(honest, readWithHolds(PACK, [])), verifyRedaction(honest, readWith(PACK))]) {
+      expect(read.outcome.survivors.map((one) => one.item.id)).toEqual(without.outcome.survivors.map((one) => one.item.id));
+      expect(toHex(read.outcome.reduced)).toBe(toHex(without.outcome.reduced));
+      expect(toHex(read.outcome.originalHead)).toBe(toHex(without.outcome.originalHead));
+    }
+    // And the consultation sits behind the match: an id no item carries answers `REDACTION_ITEM_ABSENT`
+    // even with a hold in hand, because the refusal about the pack precedes any question about a hold.
+    expect(thrownCode(() => verifyRedaction(honestRedaction(PACK, ['receipt-9']), readWithHolds(PACK, [hold()])))).toBe('REDACTION_ITEM_ABSENT');
   });
 });
 

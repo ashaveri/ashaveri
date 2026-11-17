@@ -33,7 +33,8 @@ Arguments:
                          [--collateral-level <slot>=<arm>=<value>]... [options]
   ashaveri detect-mark <receipt> --response-body <file> --key <b64url>... [--json]
   ashaveri verify-handover <document> [--key <b64url>]... [--manifest-key <b64url>]...
-                         [--companion <file>]... [--retention-dir <directory>] [--intel-root <file>]...
+                         [--companion <file>]... [--retention-dir <directory>] [--hold-record <file>]...
+                         [--intel-root <file>]...
                          [--collateral-origin <slot>=<origin>]...
                          [--collateral-platform <slot>=<sgx|tdx>]...
                          [--collateral-cpu-type <slot>=<hex>]...
@@ -52,7 +53,7 @@ Arguments:
   ashaveri credential revoke --credentials <file> --id <id> [--json]
   ashaveri credential list --credentials <file> [--json]
   ashaveri accesslog scrub --access-log <dir> --credential <id> [--now <iso>]
-                          [--request <ref>] [--json]
+                          [--request <ref>] [--hold-record <file>]... [--json]
 
   <attestation>      Path to a dStack VersionedAttestation file, or - for stdin.
   <receipt>          Path to a COSE_Sign1 receipt file, or - for stdin.
@@ -81,7 +82,11 @@ because a manifest decides which keys sign evidence and cannot be proved by one 
 removal from one pack and designates that pack by a
 digest of its whole bytes, so it is checked against the pack handed as --companion: the digest is
 recomputed from those bytes and compared, and the pair is refused by name when they disagree or when no
-pack was handed at all. A provenance ledger names its rows against a roster: the three anchors the reader
+pack was handed at all. Beside that pack, the files handed as --hold-record travel to the same reading,
+which weighs each removed record's own chain stamp against the records named and refuses, as
+HOLD_REDACTION_REFUSED, a removal that a hold in force at the instant the amendment states was covering that
+stamp; name none and the reading weighs the amendment against no hold, which is all it did before the flag
+existed. A provenance ledger names its rows against a roster: the three anchors the reader
 embeds resolve from its own source, and a row naming test/fixtures/<name> is checked against the file handed
 as --companion under that bare name, so a ledger handed no companion, or one handed bytes a row does not
 digest, is refused by the reader's own code rather than read as a claim nobody checked. An inventory states what a run of packs adds up to, and its reader folds a fifth
@@ -408,6 +413,30 @@ detect-mark reads --key alone:
                      still there is no answer at all. A stray file under the root is read
                      by nothing here, because no entry names it. Beside a receipt, a pack, an export, a manifest
                      or an amendment this flag is printed as not consulted.
+  --hold-record <file>
+                     verify-handover: one file holding a hold record the amendment in front of this run is
+                     weighed against. Repeatable, and each distinct path it names is read once as the command
+                     starts, so one path typed twice yields one record rather than two. An amendment states a
+                     removal and a hold states that the record stamps inside its window are to survive, so the
+                     reading weighs each removed record's own chain stamp against the records this flag hands it,
+                     at the instant the amendment states the removal and never at this run's clock. A removal that
+                     a hold in force then covers is refused with HOLD_REDACTION_REFUSED: the sentence the format
+                     fixes for that code, then the record, the hold's issue stamp and the author that issued it.
+                     That refusal is the reader's own and arrives in the report shape every other redaction
+                     refusal arrives in, at exit 1, with no reading of the pack printed beside it; the words the
+                     hold carries in its reason member are not printed. There is no default path: name none and
+                     consult none, and no report row mentions the flag, which is what this command did before the
+                     flag existed. A file this flag names that is not there, cannot be read, or does not parse
+                     stops the run naming the path and the reason. The named files are read before the document's
+                     type is known, so beside a receipt, a pack, an export, a deployment manifest, an inventory or
+                     a provenance ledger they are read all the same, and one of them that will not read stops that
+                     run too, while the reading they came from is printed as not consulted, because no such
+                     document removes a record. Name at least one and every report this run prints states how many
+                     records it read, and gives each path beside the sha256 of the bytes read there, so a run that
+                     weighed a hold can be told from one whose argument was swallowed. The accesslog scrub flag of
+                     the same name weighs a credential rather than a record stamp and stops an erasure, and the
+                     gateway's flag of the same name feeds its own store and access log at start-up: no door reads
+                     another's files.
   --intel-root <file> A root certificate this run stands behind, PEM or DER. Repeatable, one file per flag. On
                      verify it is one family of anchors, and a policy document may leave that family to the roots
                      bundled with the library. On these verbs it is the whole of what the material a pack carries
@@ -461,6 +490,24 @@ Credential and log options:
                      asked; a removal with no reference beside it reads the same as one with no
                      authority. Up to 200 characters, kept trimmed, and stored as null when given
                      nothing, so a marker is always asked the question.
+  --hold-record <file>
+                     accesslog scrub: one file holding a hold record this run must consult before it
+                     erases anything. Repeatable, one record per flag, and each file is read as the
+                     command runs. The instant a hold is weighed at is the instant the run stamps,
+                     which is what --now names, so this is the deployment's own guard rail and not
+                     something an outside party can rely on to make an erasure impossible. There is
+                     no default path: name none and consult none, which is what this command did
+                     before the flag existed. A credential an active hold names is refused with
+                     HOLD_ERASURE_REFUSED: the sentence the format fixes for that code, then the
+                     credential, the hold's issue stamp and the author that issued it. The words the
+                     hold itself carries in its reason member are not printed. The refusal is weighed
+                     before the log directory is listed, so no part is opened, no marker is filed and
+                     no byte moves. A hold that names no credential suspends every one of them. A file
+                     this flag names that is not there, cannot be read, or does not parse is refused by
+                     path and reason rather than treated as no hold at all. The gateway's flag of the
+                     same name feeds its own store and access log at start-up and reaches nothing
+                     here; this one reaches only this command, and the verify-handover flag of the same name
+                     hands the records it names to the amendment reading and reaches no erasure.
   --id <id>          Credential id, [A-Za-z0-9_-]{1,64}. Defaults to pop-<8> or bearer-<8>,
                      the prefixes the gateway's own generator uses.
   --kind pop|bearer  credential add: proof of possession, or a bearer secret. Default pop.
@@ -477,10 +524,12 @@ Credential and log options:
 Options for every command:
   --now <iso>        The clock the command reads instead of the wall clock: the
                      verification time for verify and verify-receipt, the whole-second createdAt or revokedAt of
-                     a credential record for credential add and revoke, and the day a scrub
-                     marker is named for in accesslog scrub. For the two verify verbs a date
-                     outside the span the verifier weighs stamps in is refused by name, so a
-                     reading counted in the wrong scale never answers for the receipt.
+                     a credential record for credential add and revoke, and, in accesslog scrub, both
+                     the day a marker is named for and the instant a hold the run was named is weighed
+                     at. A scrub given --hold-record judges every record against this instant and never
+                     against the wall clock, so the two edges a hold states move with it. For the two
+                     verify verbs a date outside the span the verifier weighs stamps in is refused by
+                     name, so a reading counted in the wrong scale never answers for the receipt.
   --json             Machine-readable output for every command: the verification result, a
                      credential listing or the record just touched, a scrub's counts and its
                      marker name. On keygen and credential add the object carries the one-time
@@ -496,10 +545,12 @@ Exit codes:
      met by the verb pinned to that type and read the same way, a credential added or
      revoked, a listing printed, a scrub run
   1  verification or a pin failed, or a command met an error it was not written to expect
-  2  usage or input error, including a credential file this program cannot parse. A scrub can exit 2
-     having already erased records, because its refusal comes after the parts it rewrote, and every
-     refusal route puts the numbers in the message: counted there directly, named in the marker it
-     points at, or, for a part it published and can no longer read, carried in that part's own sentence.
+  2  usage or input error, including a credential file this program cannot parse. A scrub refused by a
+     hold exits 2 having moved nothing, because that question is weighed before the directory is
+     listed. A scrub can also exit 2 having already erased records, because its refusal comes after
+     the parts it rewrote, and every refusal route puts the numbers in the message: counted there
+     directly, named in the marker it points at, or, for a part it published and can no longer read,
+     carried in that part's own sentence.
      None of them turns into an object under --json, which stays a refusal on stderr, so read
      a nonzero exit from there and not from stdout.`;
 
@@ -576,6 +627,7 @@ async function main(argv: string[]): Promise<number> {
         'access-log': { type: 'string' },
         credential: { type: 'string' },
         request: { type: 'string' },
+        'hold-record': { type: 'string', multiple: true },
         id: { type: 'string' },
         kind: { type: 'string' },
         scopes: { type: 'string' },

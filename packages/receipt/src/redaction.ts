@@ -17,6 +17,7 @@ import {
   type SigningKey,
 } from './cose.js';
 import { ReceiptError } from './errors.js';
+import { holdCoversStamp, type HoldRecord } from './hold.js';
 import { packRecordDigest, verifyPack, type PackVerifyOptions, type VerifiedPack, type VerifiedPackItem } from './pack.js';
 import { signEd25519 } from './signing.js';
 
@@ -30,9 +31,10 @@ import { signEd25519 } from './signing.js';
  * removal instead of a rewritten first one. This module reads and writes that document. It is a checker and
  * not a verdict engine: it answers whether the bytes are a well-formed redaction, whether the key it was
  * handed signed them, whether the pack it names is the pack it was handed, whether every id it names is a
- * record of that pack, and what the chain over the records that remain hashes to. It answers nothing about a
- * duty, nothing about whether the removed bytes are unreachable anywhere else, and nothing about freshness,
- * and it resolves nothing by itself: every key arrives as an argument and the pack arrives as bytes.
+ * record of that pack, whether any record it removes falls under a hold handed beside these two documents,
+ * and what the chain over the records that remain hashes to. It answers nothing about a duty, nothing about
+ * whether the removed bytes are unreachable anywhere else, and nothing about freshness, and it resolves
+ * nothing by itself: every key arrives as an argument and the pack arrives as bytes.
  *
  * Four things a reader is owed, and where each is settled here. That the redaction was sealed by a key it
  * designates, and which pack it speaks about, by a digest recomputed from that pack's own bytes rather than
@@ -56,7 +58,10 @@ import { signEd25519 } from './signing.js';
  * a redaction without the pack it names. The second of those is the availability rule stated the other way
  * round. A reader that cannot reach a redaction still verifies the original pack, because the pack was never
  * rewritten and refers to nothing here; a reader that has the redaction and not the pack can say nothing at
- * all, and says that by name rather than accepting the document on its own word.
+ * all, and says that by name rather than accepting the document on its own word. A refusal about a handed
+ * hold is not one of those two, and it is not a fault in the call either: it is weighed after both documents
+ * have been read, against the record the pack's walk reached and the instant this statement removes it, so
+ * it belongs with the refusals about the bytes.
  *
  * The writer is `encodeRedactionManifest`, `encodeRedactionProtectedHeader`, `sealRedaction` and
  * `signRedaction`, and `redactionSurvivorDigest` and `redactionPackDigest` are the two computations a caller
@@ -144,10 +149,15 @@ export interface VerifiedRedaction extends DecodedRedaction {
  * against the epochs the caller retained. `packBytes` is the pack, as it was handed over: the reader hashes
  * exactly these bytes and compares the digest against the one the manifest carries, so a redaction pointed
  * at one pack is never read against another. It is required, and a call that leaves it out is refused before
- * a byte of the redaction is read, because the fault is in the call.
+ * a byte of the redaction is read, because the fault is in the call. `holds` is what a caller hands beside
+ * the statement and may leave out: absent is the statement that no hold is consulted, and the read is then
+ * exactly the one this package has always given. When holds are handed, each removed record's chain stamp is
+ * weighed against them at the instant the removal was stated, and a hold in force then over that stamp
+ * refuses the removal by name.
  */
 export interface RedactionVerifyOptions extends PackVerifyOptions {
   readonly packBytes: Uint8Array;
+  readonly holds?: readonly HoldRecord[];
 }
 
 const encoder = new TextEncoder();
@@ -538,9 +548,12 @@ function handedPack(packBytes: Uint8Array | undefined): Uint8Array {
  * epoch the pack's receipts were signed under has too few keys, not a broken pair of documents.
  *
  * Only then is the removal settled, and both halves of it are arithmetic. The ids have to name records the
- * pack's walk reached, or the redaction is about a pack that never carried them. The survivors are the walk
- * with those records dropped, which is the set the reader computes and not the set the document states, so a
- * removal larger than the one named changes the survivor sequence and so changes the digest the fold returns.
+ * pack's walk reached, or the redaction is about a pack that never carried them. A handed hold is consulted
+ * between the match and the fold, weighed at the instant the removal was stated, because the fold would
+ * otherwise restate the chain as though a removal the instruction forbids had already happened. The
+ * survivors are the walk with those records dropped, which is the set the reader computes and not the set
+ * the document states, so a removal larger than the one named changes the survivor sequence and so changes
+ * the digest the fold returns.
  * `reduced` is that fold: the pack's own `packRecordDigest` over the survivors in chain order, relinked from
  * the pack's anchor, and it is compared rather than believed.
  *
@@ -592,8 +605,24 @@ export function verifyRedaction(bytes: Uint8Array, options: RedactionVerifyOptio
   }
   const reached = pack.outcome.walked;
   for (const id of manifest.removed) {
-    if (!reached.some((one) => one.item.id === id)) {
+    // `find`, not `some`: the match has to be kept, because the removed record's chain stamp is the figure
+    // the consultation below weighs, and a predicate that discards its match leaves that stamp out of reach.
+    const matched = reached.find((one) => one.item.id === id);
+    if (matched === undefined) {
       throw new ReceiptError('REDACTION_ITEM_ABSENT', `${id} is named by this redaction and carried by no item of the pack it designates`);
+    }
+    // The instant consulted is `manifest.at`, the instant the removal was stated, and never the read time: a
+    // hold issued after the statement does not rewrite the history of a removal already stated, and a hold
+    // released after it still covers the removal stated while it was on. `holdCoversStamp` asks
+    // `holdActiveAt` at its `now` inside itself, so this one call answers both whether the hold was in force
+    // then and whether it covers the stamp; stacking `holdActiveAt` beside it would restate the first half.
+    for (const hold of options.holds ?? []) {
+      if (holdCoversStamp(hold, matched.item.iat, manifest.at)) {
+        throw new ReceiptError(
+          'HOLD_REDACTION_REFUSED',
+          `${id} is removed by this redaction and covered by the hold issued at ${String(hold.at)} by ${JSON.stringify(hold.by)}`,
+        );
+      }
     }
   }
   const removed = new Set(manifest.removed);

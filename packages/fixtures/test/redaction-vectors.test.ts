@@ -8,6 +8,7 @@ import {
   decodePack,
   decodeRedaction,
   packRecordDigest,
+  parseHoldRecord,
   toHex,
   verifyPack,
   verifyRedaction,
@@ -114,7 +115,7 @@ function countStatedByTheDocument(states: RegExp, what: string): string {
   return stated[1]!;
 }
 
-/** The options a row's designation builds, beside the pack the row hands, which are the reader's own shapes. */
+/** The options a row's designation builds, beside the pack the row hands and the holds it hands. */
 function optionsFor(one: RedactionVector): RedactionVerifyOptions {
   let keys: PackVerifyOptions = {};
   if (one.read.pinned !== undefined) keys = { publicKey: bytes(one.read.pinned) };
@@ -130,6 +131,12 @@ function optionsFor(one: RedactionVector): RedactionVerifyOptions {
   return {
     ...keys,
     packBytes: one.packBase64Url === undefined ? (undefined as unknown as Uint8Array) : bytes(one.packBase64Url),
+    // The holds reach the call as the published bytes the shipped reader accepts, not as objects built here:
+    // a row carrying a record the format would refuse is a fault this replay reports rather than an answer it
+    // inherits, and a row carrying no column leaves the option off the call exactly as the generator did.
+    ...(one.holdsBase64Url === undefined
+      ? {}
+      : { holds: one.holdsBase64Url.map((each) => parseHoldRecord(bytes(each))) }),
   };
 }
 
@@ -355,6 +362,42 @@ describe('the redaction manifest vectors', () => {
     }
   });
 
+  it('publishes the consultation\'s answer as three readings of one manifest', () => {
+    // The arm that weighs a handed hold against a stated removal is reachable from this file alone, or a port
+    // following the published suite cannot test the rule at all. The rows below hand one and the same
+    // manifest, pack and key, and differ by the bytes handed to the `holds` option: the refusal is therefore a
+    // statement about the window's edge, and the two acceptances say which side of it a removal stands on.
+    const consulted = file.vectors.filter((one) => one.holdsBase64Url !== undefined);
+    expect(consulted.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(consulted.map((one) => one.documentBase64Url)).size, 'the consultation rows hand more than one manifest').toBe(1);
+    const refusal = consulted.filter((one) => one.verdict === 'HOLD_REDACTION_REFUSED');
+    expect(refusal).toHaveLength(1);
+    expect(refusal[0]?.holdsBase64Url).toHaveLength(1);
+    // The refusal names the record it weighed, which is what a port has to find in the answer to know which
+    // removal an instruction suspends; the verdict column above is the code and this is the fact beside it.
+    expect(refusal[0]?.item, 'the hold refusal names no removed record').toBe('receipt-1');
+    const accepted = consulted.filter((one) => one.verdict === 'verify-ok');
+    expect(accepted.length).toBeGreaterThanOrEqual(2);
+    // One acceptance states the call that hands an empty list, which is the option mentioned and nothing
+    // weighed, and the other states an active hold whose window simply does not reach the removed stamp.
+    expect(accepted.some((one) => (one.holdsBase64Url?.length ?? 1) === 0)).toBe(true);
+    expect(accepted.some((one) => (one.holdsBase64Url?.length ?? 0) === 1)).toBe(true);
+    // These very bytes are also answered by a row that carries no holds column at all, so the pair above is
+    // about the instruction handed and not about the option having been named beside a document.
+    const bare = file.vectors.find(
+      (one) => one.holdsBase64Url === undefined && one.documentBase64Url === consulted[0]?.documentBase64Url,
+    );
+    expect(bare, 'no row answers the consultation bytes with nothing handed at all').toBeDefined();
+    expect(bare?.verdict).toBe('verify-ok');
+    // And a removal the hold does not reach relinks exactly the chain the untouched call reaches: the reading
+    // moves no further than the refusal that did not happen.
+    for (const one of accepted) {
+      expect(one.survivors, `${one.name} survivor run`).toEqual(bare?.survivors);
+      expect(one.reducedHex, `${one.name} reduced head`).toBe(bare?.reducedHex);
+      expect(one.originalHeadHex, `${one.name} pack head`).toBe(bare?.originalHeadHex);
+    }
+  });
+
   it('recomputes the survivor chain from the pack it was handed, not from a writer', () => {
     const accepted = file.vectors.filter((one) => one.verdict === 'verify-ok');
     expect(accepted.length, 'the suite publishes too few accepted pairs').toBeGreaterThanOrEqual(8);
@@ -537,11 +580,21 @@ describe('the redaction manifest vectors', () => {
   });
 
   it('reaches every code the format registry declares for this container', () => {
-    const declared = unionMembers('ReceiptErrorCode', ERRORS).filter((code) => code.startsWith('REDACTION_'));
-    expect(declared.length).toBeGreaterThanOrEqual(13);
+    // The scope is every declared code whose own name speaks about a redaction, which is wider than the one
+    // prefix and no wider than the reader that raises them. `verifyRedaction` consults the holds its caller
+    // hands and answers with a code named for the instruction that suspends the removal, so a sweep on
+    // `REDACTION_` cannot see it and a port replaying this file could never be told to reach it. The two
+    // assertions under the sweep keep the widening honest: the codes the other doors answer stay outside this
+    // container's rows, so the scope grew by the arm that belongs here and not by whatever else is named.
+    const declared = unionMembers('ReceiptErrorCode', ERRORS).filter((code) => code.includes('REDACTION_'));
+    expect(declared.length).toBeGreaterThanOrEqual(14);
+    expect(declared).toContain('HOLD_REDACTION_REFUSED');
     const reached = new Set([...file.vectors.map((one) => one.verdict), ...file.vectors.map((one) => one.structural)]);
     for (const code of declared) {
       expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
+    }
+    for (const code of ['HOLD_ERASURE_REFUSED', 'HOLD_RECORD_BAD_DOCUMENT', 'HOLD_RECORD_UNSUPPORTED_VERSION']) {
+      expect(reached.has(code), `a published redaction row answered ${code}, which a different door owns`).toBe(false);
     }
   });
 

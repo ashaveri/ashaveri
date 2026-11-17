@@ -78,6 +78,36 @@ export type WindowAgainstRecord =
     };
 
 /**
+ * A hold note beside one edge's judgement, or nothing.
+ *
+ * A hold is a deployment's instruction to keep and a window is its instruction about how long it keeps,
+ * and a reader that met both needs to know which one a number answers to. The sentence is kept here
+ * rather than written at each edge because two copies of it are how one pairing starts to mean two
+ * things: one edge would say the records are kept, the other would say the period was extended. Nothing
+ * in this function reads the window's own arithmetic: it states what a suspension does beside a figure
+ * that is unchanged, which is the half of the rule that a hold never answers a shortfall and never moves
+ * a stated period. `hold` arrives already narrowed to the record in force, so a deployment with none
+ * hands null and reads nothing, and the digest is quoted because the note belongs in a start-up log
+ * beside the bytes it was read from. The narrowing is one record deep: a deployment with two matters
+ * under hold hands two records, so its caller asks twice and prints twice rather than handing this
+ * function a set it would have to describe in one sentence. A note about one hold is not a note about
+ * every hold, and a caller that had said both in one line would have said neither.
+ */
+export function holdWindowNote(
+  hold: { readonly path: string; readonly digestHex: string } | null,
+  windowSeconds: number,
+): string | null {
+  if (hold === null) {
+    return null;
+  }
+  return (
+    `records under the hold at ${hold.path} sha256 ${hold.digestHex} are kept past the ${String(windowSeconds)} ` +
+    'seconds this run configures while that hold is in force, and the hold changes neither that window ' +
+    'nor the period this deployment stated: it answers no shortfall'
+  );
+}
+
+/**
  * The answer one record-facing edge gets, in that edge's own words.
  *
  * The floor branch is about the record alone, so it reads the same whichever edge asks it and names the

@@ -116,7 +116,29 @@ export type ReceiptErrorCode =
   | 'MODEL_INVENTORY_MANIFEST_MISMATCH'
   | 'MODEL_INVENTORY_MANIFEST_UNREADABLE'
   | 'MODEL_INVENTORY_MANIFEST_UNSEALED'
-  | 'MODEL_INVENTORY_BOUND_DISAGREES';
+  | 'MODEL_INVENTORY_BOUND_DISAGREES'
+  // The hold family below, for the same reason the disclosure record's and the model inventory's exist:
+  // a log line carries only the code string, and the sentences fixed beside the receipt codes name a
+  // receipt. This artifact carries no signature either, so it carries no envelope: the three shared
+  // envelope refusals have no site here. After the two layout codes come the two consultation
+  // refusals: the record is whole and read, and what is refused is an act it suspends, an erasure or a
+  // stated removal, which is a finding about the call rather than about the document.
+  | 'HOLD_RECORD_UNSUPPORTED_VERSION'
+  | 'HOLD_RECORD_BAD_DOCUMENT'
+  | 'HOLD_ERASURE_REFUSED'
+  | 'HOLD_REDACTION_REFUSED'
+  // The incident bundle family below, for the same reason the hold's and the model inventory's exist: a
+  // log line carries only the code string, and the sentences fixed beside the receipt codes name a
+  // receipt. This artifact carries no signature either, so it carries no envelope: the three shared
+  // envelope refusals have no site here. What the codes answer is the layout, the pointer registry, and
+  // the pair of a record with the hold it designates, which is a finding about two documents rather than
+  // about either half alone, the same split the model inventory's manifest codes draw.
+  | 'INCIDENT_BUNDLE_UNSUPPORTED_VERSION'
+  | 'INCIDENT_BUNDLE_BAD_DOCUMENT'
+  | 'INCIDENT_BUNDLE_UNKNOWN_POINTER'
+  | 'INCIDENT_BUNDLE_HOLD_MISMATCH'
+  | 'INCIDENT_BUNDLE_HOLD_UNREADABLE'
+  | 'INCIDENT_BUNDLE_BOUND_DISAGREES';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -629,6 +651,92 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // model entry carries, and the detail names the position and both values so an operator can see which
   // of the two documents has to move.
   MODEL_INVENTORY_BOUND_DISAGREES: 'a bound field of the model inventory disagrees with the manifest it designates',
+  // One code for the two readings of a `v` this package cannot use, as the model inventory's and the
+  // disclosure record's are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `HOLD_RECORD_BAD_DOCUMENT`.
+  HOLD_RECORD_UNSUPPORTED_VERSION: 'hold record declares a version this package cannot parse',
+  // Every structural refusal of the document and of the window map inside it: an absent member, a
+  // member this version does not define, a text of the wrong type or width or carrying a character
+  // that forges the printed line it belongs to, a stamp below zero, a release stamped before the hold
+  // was issued, a window closing before it opens, an empty credentials list, one credential named
+  // twice, a provenance outside the three values, and a limits member stating anything other than the
+  // format's own limits sentence. A floating-point number answers here too, from the decode rather
+  // than from a field read, because by the time a check could tell `1` from `1.0` the bytes have
+  // become one JavaScript number. What is not this code: an erasure the record suspends, which is
+  // about the call and answers `HOLD_ERASURE_REFUSED` below.
+  HOLD_RECORD_BAD_DOCUMENT: 'hold record does not match the layout its declared version defines',
+  // Not a fault of the document: the hold is whole and read, and an active one names the credential
+  // this call would erase, or names no credentials and so covers every one. The erasure is refused
+  // before it moves a byte, because a hold that suspended nothing until after the first deletion
+  // would suspend nothing at all. The detail names the credential and the hold's issue stamp and
+  // author, so an operator can see which instruction suspends the call. The action is the
+  // deployment's own: wait for the release the record states, or issue a release, and never edit the
+  // hold to make the erasure pass.
+  HOLD_ERASURE_REFUSED: 'an active hold record suspends erasure of the credential this call names',
+  // Not a fault of the document either: the hold is whole and read, and the removal a redaction states
+  // takes out a record the hold covers at the instant the removal was stated. The consultation runs per
+  // removed id after the id is matched to a record of the pack, because the record's chain stamp is the
+  // figure weighed, and before the survivor fold, which would restate the chain as if the held record
+  // were already gone. The instant weighed is the manifest's and never the read time, and the window of
+  // the hold is consulted here, where the erasure arm ignores it, because a removal names one record and
+  // not a whole credential. The halves are then reversed: `credentials` is weighed by the erasure arm and
+  // not here, because a `PackItem` carries an id and a chain stamp and no credential identity, the nearest
+  // per-record name being the custody reference, so the window is all this arm can weigh and a hold naming
+  // another credential still refuses, which is over-refusal an operator can hit and never a silent
+  // permission. The detail names the record and the hold's issue stamp and author, and the
+  // action is the deployment's own: wait for the release the record states, or issue a release, and then
+  // verify again, never edit the hold or the manifest to make the removal pass.
+  HOLD_REDACTION_REFUSED: 'a redaction states the removal of a record a handed hold covers',
+  // One code for the two readings of a `v` this package cannot use, as the hold record's and the model
+  // inventory's are. A `v` that is not an integer at all is a malformed document, so it answers
+  // `INCIDENT_BUNDLE_BAD_DOCUMENT`.
+  INCIDENT_BUNDLE_UNSUPPORTED_VERSION: 'incident bundle declares a version this package cannot parse',
+  // Every structural refusal of the document and of the maps inside it: an absent member, a member this
+  // version does not define at the top level or in the incident, hold, window or floor block, a text of
+  // the wrong type or width or carrying a character that forges the printed line it belongs to, a digest
+  // of the wrong width or case, a stamp below zero, an incident stamped after the bundle that carries it,
+  // a window closing before it opens, a floor days that is not a positive whole number or is too many
+  // days for a floor to be a stamp, the incident stamp plus those days landing outside the range a stamp
+  // holds, a floor preserveUntil that is not the incident stamp plus the stated days, an empty pointers
+  // list, one pointer named twice, a provenance outside the three values, and a limits member stating
+  // anything other than the format's own limits sentence. A floating-point number answers here too, from
+  // the decode rather than from a field read, because by the time a check could tell `1` from `1.0` the
+  // bytes have become one JavaScript number. The floor's arithmetic is answered by the layout door rather
+  // than the verifying one, because `floor.preserveUntil` relates two figures inside this one record and
+  // reads no byte outside it: the reader recomputes it rather than believing the stated value, so a
+  // caller holding only the bundle is refused too. What is not this code: a pointer outside the registry,
+  // which answers `INCIDENT_BUNDLE_UNKNOWN_POINTER`, and any disagreement with the designated hold, which
+  // answers one of the three hold codes below.
+  INCIDENT_BUNDLE_BAD_DOCUMENT: 'incident bundle does not match the layout its declared version defines',
+  // The pointer is the record's own registry, the one provision the layout enumerates, and a label
+  // outside it is refused rather than read as a citation nobody checked. Not `INCIDENT_BUNDLE_BAD_DOCUMENT`
+  // under another name: the document is well-formed and it is the provision it names that this reader has
+  // no pointer for, and the action is counsel widening the registry from the instrument text rather than a
+  // writer fixing a field, the same line the model inventory's pointer registry draws. The floor number is
+  // the deployment's own statement and the pointer is counsel's to weigh; the reader judges the days
+  // against no provision's period.
+  INCIDENT_BUNDLE_UNKNOWN_POINTER: 'incident bundle names a pointer outside the registry this package reads',
+  // The reader hashed the hold it was given and got a different digest from the one the record designates.
+  // Either document may be whole; what is refused is reading this record against that hold, which is a
+  // finding about which hold the reader is holding rather than about either pair of bytes. The action is to
+  // hand over the hold the record names, not to edit a record that is already whole.
+  INCIDENT_BUNDLE_HOLD_MISMATCH: 'the hold handed to the reader is not the hold the incident bundle designates',
+  // The designated hold does not parse as a hold record: `parseHoldRecord`, the hold's own whole-layout
+  // reader, refuses the bytes handed over for any reason of its own layout, whether a position the copied
+  // fields are read from is absent or ill-shaped or the hold states a version this package does not read.
+  // The bundle may be whole and the hold simply not state what the copied fields claim, so this is not a
+  // malformed bundle and not a bound disagreement: there is nothing to compare against. The detail carries
+  // that reader's refusal so an operator sees which position failed. A throw that is not a `ReceiptError`
+  // is no document fault at all, so it propagates rather than being re-framed as one of this family.
+  INCIDENT_BUNDLE_HOLD_UNREADABLE: 'the hold handed to the reader does not parse as a hold record the incident bundle binds against',
+  // A copied field states one value and the designated hold binds another. The copied fields are the
+  // layout's, not a label a writer picks: the hold's issue stamp and author and the window of record stamps
+  // are copied from the hold and checked against it, and a disagreement is the record contradicting the
+  // document it designates. An asserted field (the incident's identity, stamp and narrative, and the floor
+  // days as a number) has no comparison to fail, which is the difference between the two kinds of statement
+  // the layout keeps apart, and the detail names the position and both values so an operator can see which
+  // of the two documents has to move.
+  INCIDENT_BUNDLE_BOUND_DISAGREES: 'a bound field of the incident bundle disagrees with the hold it designates',
 };
 
 /**

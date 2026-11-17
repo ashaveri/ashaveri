@@ -206,8 +206,17 @@ interface StoreReading {
  * The store is opened before the checkpoint is read so that a deployment which keeps an index is seen to keep
  * it: the loader reports the checkpoint an opening of this store would resume from. This opening declines the
  * index unless the caller asked for it by name, so it neither bootstraps one into the operator's directory
- * nor leaves a file there that was not there when the read began, and a deployment that runs without an index
- * is read as a store with no index on the volume, which the loader answers as no checkpoint.
+ * nor writes a `receipts.log.index` the volume did not hold. The opening is not itself a no-op on a directory
+ * it has never served: it creates `receipts.log` and writes this process's `receipts.log.owner` claim, the
+ * same two files a serving process creates on the same opening. A deployment that runs without an index is
+ * read as a store with no index on the volume, which the loader answers as no checkpoint.
+ *
+ * No suspension travels into that opening, and the evidence reads it as the narrower claim it is: where a hold
+ * keeps a prefix, this door reports the window and the span an unheld pairing of the same bounds keeps, which
+ * is a span shorter than the serving process's and never a wider one. Nothing here can make that difference
+ * cost a record, because the two answers this opening reads - `window` and the checkpoint loader - retire no
+ * byte, and a prefix an opening drops leaves the file only when the append path compacts it, which no read of
+ * evidence performs.
  */
 async function readOnce(
   request: ReadRetentionEvidenceRequest,
