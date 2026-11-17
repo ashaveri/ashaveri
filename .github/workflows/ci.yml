@@ -101,7 +101,8 @@ jobs:
       - run: pnpm -C packages/fixtures generate:capture
       - run: pnpm -C packages/fixtures generate:import
       - run: pnpm -C packages/fixtures generate:retention-assessment
-      # The scan's allowlist is derived from the bytes the steps above write, so it runs last among them: a
+      # The scan's allowlist takes its candidates from the roster in scan-allowlist.json, whose entries name
+      # files the steps above write and paths this repository carries by hand, so it runs last among them: a
       # config built from a stale vector file would be a stale config, and the diff below reads it as one
       # finding rather than two.
       - run: pnpm -C packages/fixtures generate:scan-allowlist

@@ -523,6 +523,24 @@ const VERIFY_CASES: readonly VerifyCase[] = [
   },
 ];
 
+/** The hold-family row this bundle designates, spelled as the hold family publishes it. */
+const DESIGNATED_HOLD_ROW = 'hold-fixture-v1';
+
+/** Counts stated as words, because published prose spells its numbers rather than showing digits. */
+const COUNT_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'ten'] as const;
+
+/**
+ * The hold-family rows the verification cases hand over besides the one this bundle designates. The
+ * published note counts these rather than repeating a numeral of its own, because a note written by hand
+ * can say one count while the cases carry another, and the count is a claim about this list.
+ */
+const OTHER_HOLD_ROWS: readonly string[] = [
+  ...new Set(VERIFY_CASES.map((one) => one.holdRow)),
+].filter((name) => name !== DESIGNATED_HOLD_ROW);
+
+/** The count of `OTHER_HOLD_ROWS` as the published prose states it. */
+const OTHER_HOLD_ROW_COUNT = COUNT_WORDS[OTHER_HOLD_ROWS.length] ?? String(OTHER_HOLD_ROWS.length);
+
 function verifyVerdictOf(one: VerifyCase): string {
   try {
     verifyIncidentBundle(one.recordBytes, { holdBytes: one.holdBytes });
@@ -719,7 +737,7 @@ function main(): void {
           hold: {
             row: 'hold-v1.json#hold-fixture-v1',
             recordBase64Url: toBase64Url(HOLD_BYTES),
-            note: 'The hold this record designates, byte for byte the row the hold family publishes, together with the three other published hold rows the verification cases hand over: the open record whose null window end is a bound field like any other, the released record that is whole but not this record\'s hold, and the refused document that makes the unreadable refusal a finding about the hold rather than about the bundle. Each case carries its own hold bytes, so a port replays a pair without reaching into another family.',
+            note: `The hold this record designates, byte for byte the row the hold family publishes, together with the ${OTHER_HOLD_ROW_COUNT} other published hold rows the verification cases hand over: the open record whose null window end is a bound field like any other, the released record that is whole but not this record's hold, and the refused document that makes the unreadable refusal a finding about the hold rather than about the bundle. Each case carries its own hold bytes, so a port replays a pair without reaching into another family.`,
           },
           unsigned: 'An incident preservation bundle carries no signature, as the hold record and the model inventory carry none. No row of this family is sealed by a key of its own, and no digest of a record is claimed by anything here: what a reader weighs is the layout, the designated hold\'s bytes and the arithmetic of the floor. The export container is what carries these bytes as evidence under its own signature, and the ride below is that statement measured rather than asserted.',
           exportRide: {

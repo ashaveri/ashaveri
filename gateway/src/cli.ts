@@ -6,6 +6,7 @@ import {
   MARKING_SCHEMES,
   MEASUREMENT_BYTES,
   POP_TIMESTAMP_TOLERANCE_SECONDS,
+  ReceiptError,
   holdActiveAt,
   holdCoversStamp,
   isMarkingScheme,
@@ -609,7 +610,11 @@ for (const path of new Set(values['hold-record'] ?? [])) {
   try {
     record = parseHoldRecord(bytes);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+    // The code travels before the sentence, the shape both CLI doors give a named-file refusal, because
+    // the sentence alone says these bytes are not a hold record while the code says which question about
+    // them the reader could not answer.
+    const detail = error instanceof Error ? error.message : String(error);
+    const reason = error instanceof ReceiptError ? `${error.code}: ${detail}` : detail;
     fail(`--hold-record names ${path} and its bytes are not a hold record this gateway reads: ${reason}`);
   }
   heldRecords.push({

@@ -508,11 +508,13 @@ export interface FileReceiptStoreOptions {
    * Absent means nothing is suspended: the store retires exactly the prefix its `retention` states,
    * which is the answer every store file this repository has published was written under.
    *
-   * The option belongs to one opening and not to the file, so a second process reading the same
-   * directory without one serves the shorter set beside a deployment that holds records: the held
-   * prefix leaves that opening's index at `retire` while its bytes stay in the file until the append
-   * path compacts. An opening that drops a held prefix therefore claims only what its own pairing kept,
-   * and claims nothing about what the deployment undertakes to keep.
+   * The option belongs to one opening and not to the file. Another process asking for a directory a
+   * gateway holds is refused before it reads anything (`STORE_DIRECTORY_OWNED`), so the openings that
+   * can pair a hold differently are the ones one process makes in turn: an opening without one serves
+   * the shorter set beside one that holds records, because the held prefix returns to what `retire`
+   * gives up while its bytes stay in the file until the append path compacts. An opening that drops a
+   * held prefix therefore claims only what its own pairing kept, and claims nothing about what the
+   * deployment undertakes to keep.
    */
   readonly hold?: HoldSuspension;
   /** Absent means a range query resolves the whole window it is asked for. */
@@ -1642,7 +1644,9 @@ interface Retirement {
  * prefix, and every record newer than that one is kept with it. A held receipt therefore keeps receipts
  * the policy alone would have retired, which is the skew rule's cost above and falls on the same side.
  * No number a deployment stated moves with it: `ReceiptRetention` is reported as configured, and the
- * longer span shows only in the set the store serves.
+ * period and the count cap are the two figures a suspension never touches. The set the store serves is
+ * where the longer span shows, and the shorter drop shows with it, in the trim record's `byAge` and
+ * `byCount` and in `chainState().retired`.
  */
 function retire(
   entries: ReadonlyMap<string, { iat: number }>,
@@ -1681,9 +1685,9 @@ function retire(
 }
 
 /**
- * Applies the policy to the index and tallies what fell out of it. Dropping from the index is what
- * makes a receipt unserved; the bytes stay in the file until a compaction takes them, which is the
- * only rewrite this store ever performs.
+ * Applies the policy, and the suspension a hold hands it, to the index and tallies what fell out of it.
+ * Dropping from the index is what makes a receipt unserved; the bytes stay in the file until a
+ * compaction takes them, which is the only rewrite this store ever performs.
  *
  * The tally is held here rather than left to the trim run because retirement and compaction are not
  * the same moment: a reader asking what the store retired has to get an answer in between.

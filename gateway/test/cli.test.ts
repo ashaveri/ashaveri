@@ -2774,12 +2774,16 @@ describe('the hold records a run is handed', () => {
       const broken = run('--mock', '--hold-record', malformed);
       expect(broken.status).toBe(2);
       expect(broken.stderr).toContain('hold-not-json.json');
+      // The code travels before the sentence, as it does at both CLI doors, so a stopped start says
+      // which question about these bytes the reader could not answer.
+      expect(broken.stderr).toContain('a hold record this gateway reads: HOLD_RECORD_BAD_DOCUMENT');
 
       const wrongVersion = join(tempDir, 'hold-version-9.json');
       writeFileSync(wrongVersion, JSON.stringify({ ...base(), v: 9 }), 'utf8');
       const future = run('--mock', '--hold-record', wrongVersion);
       expect(future.status).toBe(2);
       expect(future.stderr).toContain('hold-version-9.json');
+      expect(future.stderr).toContain('a hold record this gateway reads: HOLD_RECORD_UNSUPPORTED_VERSION');
 
       // A run that names nothing keeps serving, so its banner is read the way every other banner here is:
       // `run` bounds a process this case expects to exit by itself.

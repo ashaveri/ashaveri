@@ -152,6 +152,19 @@ specific to that case.
   than omitted. The content path is the fixture completion `marking-v1.json#buffered-member`; a named
   application path's own copying, rendering and export transformations are a separate test this family
   does not stand in for.
+- **Hold record.** Decode `recordBase64Url` and hand the bytes to `parseHoldRecord` for the layout's
+  answer: `verify-ok`, or the code the row names. The accepted rows are the shipped writer's own bytes, so
+  `holdRecordBytes` of the record each one parses to reproduces them at the `recordByteLength` the row
+  states beside them. The `consultations` rows are the other half of the family, each handing the holds as
+  `holdsBase64Url` beside the call the door is asked to answer, and they are read by the
+  three doors the format package ships rather than by one reader: `refuseErasureUnderHold` takes the list
+  of holds, a credential and an instant and states `verify-ok` or `HOLD_ERASURE_REFUSED`, `holdActiveAt`
+  takes one record and an instant and states `active` or `inactive`, and `holdCoversStamp` takes one
+  record, the stamp of a record and the instant it is weighed at and states `covers` or `does-not-cover`.
+  A non-refusal answer is a word rather than a code, because a reach is neither accepted nor refused. The
+  record carries no signature and this family publishes no key material, so what a port weighs is the
+  layout, the window and the authored-text bound; whether the material a hold covers is complete at its
+  source, and whether a matter calls for a hold at all, are a deployment's own and no row settles them.
 - **Store chain.** Each scenario states the writes it performed and the file they produced. Either
   reproduce it with your writer and compare the image byte for byte, or read the published image with
   your reader and compare what you derive (the head, the served set, the retention window and the
@@ -449,8 +462,11 @@ The generators live beside the loaders in `packages/fixtures`, and running all o
 to anything they publish has to leave the working tree clean; that is a check in CI, so a published
 file cannot quietly fall behind the code it records. The chain generator is the one with a volume in
 it: it writes real stores in a temporary directory and publishes what came back off disk. The scan
-allowlist is derived from the bytes every generator above it writes, so it runs last and publishes a
-scan config rather than a vector file.
+allowlist takes its candidates from the roster in `scan-allowlist.json` rather than from every vector
+file the steps above write: some entries are values this script recomputes from published bytes and
+refuses when no bytes it can name digest to them, and the rest are exemptions the roster states itself
+and refuses when the bytes at their path no longer carry them. It runs last because the roster names
+files the generators above publish, and it publishes a scan config rather than a vector file.
 
 ## What a mismatch means
 
