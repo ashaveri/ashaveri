@@ -183,16 +183,17 @@ describe('the hold note beside a window', () => {
   });
 
   it('leaves a window shorter than the stated period refused with the identical sentence beside an active hold', () => {
-    // The pairing is measured twice, with the note asked first, so what a row can fail is a note that
-    // reaches the verdict: the refusal names the same shortfall and the same remedy whichever hand holds
-    // a hold record, and the note never quotes the stated period as though it had been met.
+    // The note is asked before the pairing, so what a row can fail is a note that reaches the verdict. The
+    // refusal is pinned whole, because "identical" here means the sentence this edge has always said: the
+    // same shortfall and the same remedy, whichever hand holds a hold record. What the note may not do is
+    // quote the stated period as though it had been met, which the two absences below measure. That a hold
+    // moves no number inside the verdict is the `judgeWindow` rows above, weighed with no note asked at
+    // all, and repeating that call twice here would compare one pure reading with itself.
     const note = holdWindowNote(held, daysToSeconds(90));
     if (note === null) throw new Error('an active hold handed the edge produced no note');
-    const heldJudge = judgeWindow(RECEIPTS_EDGE, 90, record({}), MINIMUM_RETENTION_DAYS);
-    const unheldJudge = judgeWindow(RECEIPTS_EDGE, 90, record({}), MINIMUM_RETENTION_DAYS);
-    expect(heldJudge).toEqual(unheldJudge);
-    if (!heldJudge.refused) throw new Error('a receipts window shorter than the stated period was not refused');
-    expect(heldJudge.message).toBe(
+    const judge = judgeWindow(RECEIPTS_EDGE, 90, record({}), MINIMUM_RETENTION_DAYS);
+    if (!judge.refused) throw new Error('a receipts window shorter than the stated period was not refused');
+    expect(judge.message).toBe(
       `--receipts-days gives the receipts store 90 days and ${path} states 184 days as the period this ` +
         'deployment owes, so the window named at start-up is shorter than the period its own instruction ' +
         'record states; name --receipts-days 184 or more, or point --instruction-record at the record this ' +

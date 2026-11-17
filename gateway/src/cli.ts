@@ -257,7 +257,7 @@ Options:
   --hold-record <file>             A deployment's own instruction to preserve, read beside the material
                                    it speaks of: who issued it and when, which window of record stamps
                                    it covers, why, and whether it has been released. May be repeated,
-                                   one file per occurrence, and every file read is reported at start-up
+                                   one file per path named, and every file read is reported at start-up
                                    with the sha256 of its bytes, the window it states and its state.
                                    The receipts store and the access log each consult what was read: a
                                    stamp inside an active hold's window is not retired, and an access
@@ -585,10 +585,14 @@ interface HeldRecordFile {
  * The state printed beside a record is its state at the instant its bytes were read, from this process's
  * own clock. The two suspensions built below are each asked about the instant their own source hands
  * them, so nothing printed here decides what either one keeps.
+ *
+ * One path is read once however many times it was typed. Two occurrences name one instruction and the same
+ * bytes, so a report that printed it twice, or a note that named it at each edge twice, would count one
+ * deployment's hold as two.
  */
 const holdReadAt = Math.floor(HOST_CLOCK_SOURCE.nowSeconds());
 const heldRecords: HeldRecordFile[] = [];
-for (const path of values['hold-record'] ?? []) {
+for (const path of new Set(values['hold-record'] ?? [])) {
   let bytes: Buffer;
   try {
     bytes = await readFile(path);
@@ -619,8 +623,8 @@ for (const path of values['hold-record'] ?? []) {
  *
  * One suspension acts on all of them, so a note naming one of two active matters would tell whoever
  * reads the banner that only one of the records it lists reaches the window beside it. An empty list is
- * the state of a run that named no hold, or whose every record was released before this instant, and it
- * prints nothing.
+ * the state of a run that named no hold, or whose every record was released before this instant or carries
+ * an issue stamp after it, and it prints nothing.
  */
 const holdsForNote = heldRecords.filter((held) => held.inForceAtStart);
 /**
@@ -1330,7 +1334,7 @@ function holdRecordLine(held: HeldRecordFile): string {
       : `released at ${String(released)}, so not in force`
     : released === null
       ? 'in force, released by no stamp'
-      : `in force at ${String(holdReadAt)}, and released at ${String(released)} by its own stamp`;
+      : `in force at ${String(holdReadAt)}, with its own release at ${String(released)} still ahead`;
   return (
     `hold record: ${held.path} sha256 ${held.digestHex}, window ${String(window.from)} to ${to}, ` +
     `issued at ${String(at)} by ${by}; ${state}`

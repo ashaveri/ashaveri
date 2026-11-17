@@ -337,11 +337,13 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
    * A held day is kept whole. The sweep is already conservative in one direction, since a part is kept
    * while its name-day is inside the window and a day is the widest age it can read, so a part whose day
    * overlaps an active hold leaves with the whole of a day rather than with the records inside the hold:
-   * keeping the part is the only answer this posture can give without opening the file.
+   * keeping the part is the only answer this posture can give without opening the file. One reading of the
+   * clock decides both halves of that, so the cut the name is weighed against and the instant the
+   * suspension is asked about are the same instant, as they are in the store's retirement.
    */
   async function pruneLocked(): Promise<void> {
-    const cutoff = dayOf(nowMillis() - days * DAY_MS);
     const now = nowMillis();
+    const cutoff = dayOf(now - days * DAY_MS);
     for (const candidate of await listNamed(RETENTION_SWEEP_NAME)) {
       if (candidate.day >= cutoff) continue;
       if (hold !== undefined && hold.coversDay(candidate.day, now)) continue;

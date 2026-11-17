@@ -1172,6 +1172,9 @@ describe('the instruction record a deployment hands the run', () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain(`--access-log-days gives this run 30 days and ${path} states 184 days`);
     expect(result.stderr).toContain('name --access-log-days 184 or more');
+    // No `--hold-record` was named, so no note is printed beside this refusal: the note is a record's own,
+    // and a run handed none says nothing about holds it never read.
+    expect(result.stderr).not.toContain('records under the hold at');
     expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
   });
 
@@ -2820,7 +2823,9 @@ describe('the hold records a run is handed', () => {
     const openLine = lines.find((each) => each.includes(open.path));
     expect(openLine).toContain('window 1700000000 to no end');
     expect(openLine).toContain('in force at');
-    expect(openLine).toContain(`and released at ${String(now + 400 * DAY)}`);
+    // The release stamp sits after the instant this run read the record, and the line says so: a past-tense
+    // release beside an in-force state would read as a hold this run had already lifted.
+    expect(openLine).toContain(`with its own release at ${String(now + 400 * DAY)} still ahead`);
   });
 
   it('refuses a receipts window shorter than the stated period beside an active hold, word for word as before', () => {
@@ -2878,6 +2883,50 @@ describe('the hold records a run is handed', () => {
     expect(result.stderr).toContain('name --receipts-days 184 or more');
     expect(result.stdout, 'a run that refused its window printed a banner').not.toContain('listening on');
   });
+
+  it(
+    'reads one file once, whatever the number of times its path was named',
+    // One refusal and one boot over one file named twice. The report prints that record once, and each
+    // window judgement prints one note beside itself rather than one per occurrence, so a banner cannot
+    // count one deployment's instruction twice.
+    { timeout: spawnBudget(1) + bootBudget(1) },
+    async () => {
+      const record = join(emptyDir(), 'twice-stated.json');
+      writeFileSync(record, EIGHTEEN, 'utf8');
+      const held = holdFile({ ...base(), window: { from: 1_700_000_000, to: null } }, 'twice');
+      const refused = run(
+        '--mock',
+        '--instruction-record',
+        record,
+        '--hold-record',
+        held.path,
+        '--hold-record',
+        held.path,
+        '--receipts-days',
+        '90',
+      );
+      expect(refused.status).toBe(2);
+      const notes = refused.stderr.split('\n').filter((line) => line.includes('records under the hold at'));
+      // Two edges and one record read once, so two lines where two records in force print four.
+      expect(notes, refused.stderr).toHaveLength(2);
+      for (const line of notes) {
+        expect(line, line).toContain(`sha256 ${held.digest}`);
+        expect(line.match(/records under the hold at/gu), line).toHaveLength(1);
+      }
+      const banner = await readBanner(
+        '--mock',
+        '--port',
+        '0',
+        '--hold-record',
+        held.path,
+        '--hold-record',
+        held.path,
+      );
+      const lines = banner.filter((each) => each.trimStart().startsWith('hold record:'));
+      expect(lines, banner.join('\n')).toHaveLength(1);
+      expect(lines[0], banner.join('\n')).toContain(`sha256 ${held.digest}`);
+    },
+  );
 
   it(
     'keeps a held receipt in the set a serving run answers from',
