@@ -159,6 +159,8 @@ export interface DrillResult {
   readonly legs: readonly Assessment[];
   readonly pins: readonly PinCase[];
   readonly replay: { readonly status: number; readonly code: string | undefined; readonly receiptId: string | null };
+  /** One read of a receipt the first hour filed, answered by the process that serves the volume. */
+  readonly receiptRead: { readonly status: number; readonly id: string };
   readonly clock: { readonly source: string; readonly uncertaintySeconds: number; readonly instants: readonly number[] };
   readonly access: { readonly files: readonly string[]; readonly lines: number };
   readonly holderKeyId: string;
@@ -582,6 +584,9 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
   const retry = await complete(served4, pop);
   batches.D.push(assertAcknowledged(retry, 'the retry of an intent hour three already acknowledged'));
   await serveBatch(served4, BATCH_D - batches.D.length, 'D');
+  // One receipt this process filed is read back over HTTP, which is the answer the server gives about its
+  // own store. The checkpoint readings take the volume instead, and the two are kept apart.
+  const receiptRead = await signedGet(served4, pop, `/v1/receipts/${retry.receiptId}`);
   await served4.kill();
   await customerCheckpoint('D', hourFour, [...batches.A, ...batches.B, ...batches.C, ...batches.D]);
 
@@ -723,6 +728,7 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
     legs,
     pins,
     replay: { status: replay.status, code: replay.code, receiptId: replay.receiptId },
+    receiptRead: { status: receiptRead.status, id: retry.receiptId as string },
     clock: { source: CLOCK_SOURCE, uncertaintySeconds: CLOCK_UNCERTAINTY_SECONDS, instants: [hourOne, hourTwo, hourThree, hourFour, hourCrash] },
     access,
     holderKeyId: holder.keyId,

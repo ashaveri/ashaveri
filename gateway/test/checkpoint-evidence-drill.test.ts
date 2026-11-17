@@ -56,8 +56,9 @@ describe('the drill run', () => {
       expect(result.clock.source).toBe('drill synchronisation');
       expect(result.clock.instants.at(1)! - result.clock.instants.at(0)!).toBe(3_600);
       expect(result.clock.instants.at(4)! - result.clock.instants.at(3)!).toBe(2 * 3_600);
-      // Every completion is in the access log, and the manifest read is the line beside them.
-      expect(result.access.lines).toBe(result.served.length + 1);
+      // Every completion is in the access log, beside the manifest read and the receipt read.
+      expect(result.access.lines).toBe(result.served.length + 2);
+      expect(result.receiptRead.status).toBe(200);
       expect(result.access.files.length).toBeGreaterThan(0);
     },
     DRILL_TIMEOUT,
