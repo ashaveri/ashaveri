@@ -14,6 +14,7 @@ import {
   openFileReceiptStore,
   openMemoryReceiptStore,
   receiptsNeededForWindow,
+  type HoldSuspension,
   type ReceiptRetention,
   type ReceiptStore,
   type RetainedWindow,
@@ -535,6 +536,78 @@ describe('a refusal against a volume a real store wrote', () => {
 });
 
 /** A guard handed a store it has no policy for, which is what an embedding caller that set nothing gets. */
+/**
+ * One store, filled twice: once with nothing suspending its retirement and once under a hold. The pairing is
+ * what the guard's interaction with a hold turns on, and it is stated here as arithmetic a suite reads rather
+ * than as a consequence a review argues: a hold moves no configured number, and it does enlarge the retained
+ * set the guard reads, so the same store answers a completion one way held and another unheld.
+ *
+ * The figures are the deployment's own rather than this file's choices: the period is the 184 days the gateway
+ * ships, the bound is 20, eight receipts are 200 days old and fourteen are current. Unheld, the age bound takes
+ * the eight and the set sits under the point the guard is armed at; held, the retirement prefix stops at the
+ * first of them and the set stands past the bound, which is the state the refusal is written for.
+ */
+describe('a held store beside a guard that consults no hold', () => {
+  const DAY = 86_400;
+  /** The shipped period, as the flag states it in days and the store reads it in seconds. */
+  const PERIOD_DAYS = 184;
+  const agedRetention: ReceiptRetention = {
+    maxAgeSeconds: daysToSeconds(PERIOD_DAYS),
+    maxCount: 20,
+    time: fixedClock(() => STAMP),
+  };
+  const AGED_STAMP = STAMP - 200 * DAY;
+  /** The suspension the gateway wires at `holdCoversStamp`: a stamp under an active window is not retired. */
+  const holdsAgedPrefix: HoldSuspension = { covers: (iat: number): boolean => iat <= AGED_STAMP };
+
+  async function fill(hold: HoldSuspension | undefined): Promise<ReceiptStore> {
+    const store = openMemoryReceiptStore({ retention: agedRetention, hold });
+    for (let i = 0; i < 8; i++) {
+      await store.put(`rcpt_aged_${String(i)}`, Uint8Array.from([i]), AGED_STAMP);
+    }
+    for (let i = 0; i < 14; i++) {
+      await store.put(`rcpt_fresh_${String(i)}`, Uint8Array.from([i]), STAMP);
+    }
+    return store;
+  }
+
+  it('refuses a completion on the held set and serves the same store unheld', async () => {
+    const unheld = await fill(undefined);
+    // The eight aged receipts are gone, so the set never reaches the point of the bound the guard reads from.
+    expect(await unheld.window()).toEqual({ from: STAMP, to: STAMP, count: 14 });
+    const quiet = await serving({ retention: agedRetention }, { store: unheld });
+    try {
+      const served = await quiet.complete('unheld store, aged receipts retired');
+      expect(served.statusCode, JSON.stringify(served.error)).toBe(200);
+      expect(served.error.code, 'the guard refused an unheld store at its bound').not.toBe('RECEIPT_WINDOW_UNHOLDABLE');
+      expect(quiet.upstream.calls(), 'the unheld store answered the inference it was asked for').toBe(1);
+    } finally {
+      await quiet.h.app.close();
+    }
+
+    const held = await fill(holdsAgedPrefix);
+    expect(await held.window()).toEqual({ from: AGED_STAMP, to: STAMP, count: 22 });
+    const loud = await serving({ retention: agedRetention }, { store: held });
+    try {
+      const refused = await loud.complete('held store, aged prefix suspended');
+      expect(refused.statusCode, JSON.stringify(refused.error)).toBe(429);
+      expect(refused.error.code).toBe('RECEIPT_WINDOW_UNHOLDABLE');
+      const message = String(refused.error.message);
+      // The two configured numbers and the count they take at the rate the held set measures: 21 receipts,
+      // which is one past the bound, derived over the 200-day span the held stamps themselves state.
+      expect(message).toContain('the store holds 22 of the 20 receipts its durability bound allows');
+      expect(message).toContain('refusing from 20 of them');
+      expect(message).toContain(`the configured period is ${String(daysToSeconds(PERIOD_DAYS))} seconds`);
+      expect(message).toContain('that period takes 21 receipts');
+      expect(message).toContain('which is 1 more than the bound holds');
+      expect(message).toContain('Raise the durability bound to at least 21');
+      expect(loud.upstream.calls(), 'the guard sits ahead of the inference').toBe(0);
+    } finally {
+      await loud.h.app.close();
+    }
+  });
+});
+
 describe('a gateway with no intake guard configured', () => {
   it('issues past its durability bound exactly as it did before the guard was read', async () => {
     const s = await serving({});

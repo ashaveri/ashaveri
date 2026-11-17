@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { noteSpawn } from './support/spawn-budget.js';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -2975,6 +2975,152 @@ describe('the hold records a run is handed', () => {
       } finally {
         await served.kill();
       }
+    },
+  );
+
+  /**
+   * The `YYYY-MM-DD` a part name carries `daysBack` whole days before now, written in the one unit the log's
+   * own names are made in.
+   */
+  function dayName(daysBack: number): string {
+    return new Date(Date.now() - daysBack * DAY * 1_000).toISOString().slice(0, 10);
+  }
+
+  /** The instant a day name places its records at: the day's own start, in the whole seconds a stamp holds. */
+  function dayStart(day: string): number {
+    return Date.parse(`${day}T00:00:00Z`) / 1_000;
+  }
+
+  /** A part name of either family this sweep collects, and nothing else a volume may hold. */
+  const SWEPT_PART = /^(?:access|scrub)-\d{4}-\d{2}-\d{2}-\d{3}\.jsonl$/u;
+
+  /**
+   * Whether one name has left the directory, waited for up to five seconds.
+   *
+   * The line that triggers a sweep is written from a hook the reply does not wait on, so a completion
+   * answering 200 says the record landed and nothing about the unlink that follows it on the log's own queue.
+   * A case about a part on the volume therefore waits on that part rather than on the request that caused its
+   * removal, and a name still there when the deadline passes is the finding this reports rather than a pass.
+   */
+  async function nameIsGone(dir: string, name: string): Promise<boolean> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      if (!existsSync(join(dir, name))) return true;
+      if (Date.now() >= deadline) return false;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  it(
+    'keeps both name families of a held day and sweeps the older day beside it',
+    { timeout: bootBudget(1) + 15_000 },
+    async () => {
+      // `holdsDay` is the access log's whole consultation, and a boot is the only road to it: `aclog.test.ts`
+      // injects its own `coversDay`, so the overlap between a stated window and a named day, the `Date.parse`
+      // derivation the comparison runs on, and the name that cannot be placed are all pinned here, over parts
+      // on a volume. Two days older than `--access-log-days 30` are candidates by age alone and one of them
+      // sits inside the record's window; the day outside it is the control, since its removal is what says the
+      // sweep ran at all rather than that this run never looked.
+      const dir = join(tempDir, 'hold-aclog-held-day');
+      mkdirSync(dir);
+      const heldDay = dayName(40);
+      const agedDay = dayName(60);
+      writeFileSync(join(dir, `access-${heldDay}-000.jsonl`), '');
+      writeFileSync(join(dir, `scrub-${heldDay}-000.jsonl`), '');
+      writeFileSync(join(dir, `access-${agedDay}-000.jsonl`), '');
+      const held = holdFile(
+        { ...base(), window: { from: dayStart(heldDay), to: dayStart(heldDay) + DAY } },
+        'aclog-held-day',
+      );
+      const pop = newPopCredential({ id: 'aclog-held-day', scopes: ['read', 'complete'] });
+      const creds = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+      const served = await bootServing([
+        '--access-log-path',
+        dir,
+        '--access-log-days',
+        '30',
+        '--credentials-path',
+        creds,
+        '--hold-record',
+        held.path,
+      ]);
+      const notSwept: string[] = [];
+      try {
+        const answered = await complete(served, pop);
+        expect(answered.status, answered.text).toBe(200);
+        const aged = `access-${agedDay}-000.jsonl`;
+        if (!(await nameIsGone(dir, aged))) notSwept.push(aged);
+      } finally {
+        await served.kill();
+      }
+      expect(notSwept, 'the day no hold covers is still on the volume, so no sweep was seen').toEqual([]);
+      const names = readdirSync(dir);
+      // Both families of the held day, because a marker is personal data at the level of a credential id and
+      // the same sweep collects it: a day kept for its parts while its marker left would erase the record of
+      // an erasure this hold suspended.
+      expect(names, names.join(' ')).toContain(`access-${heldDay}-000.jsonl`);
+      expect(names, names.join(' ')).toContain(`scrub-${heldDay}-000.jsonl`);
+      expect(names, names.join(' ')).not.toContain(`access-${agedDay}-000.jsonl`);
+    },
+  );
+
+  it(
+    'sweeps the same three parts whole once the hold covering one day of them is released',
+    { timeout: bootBudget(1) + 15_000 },
+    async () => {
+      // The other half of the predicate over the same volume and the same window: a released record covers
+      // nothing, so the day it held leaves with the day beside it. A window that kept a day past its release
+      // would be an extension, which is the one thing the instruction never becomes.
+      const dir = join(tempDir, 'hold-aclog-released-day');
+      mkdirSync(dir);
+      const heldDay = dayName(40);
+      const agedDay = dayName(60);
+      const seeded = [`access-${heldDay}-000.jsonl`, `scrub-${heldDay}-000.jsonl`, `access-${agedDay}-000.jsonl`];
+      for (const name of seeded) {
+        writeFileSync(join(dir, name), '');
+      }
+      const released = holdFile(
+        {
+          ...base(),
+          window: { from: dayStart(heldDay), to: dayStart(heldDay) + DAY },
+          released: Math.floor(Date.now() / 1_000) - 30,
+        },
+        'aclog-released-day',
+      );
+      const pop = newPopCredential({ id: 'aclog-released-day', scopes: ['read', 'complete'] });
+      const creds = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
+      const served = await bootServing([
+        '--access-log-path',
+        dir,
+        '--access-log-days',
+        '30',
+        '--credentials-path',
+        creds,
+        '--hold-record',
+        released.path,
+      ]);
+      const stillSuspended: string[] = [];
+      try {
+        const answered = await complete(served, pop);
+        expect(answered.status, answered.text).toBe(200);
+        const gone = await Promise.all(seeded.map((name) => nameIsGone(dir, name)));
+        seeded.forEach((name, index) => {
+          if (gone[index] !== true) stillSuspended.push(name);
+        });
+      } finally {
+        await served.kill();
+      }
+      expect(stillSuspended, 'a released hold still suspended these parts').toEqual([]);
+      const names = readdirSync(dir);
+      for (const name of seeded) {
+        expect(names, names.join(' ')).not.toContain(name);
+      }
+      // The day this run is writing is no candidate, so the sweep that took three aged names left it: what
+      // aged out is the material the released hold stopped covering, and nothing wider.
+      expect(
+        names.some((name) => SWEPT_PART.test(name) && !seeded.includes(name)),
+        names.join(' '),
+      ).toBe(true);
     },
   );
 });
