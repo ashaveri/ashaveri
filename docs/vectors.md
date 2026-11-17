@@ -253,6 +253,14 @@ specific to that case.
   the other belongs has merged two findings this suite publishes apart. `run` and `records` in the `layout` block
   give each record's predecessor in the pack, the predecessor the reduced chain used instead, and the digest that
   came out, so the construction is checkable against the pack's bytes rather than restated from a writer.
+  A row may also state `holdsBase64Url`: the hold records handed to your reader as the bytes its hold
+  consultation takes, in the order the call hands them. A row stating no such column hands nothing at all, and a
+  row stating an empty list states that same call in words. Three rows read one manifest against those options
+  and publish the consultation's answer: a refusal where a handed hold is in force at the instant the removal
+  was stated and its window reaches the removed record's own stamp, an acceptance where the window opens one
+  second past that stamp, and an acceptance where nothing is handed. The verdicts of those rows come from the
+  shipped reader as every other verdict here does, so the arm is testable from this file rather than only from
+  this repository's code.
   Each row states its fact at two entry points and the file gives both answers. `verdict` and `structural` are the
   library's, and `verdict` carries the code the format names for the fault, because the reader is where the
   format's rules live. `command` is what `ashaveri verify-handover` answers over the same bytes and the same pack,
@@ -274,7 +282,7 @@ specific to that case.
   another container's type, which the dispatch answers by running that container's reader, so `PACK_BAD_MANIFEST`
   and `BAD_PAYLOAD` rather than the header refusal the redaction reader would give. And
   `protected-kid-of-another-width` and `document-truncated-mid-envelope` are refused by the classification on the
-  envelope, `BAD_PROTECTED_HEADER` and `MALFORMED_CBOR`, before a reader of either kind is chosen. The 43 rows
+  envelope, `BAD_PROTECTED_HEADER` and `MALFORMED_CBOR`, before a reader of either kind is chosen. The 46 rows
   `redaction-v1.json` publishes are replayed through this path by `packages/cli/test/verify-handover.test.ts`,
   which reads the expected answers out of this member rather than keeping a table of its own. That count, and
   the seven above it, are counts of the published rows which

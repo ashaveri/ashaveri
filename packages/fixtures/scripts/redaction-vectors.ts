@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { writeFileSync } from 'node:fs';
 import { ed25519 } from '@noble/curves/ed25519';
 import {
+  HOLD_RECORD_LIMITS,
   PACK_CONTENT_TYPE,
   REDACTION_CONTENT_TYPE,
   ReceiptError,
@@ -12,7 +13,9 @@ import {
   encodeCanonical,
   encodeRedactionManifest,
   encodeRedactionProtectedHeader,
+  holdRecordBytes,
   packRecordDigest,
+  parseHoldRecord,
   redactionPackDigest,
   redactionSigStructure,
   redactionSurvivorChain,
@@ -25,6 +28,7 @@ import {
   toHex,
   verifyPack,
   verifyRedaction,
+  type HoldRecord,
   type PackItem,
   type PackManifest,
   type RedactionManifest,
@@ -61,8 +65,17 @@ const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
  * numbers exist to keep apart is the one this container must never let a reader merge: the pack's head holds over
  * the pack's own run, and the reduced head holds over a shorter chain the pack does not contain.
  *
+ * A fourth kind of verdict arrives from outside both documents. `verifyRedaction` weighs each record a
+ * manifest removes against every hold record the call hands it, and refuses a removal an instruction still
+ * protects. Those rows publish the holds as the bytes the option is fed, because a port cannot reach the arm
+ * without them: the same manifest, the same pack and the same key are stated three times over, once with a
+ * hold whose window reaches the removed record's stamp, once with a hold whose window opens one second past it,
+ * and once with an empty list, so the three answers together say which figure the arm weighs and which it does
+ * not. The verdict on those rows is read back from the shipped call exactly as it is on every other row, so
+ * none of them is a code typed beside a document that no reader answers.
+ *
  * Those columns are what this repository's own code answers. `command` is the command answering, published on
- * every row: it is `null` wherever `ashaveri verify-handover` says what `verdict` says, which is thirty-six of
+ * every row: it is `null` wherever `ashaveri verify-handover` says what `verdict` says, which is thirty-nine of
  * these rows, and it carries the code and the exit the command answers with on the seven where it does not. A
  * command line names keys by kid rather than pinning one key, and reads the type out of the header and chooses a
  * reader before a redaction reader is consulted, so it meets some of these facts one step earlier and states them
@@ -237,6 +250,39 @@ function survivors(manifest: PackManifest, removed: readonly string[]): PackItem
   return walkedChain(manifest).filter((one) => !dropped.has(one.id));
 }
 
+/**
+ * The record the consultation rows below remove, and the stamp its own chain position carries.
+ *
+ * The stamp is walked rather than copied: the removal arm weighs a handed hold against the removed record's
+ * own `iat` at the instant the removal was stated, so a figure typed here would settle which side of a
+ * window's edge a published row sits on by whoever wrote it rather than by the pack's bytes.
+ */
+const CONSULTED_ID = 'receipt-1';
+const CONSULTED_IAT = walkedChain(HONEST.manifest).find((one) => one.id === CONSULTED_ID)!.iat;
+
+/**
+ * The instruction the removal arm refuses, and the same instruction one second off its own edge.
+ *
+ * Both are in force at `STATED_AT`, the instant the manifest states the removal, and both are open-ended, so
+ * the only thing that separates them is whether the window reaches the removed record's stamp: `from` is
+ * inclusive, so the first covers it exactly at the edge and the second starts one second past it and covers
+ * nothing of it. Neither states a `credentials` list, because that member is the erasure door's question and
+ * the removal arm never asks it: publishing one here would read as a condition this arm weighs.
+ */
+const COVERING_HOLD: HoldRecord = {
+  v: 1,
+  prov: 'fixture',
+  at: STATED_AT - 60,
+  by: 'the fixture deployer',
+  window: { from: CONSULTED_IAT, to: null },
+  reason: 'Fixture instruction to preserve the record this suite states as removed, issued one minute before the removal was stated.',
+  released: null,
+  limits: HOLD_RECORD_LIMITS,
+};
+
+/** The same instruction with its window opening one second past the stamp it is weighed against. */
+const PAST_EDGE_HOLD: HoldRecord = { ...COVERING_HOLD, window: { from: CONSULTED_IAT + 1, to: null } };
+
 /** How a row hands the reader its keys: the one key pinned, or the set a resolver answers from. */
 interface Designation {
   readonly pinned?: string;
@@ -383,6 +429,15 @@ interface Case {
   readonly item?: string;
   /** The one position a fault case moved. */
   readonly edited?: string;
+  /**
+   * The hold records handed to the reader beside the pair, as the bytes its `holds` option is fed.
+   *
+   * Absent is not the same claim as an empty list: an absent member leaves the option off the call, which is
+   * every row this suite published before the consultation existed, and an empty list states the call that
+   * handed nothing and was answered as though it had. The records travel as bytes rather than as objects
+   * because the published column carries bytes, and the reader is handed what those bytes parse to.
+   */
+  readonly holds?: readonly HoldRecord[];
 }
 
 const CASES: readonly Case[] = [
@@ -828,6 +883,37 @@ const CASES: readonly Case[] = [
     verdict: 'REDACTION_MALFORMED_CBOR',
     structural: 'REDACTION_MALFORMED_CBOR',
   },
+  {
+    name: 'hold-covering-the-removed-record',
+    note: "The honest pair, the pack it designates and the key it names, beside one handed hold whose window reaches the stamp of the record the manifest removes and which is in force at the instant the removal was stated. The answer is the hold's own code and not a fault in either document: the manifest is the one the writer signed, the pack is the one `pack-v1.json` publishes, and a reader that accepted this pair would relink a chain over a record an instruction still protects. The window's `from` sits exactly on the removed record's stamp, which is the inclusive edge.",
+    pack: HONEST,
+    bytes: sealed(manifestFor(HONEST, [CONSULTED_ID])),
+    read: PINNED_CURRENT,
+    holds: [COVERING_HOLD],
+    verdict: 'HOLD_REDACTION_REFUSED',
+    structural: 'verify-ok',
+    item: CONSULTED_ID,
+  },
+  {
+    name: 'hold-not-covering-the-removed-record',
+    note: "The same bytes, the same pack, the same key, and one handed hold whose window opens one second past the stamp of the record the manifest removes. The instruction is in force at the instant the removal was stated, so nothing about it is stale: it simply does not reach that record, and the reader answers what it answers with no hold in hand at all. The pair this row completes with the one above is the edge, stated twice: `from` is inclusive, one second is the whole difference, and the verdict moves with it.",
+    pack: HONEST,
+    bytes: sealed(manifestFor(HONEST, [CONSULTED_ID])),
+    read: PINNED_CURRENT,
+    holds: [PAST_EDGE_HOLD],
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+  },
+  {
+    name: 'no-hold-handed-for-the-removal',
+    note: 'The same bytes and the same pack again, with the option handed as an empty list, which is the call every other accepted row of this suite is. Publishing it apart is what makes the row above a statement about the hold rather than about the option being present: an empty list and no list at all reach one answer, and the survivors and both chain heads below are the reading the pair reaches with nothing weighing them.',
+    pack: HONEST,
+    bytes: sealed(manifestFor(HONEST, [CONSULTED_ID])),
+    read: PINNED_CURRENT,
+    holds: [],
+    verdict: 'verify-ok',
+    structural: 'verify-ok',
+  },
 ];
 
 /** What one row's pair is worth at the command edge: the code it answers with, and the exit beside it. */
@@ -863,6 +949,16 @@ const COMMAND_ANSWERS: readonly (CommandAnswer & { readonly name: string })[] = 
 const COMMAND_ANSWER_BY_NAME = new Map(COMMAND_ANSWERS.map((one) => [one.name, one]));
 
 /**
+ * The rows that hand the reader hold records, named here so the guard that reads them as a set fails by
+ * naming a missing row rather than by counting one fewer than an expected number of look-alikes.
+ */
+const CONSULTATION_NAMES: readonly string[] = [
+  'hold-covering-the-removed-record',
+  'hold-not-covering-the-removed-record',
+  'no-hold-handed-for-the-removal',
+];
+
+/**
  * What the command answers for one row: `null` where it answers what `verdict` states, with the exit an accepted
  * row and a refusal already have, and the code and exit it answers with where it does not.
  */
@@ -871,15 +967,20 @@ function commandOf(one: Case): CommandAnswer | null {
   return found === undefined ? null : { code: found.code, exit: found.exit };
 }
 
-/** The options the row's designation builds, plus the pack it hands beside them. */
+/** The options the row's designation builds, plus the pack it hands beside them and the holds it hands. */
 function readOptionsFor(one: Case): {
   publicKey?: Uint8Array;
   resolveKey?: (kid: Uint8Array) => Uint8Array | undefined;
   packBytes: Uint8Array;
+  holds?: readonly HoldRecord[];
 } {
   return {
     ...optionsFor(one.read),
     packBytes: one.pack === null ? (undefined as unknown as Uint8Array) : one.pack.bytes,
+    // Read back through the shipped reader from the bytes this row publishes, exactly as hold-v1.json's
+    // consultation rows do: a row whose record the published format would refuse fails the run here rather
+    // than becoming a published answer no document supports.
+    ...(one.holds === undefined ? {} : { holds: one.holds.map((hold) => parseHoldRecord(holdRecordBytes(hold))) }),
   };
 }
 
@@ -963,6 +1064,7 @@ function published(one: Case): Record<string, unknown> {
           packByteLength: one.pack.bytes.length,
         }),
     read: one.read,
+    ...(one.holds === undefined ? {} : { holdsBase64Url: one.holds.map((hold) => toBase64Url(holdRecordBytes(hold))) }),
     verdict: one.verdict,
     structural: one.structural,
     command: commandOf(one),
@@ -1119,6 +1221,33 @@ function main(): void {
       throw new Error(`${one.name}: the command exit ${String(one.exit)} does not agree with the verdict ${row.verdict}`);
     }
   }
+  // The consultation's three answers, checked as a set rather than one row at a time. What makes the refusal a
+  // statement about a hold and not about a document is that the rows differ by the bytes handed to the option
+  // and by nothing else, so the claim is read across the three: one manifest, one refusal, two acceptances,
+  // and one of the acceptances stating the call that hands an empty list rather than handing no column at all.
+  const consulted = CONSULTATION_NAMES.map((name) => {
+    const row = rowsByName.get(name);
+    if (row === undefined) throw new Error(`${name} is named as a consultation row and is no row of this suite`);
+    if (row.holds === undefined) throw new Error(`${name} is named as a consultation row and hands the reader no hold bytes`);
+    return row;
+  });
+  if (new Set(consulted.map((one) => toHex(one.bytes))).size !== 1) {
+    throw new Error('the consultation rows do not hand the reader one and the same manifest');
+  }
+  const consultationAnswers = consulted.map((one) => one.verdict);
+  if (consultationAnswers.filter((one) => one === 'HOLD_REDACTION_REFUSED').length !== 1) {
+    throw new Error('the consultation rows are one refusal and two acceptances, and these answers are another shape');
+  }
+  if (consultationAnswers.filter((one) => one === 'verify-ok').length !== 2) {
+    throw new Error('the consultation rows are one refusal and two acceptances, and these answers are another shape');
+  }
+  if (!consulted.some((one) => one.holds !== undefined && one.holds.length === 0)) {
+    throw new Error('no consultation row states the call that hands the reader an empty list of holds');
+  }
+  if (!consulted.some((one) => one.holds !== undefined && one.holds.length > 0 && one.verdict === 'verify-ok')) {
+    throw new Error('no consultation row is accepted with a hold record handed, so the window is weighed by nobody here');
+  }
+
   const accepted = rows.filter((one) => one.verdict === 'verify-ok');
   if (accepted.length < 8) throw new Error(`${accepted.length} accepted rows, and the states a pair arrives in are more than that`);
   const refused = rows.filter((one) => one.verdict !== 'verify-ok');
@@ -1169,7 +1298,7 @@ function main(): void {
           // the declaration, the list a reviewer copies out of the published file described fewer columns than
           // its rows carry, and a port that refuses an undeclared column refuses those rows. `packFields`
           // below is the prose that says what these four mean.
-          verdictFields: ['verdict', 'structural', 'command', 'survivors', 'reducedHex', 'originalHeadHex', 'item', 'edited', 'packOf', 'packBase64Url', 'packByteLength', 'packEdited'],
+          verdictFields: ['verdict', 'structural', 'command', 'survivors', 'reducedHex', 'originalHeadHex', 'item', 'edited', 'packOf', 'packBase64Url', 'packByteLength', 'packEdited', 'holdsBase64Url'],
           verdictMeaning:
             "`verdict` is what verifyRedaction answers for the pair the row states: `verify-ok`, or the code it throws. `structural` is what decodeRedaction answers for the redaction bytes alone, with no key and no pack, so a row that is `verify-ok` there and a refusal in `verdict` is refusing about a pack, a key or an arithmetic over survivors rather than about a manifest that contradicts itself. `survivors` is the run that remains in the order the pack's links fix it, `reducedHex` is the head of the chain over it and `originalHeadHex` is the pack's own signed head; all three are published on every accepted row, and the last two are never equal on one.",
           commandMeaning:
@@ -1178,6 +1307,8 @@ function main(): void {
             "`read.pinned` is the one key the caller holds, which designates the redaction's envelope and every receipt inside the pack. `read.retained` is the set a resolver answers from, one key per kid, which is how a pair whose pack crosses a key rotation is read. A row with neither is the call that designated nothing and is refused before a byte is read. The pack itself is handed beside the designation, and a row that states no pack at all is the reader that was handed one document of the pair.",
           packFields:
             "`packOf` names the row of `packages/fixtures/data/pack-v1.json` whose document this row hands the reader, `packBase64Url` carries those bytes and `packByteLength` their length. No pack here is rebuilt: every pack this suite redacts is evidence the pack suite already publishes. Where a row moves one position of such a pack before handing it over it says so in `packEdited`, and its bytes then differ from that row's by the edit named and nothing else.",
+          holdFields:
+            "`holdsBase64Url` is the list of hold records handed to `verifyRedaction` as its `holds` option, each one the whole document `holdRecordBytes` writes for a deployment's instruction and in the order the call hands them. A row carrying no such column hands the reader nothing, which is the call every row of this suite was before the consultation existed; a row carrying an empty list states the same call in words. The removal arm weighs each handed record against the removed record's own chain stamp at the instant the manifest states the removal, so a row that is `verify-ok` with a hold beside it and a refusal with another differs by the window and the two instants and by nothing else, and a port that replays these rows reaches the verdict by handing the bytes and reading the answer rather than by trusting the column it is comparing against.",
           chainRule:
             "the pack's walk is run by verifyPack over the bytes the designation binds, so the survivor sequence is the pack's own run with the named records dropped and the original head is re-established on every reading of a redaction. A reader that reports the reduced head where the pack's head belongs, or the reverse, is merging two findings this suite publishes apart.",
           run: runTable(HONEST, ['receipt-1']),

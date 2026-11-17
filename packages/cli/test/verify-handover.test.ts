@@ -272,6 +272,12 @@ interface PublishedRedactionRow {
   readonly survivors?: string[];
   readonly reducedHex?: string;
   readonly originalHeadHex?: string;
+  /**
+   * The hold records the row hands the reader's consultation, as the bytes the shipped format writes. A row
+   * carrying no column hands nothing, which is what every row of this suite did before the arm existed, and
+   * the replay below files the bytes at names and passes them the way an operator does.
+   */
+  readonly holdsBase64Url?: readonly string[];
 }
 
 interface PublishedPackRow {
@@ -887,6 +893,12 @@ describe('an excision amendment at the command edge', () => {
       }
       if (row.packBase64Url !== undefined) {
         args.push(`--companion=${written(`${row.name}-pack.cbor`, Buffer.from(row.packBase64Url, 'base64url'))}`);
+      }
+      // The holds a row hands are filed and named one per flag, which is the only route by which an operator's
+      // command line reaches the consultation. A row whose verdict is the hold arm's is then replayed with the
+      // bytes that answer it rather than with a table kept here.
+      for (const [index, hold] of (row.holdsBase64Url ?? []).entries()) {
+        args.push(`--hold-record=${written(`${row.name}-hold-${String(index)}.json`, Buffer.from(hold, 'base64url'))}`);
       }
       const result = runCli(args);
       const answer = replayedVerdict(result);

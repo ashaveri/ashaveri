@@ -13,6 +13,7 @@ import {
   encodeCanonical,
   extractMarkedRegion,
   isSealedDeploymentManifest,
+  parseHoldRecord,
   parsePopAuthorization,
   popSigningString,
   ReceiptError,
@@ -25,6 +26,7 @@ import {
   verifyRedaction,
   verifySealedDeploymentManifest,
   type EpochInventoryVerifyOptions,
+  type HoldRecord,
   type MarkingScheme,
 } from '@ashaveri/receipt';
 import {
@@ -296,6 +298,11 @@ interface RedactionVectorCase {
   readonly originalHeadHex?: string;
   readonly item?: string;
   readonly edited?: string;
+  /**
+   * The hold records the row hands the reader's consultation, as the bytes its `holds` option is fed. Absent
+   * leaves the option off the call, which is every row this suite held before the arm existed.
+   */
+  readonly holdsBase64Url?: readonly string[];
 }
 
 interface RedactionVectorFile {
@@ -1435,6 +1442,7 @@ function redactionOptionsFor(one: RedactionVectorCase): {
   publicKey?: Uint8Array;
   resolveKey?: (kid: Uint8Array) => Uint8Array | undefined;
   packBytes: Uint8Array;
+  holds?: readonly HoldRecord[];
 } {
   let keys: { publicKey?: Uint8Array; resolveKey?: (kid: Uint8Array) => Uint8Array | undefined } = {};
   if (one.read.pinned !== undefined) keys = { publicKey: bytes(one.read.pinned) };
@@ -1450,6 +1458,11 @@ function redactionOptionsFor(one: RedactionVectorCase): {
   return {
     ...keys,
     packBytes: one.packBase64Url === undefined ? (undefined as unknown as Uint8Array) : bytes(one.packBase64Url),
+    // The holds reach the consultation as the published bytes the shipped reader accepts, which is the only
+    // way a port can be told to reach the arm at all: a row carrying no column leaves the option off the call.
+    ...(one.holdsBase64Url === undefined
+      ? {}
+      : { holds: one.holdsBase64Url.map((each) => parseHoldRecord(bytes(each))) }),
   };
 }
 
@@ -1536,16 +1549,26 @@ describe('the redaction manifest vectors through the shipped reader', () => {
 
   it('reaches every code the format registry declares for this container', () => {
     // Read off the declared union rather than from a list repeated here, which is the only way an addition
-    // cannot pass unnoticed.
+    // cannot pass unnoticed. The scope is this container's shape, and it is the codes whose own name speaks
+    // about a redaction rather than the codes carrying one prefix: `verifyRedaction` consults the holds its
+    // caller hands and answers a refusal named for the instruction that suspends the removal, so a sweep on
+    // `REDACTION_` alone would let a whole arm of this reader go unanswered by the published file, and a port
+    // replaying these rows would never be told to reach it. The assertions under the sweep keep the scope
+    // honest: the codes another door answers stay outside this container's rows, so what widened is the arm
+    // that belongs here and not whatever else the union happens to hold.
     const source = readFileSync(fileURLToPath(new URL('../../receipt/src/errors.ts', import.meta.url)), 'utf8');
-    const declared = [...source.matchAll(/'(REDACTION_[A-Z0-9_]+)'/gu)].map((found) => found[1]!);
-    expect(new Set(declared).size).toBeGreaterThanOrEqual(13);
+    const declared = [...source.matchAll(/'([A-Z0-9_]*REDACTION[A-Z0-9_]*)'/gu)].map((found) => found[1]!);
+    expect(new Set(declared).size).toBeGreaterThanOrEqual(14);
+    expect(declared).toContain('HOLD_REDACTION_REFUSED');
     const reached = new Set([
       ...redactionVectors.vectors.map((one) => one.verdict),
       ...redactionVectors.vectors.map((one) => one.structural),
     ]);
     for (const code of new Set(declared)) {
       expect(reached.has(code), `${code} is declared and no published row reaches it`).toBe(true);
+    }
+    for (const code of ['HOLD_ERASURE_REFUSED', 'HOLD_RECORD_BAD_DOCUMENT', 'HOLD_RECORD_UNSUPPORTED_VERSION']) {
+      expect(reached.has(code), `a published redaction row reached ${code}, which a different door answers`).toBe(false);
     }
   });
 });

@@ -974,6 +974,13 @@ export interface RedactionVector {
   item?: string;
   /** The one position a fault case moved. */
   edited?: string;
+  /**
+   * The hold records handed to `verifyRedaction` as its `holds` option, each one the whole document its writer
+   * writes for a deployment's instruction, in the order the call hands them. Absent is the call that handed no
+   * column at all, which is every row this suite published before the consultation existed; an empty list
+   * states the same call in words and is a row of its own.
+   */
+  holdsBase64Url?: string[];
 }
 
 export interface RedactionVectorFile {
