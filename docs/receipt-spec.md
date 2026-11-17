@@ -375,7 +375,13 @@ bypass leaves when no mark was inserted, is refused as `MARK_MISMATCH`. The comm
 consults no clock; the nonce, the request digest, the policy pins and the age windows stay the questions
 `verify-receipt` answers. The published vectors of the record, its refusals, and the transformation
 outcomes measured over the fixture content path are `packages/fixtures/data/disclosure-record-v1.json`,
-indexed in [vectors.md](vectors.md).
+indexed in [vectors.md](vectors.md). The same file records, in its `rule.realContentPath` block, one run
+of that completion through applications outside this repository: a client's fetched copy of the served
+body still carries exactly one region, and the browser's rendering of it, the PDF that browser exported,
+the text two applications took out of that archive, and the text an optical engine read off a raster of
+the page carry none. Run against those later stages beside the receipt that attests the served bytes, the
+command refuses at the response digest before any marking question is reached, which is the gate doing
+its work rather than a verdict about the mark.
 
 ### 3.4 Encryption schemes
 
