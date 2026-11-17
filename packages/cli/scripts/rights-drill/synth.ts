@@ -111,6 +111,11 @@ export interface VolumeFacts {
   names: string[];
   lines: number;
   unreadable: number;
+  /** Of the refused bytes, how many name the credential the run was asked about, and how many name another. */
+  unreadableNaming: number;
+  unreadableElsewhere: number;
+  /** The refused bytes themselves, capped, so a difference between two readings is attributable. */
+  unreadableSamples: string[];
   byCredential: Record<string, number>;
   /** The subject's lines, counted by the shipped parser rather than by a name match. */
   of(credential: string): number;
@@ -120,13 +125,18 @@ export interface VolumeFacts {
  * What stands on the volume, read back through the parser the gateway writes with.
  *
  * A line this parser refuses is counted apart rather than skipped, because a scrub that silently dropped
- * bytes it could not read would otherwise be reported here as a clean volume.
+ * bytes it could not read would otherwise be reported here as a clean volume. Splitting that count by the
+ * credential each refused line spells is what lets a difference between two readings be attributed to the
+ * run rather than left as a number that moved.
  */
-export async function readVolume(dir: string): Promise<VolumeFacts> {
+export async function readVolume(dir: string, subject?: string): Promise<VolumeFacts> {
   const names = (await readdir(dir)).sort();
   const byCredential: Record<string, number> = {};
   let lines = 0;
   let unreadable = 0;
+  let unreadableNaming = 0;
+  let unreadableElsewhere = 0;
+  const unreadableSamples: string[] = [];
   for (const name of names) {
     if (!name.startsWith('access-') || !name.endsWith('.jsonl')) continue;
     const text = await readFile(join(dir, name), 'utf8');
@@ -138,6 +148,12 @@ export async function readVolume(dir: string): Promise<VolumeFacts> {
         parsed = parseAccessLine(line);
       } catch {
         unreadable += 1;
+        if (subject !== undefined && line.includes(`"cred":"${subject}"`)) {
+          unreadableNaming += 1;
+        } else {
+          unreadableElsewhere += 1;
+        }
+        if (unreadableSamples.length < 6) unreadableSamples.push(`${name} ${line.slice(0, 56)}`);
         continue;
       }
       const who = parsed.cred ?? '<no credential named>';
@@ -148,6 +164,9 @@ export async function readVolume(dir: string): Promise<VolumeFacts> {
     names,
     lines,
     unreadable,
+    unreadableNaming,
+    unreadableElsewhere,
+    unreadableSamples,
     byCredential,
     of(credential: string): number {
       return byCredential[credential] ?? 0;

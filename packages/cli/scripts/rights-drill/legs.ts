@@ -296,8 +296,9 @@ export async function legQuiesced(run: Run): Promise<LegOutcome> {
   }
   notes.push(`${partName(2)}: 2 lines, both the subject's, so the name is deleted rather than rewritten`);
 
-  const volume = await readVolume(dir);
+  const volume = await readVolume(dir, subject);
   checks.push(lit('the subject lines on the volume before the run', String(removedExpect - 2), String(volume.of(subject)), String(volume.of(subject)) === String(removedExpect - 2)));
+  const before = { total: volume.unreadable, naming: volume.unreadableNaming, elsewhere: volume.unreadableElsewhere };
 
   const erase = await run.shipped(['accesslog', 'scrub', '--access-log', dir, '--credential', subject, '--request', 'drill:quiesced', '--now', '2026-04-15T00:00:00Z', '--json']);
   commands.push(erase.command);
@@ -324,10 +325,11 @@ export async function legQuiesced(run: Run): Promise<LegOutcome> {
   checks.push(lit(`${partName(2)} after`, `0/${EMPTY_SHA256.slice(0, 12)} at the name`, `${String(gone.bytes)}/${gone.sha256.slice(0, 12)} present=${String(gone.present)}`, gone.bytes === 0 && gone.sha256 === EMPTY_SHA256 && !gone.present));
   checks.push(lit('the marker carries the reference the operator typed', 'drill:quiesced', String(marker['request']), String(marker['request']) === 'drill:quiesced'));
 
-  const swept = await readVolume(dir);
+  const swept = await readVolume(dir, subject);
   checks.push(lit('the subject lines left on the volume', '0', String(swept.of(subject)), swept.of(subject) === 0));
   checks.push(lit('every line the run was not asked to touch', String(keptExpect), String(swept.lines), swept.lines === keptExpect));
-  checks.push(check('bytes no access-log reader accepts stood in the rewritten parts', 'more than none counted unreadable by the shipped parser', `${String(swept.unreadable)} of ${String(swept.lines)} lines`, swept.unreadable > 0));
+  notes.push(`refused bytes before: ${String(before.total)} (${String(before.naming)} spelling the subject, ${String(before.elsewhere)} not); after: ${String(swept.unreadable)} (${String(swept.unreadableNaming)} spelling the subject, ${String(swept.unreadableElsewhere)} not)`);
+  checks.push(check('the bytes no reader accepts stay on the volume, as the door promises', `${String(before.total)} before, the same count after`, `${String(swept.unreadable)} after, ${String(swept.unreadableNaming)} spelling the subject, ${String(before.total)} before`, swept.unreadable === before.total && swept.unreadableNaming === before.naming));
 
   const again = await run.shipped(['accesslog', 'scrub', '--access-log', dir, '--credential', subject, '--now', '2026-04-15T00:00:00Z', '--json']);
   commands.push(again.command);
