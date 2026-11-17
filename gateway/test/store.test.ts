@@ -1252,6 +1252,38 @@ describe('a retirement the store is told to suspend', () => {
     expect(await reopened.window()).toEqual({ from: AGED_AT, to: AGED_AT + 3, count: 4 });
   });
 
+  it('counts the retained entries a suspension keeps that its bounds would have given up', async () => {
+    // The reading the gateway's refusal quotes, taken off the store's own index rather than off the
+    // predicate: the held pairing keeps the ten aged receipts its period says to shed, and the same
+    // file with nothing handed to it answers zero beside a set of four. The bound is set wide enough
+    // here that this is the count being read, not the opening being refused.
+    const dir = await emptyDir();
+    const written = await openFileReceiptStore({ dir });
+    await agedThenFresh(written);
+    const retention: ReceiptRetention = {
+      maxAgeSeconds: WINDOW_SECONDS,
+      maxCount: 20,
+      time: fixedClock(() => AGED_AT),
+    };
+
+    const held = await openFileReceiptStore({ dir, retention, hold: holding([STAMP]) });
+    expect(await held.retainedBySuspension(), 'the aged prefix is what the suspension kept').toBe(10);
+
+    const unheld = await openFileReceiptStore({ dir, retention });
+    expect(await unheld.retainedBySuspension(), 'nothing was handed, so nothing was kept by it').toBe(0);
+
+    // The count cap is the other bound a suspension leaves unmet, and the same reading counts it: nine
+    // receipts against a cap of four, the whole run held back from the walk by one covered stamp.
+    const capped = openMemoryReceiptStore({
+      retention: { maxCount: 4, time: fixedClock(() => STAMP) },
+      hold: holding([STAMP]),
+    });
+    for (let i = 0; i < 9; i++) {
+      await capped.put(`rcpt_${String(i)}`, RECEIPT, STAMP + i);
+    }
+    expect(await capped.retainedBySuspension(), 'the cap would have given up five of the nine').toBe(5);
+  });
+
   it('consults it on the append that lands, and on the append after a release', async () => {
     // The other moment a prefix is applied is the instant a record lands, and a hold that arrives or
     // leaves between two appends has to be read at each one rather than once at the opening.

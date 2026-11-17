@@ -721,6 +721,18 @@ export interface ReceiptStore {
   window(): Promise<RetainedWindow>;
 
   /**
+   * How many entries of the retained set the suspension this opening was handed keeps that the
+   * configured bounds alone would have given up. Zero where no suspension was handed, because a store
+   * that consulted nothing keeps exactly what its own bounds say.
+   *
+   * It is a reading beside `window()` rather than a member of it: that one is what a retention manifest
+   * states, and a count derived from a predicate this file never inspects belongs to no published
+   * format. The answer is the unheld pairing of the same index at the same instant, so what a caller is
+   * told is this store's own arithmetic rather than a number somebody passed in beside it.
+   */
+  retainedBySuspension(): Promise<number>;
+
+  /**
    * Every receipt stamped in a half-open interval, in the order they were chained, for packs.
    *
    * The set is the store's retained set intersected with the interval, whatever the serving bound is:
@@ -1682,6 +1694,27 @@ function retire(
     kept -= 1;
   }
   return { byAge, byCount };
+}
+
+/**
+ * How many entries of a retained set a suspension keeps that the configured bounds alone would have
+ * given up. The answer is the same walk run without it, so a caller is told what this file's own policy
+ * says of the stamps it holds rather than of anything the suspension was asked about, and the count
+ * covers both bounds: a prefix the period still covers and a set the cap still has room for.
+ *
+ * Zero where no suspension was handed. Nothing is kept by a rule that was never consulted.
+ */
+function keptBySuspension(
+  entries: ReadonlyMap<string, { iat: number }>,
+  retention: ReceiptRetention | undefined,
+  now: number,
+  hold: HoldSuspension | undefined,
+): number {
+  if (hold === undefined) {
+    return 0;
+  }
+  const givenUp = retire(entries, retention, now, undefined);
+  return givenUp.byAge.length + givenUp.byCount.length;
 }
 
 /**
@@ -3185,6 +3218,10 @@ export async function openFileReceiptStore(options: FileReceiptStoreOptions): Pr
       return windowOf(state.records.values());
     },
 
+    async retainedBySuspension(): Promise<number> {
+      return keptBySuspension(state.records, retention, now(), hold);
+    },
+
     async head(): Promise<Uint8Array> {
       return new Uint8Array(state.head);
     },
@@ -3293,6 +3330,10 @@ export function openMemoryReceiptStore(options: {
 
     async window() {
       return windowOf(entries.values());
+    },
+
+    async retainedBySuspension() {
+      return keptBySuspension(entries, retention, now(), hold);
     },
 
     async head() {

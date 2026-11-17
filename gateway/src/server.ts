@@ -378,6 +378,12 @@ export interface IntakeGuardFigures {
   readonly periodSeconds: number;
   /** What that period takes at the rate the span the source supports measures. */
   readonly needed: number;
+  /**
+   * Entries of the retained set that a retirement suspension keeps, which the configured bounds alone
+   * would have given up. Zero says the set is what its own bounds reach: traffic, and not an instruction
+   * handed to the store, is what grew it to the point this guard is reading.
+   */
+  readonly retainedBySuspension: number;
 }
 
 /**
@@ -403,10 +409,16 @@ export const DEFAULT_INTAKE_GUARD_FRACTION = 1;
  * `receiptsNeededForWindow` is the function `assertWindowHeldable` refuses by, imported rather than
  * copied so the two moments cannot drift apart and an operator cannot be told one count by a banner
  * and another by a refusal.
+ *
+ * How much of the retained set a suspension keeps is not arithmetic this function can do: it reads a
+ * window of bounds and a count, and the index the question is about belongs to the store that handed
+ * them, so the count arrives as an argument. A caller that has no store reading hands nothing, and the
+ * figures then say that the set is exactly what the configured bounds reach.
  */
 export function intakeGuardRefusal(
   guard: ReceiptIntakeGuard,
   held: RetainedWindow,
+  retainedBySuspension = 0,
 ): IntakeGuardFigures | null {
   if (guard.growPastGuard === true) return null;
   const periodSeconds = guard.retention?.maxAgeSeconds;
@@ -434,21 +446,28 @@ export function intakeGuardRefusal(
     uncertaintySeconds: source.uncertaintySeconds,
     periodSeconds,
     needed,
+    retainedBySuspension,
   };
 }
 
 /**
- * The detail carried by `RECEIPT_WINDOW_UNHOLDABLE`. It states the two configured quantities, the
- * measured span, the span the source of those stamps supports, the count that span takes and the
- * shortfall, in the order an operator needs to raise a number from: the same discipline the opening
- * refusal follows in `store.ts`, so a refusal read off either moment tells the reader which bound is
- * short, by how much, and under which source the answer was derived.
+ * The detail carried by `RECEIPT_WINDOW_UNHOLDABLE`. It states the two configured quantities, how much
+ * of the retained set a suspension rather than those quantities keeps, the measured span, the span the
+ * source of those stamps supports, the count that span takes and the shortfall, in the order an operator
+ * needs to raise a number from: the same discipline the opening refusal follows in `store.ts`, so a
+ * refusal read off either moment tells the reader which bound is short, by how much, under which source
+ * the answer was derived, and whether traffic or an instruction grew the set.
  */
 function intakeGuardDetail(figures: IntakeGuardFigures): string {
   return (
     `the store holds ${figures.retained} of the ${figures.bound} receipts its durability bound allows, ` +
-    `refusing from ${figures.refusesAt} of them, those stamps span ${figures.spanSeconds} seconds as read ` +
-    `from ${sourcePhrase(figures)}, which is ${figures.spanSupportSeconds} seconds a rate can be ` +
+    // The two keepings are told apart because the fixes differ: a bound an operator set too low is
+    // raised, and a set an instruction grew is answered by that instruction or by a wider bound, never
+    // by a wait. Zero says the sentence belongs to the first of those.
+    `${figures.retainedBySuspension} of them kept by a suspension the store was handed rather than by ` +
+    `the bounds it was configured with, refusing from ${figures.refusesAt} of them, those stamps span ` +
+    `${figures.spanSeconds} seconds as read from ${sourcePhrase(figures)}, which is ` +
+    `${figures.spanSupportSeconds} seconds a rate can be ` +
     `derived from, while ` +
     `the configured period is ${figures.periodSeconds} seconds, and that period takes ${figures.needed} ` +
     `receipts at the rate this store has been carrying, which is ${figures.needed - figures.bound} more ` +
@@ -734,7 +753,15 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       // `auth` and `scope` null, because what the refusal says did not happen is the issuing of a
       // receipt and not the verifying of a key.
       if (admitted.scope === 'complete') {
-        const refusal = intakeGuardRefusal(intakeGuard, await receipts.window());
+        // The suspension count travels with the window, because one sentence answers two different
+        // deployments and an operator reading a shortfall needs to know whether the bound or an
+        // instruction handed to the store is what grew the set beside it. A store handed no suspension
+        // answers it without a walk, so the read costs nothing where there is nothing to report.
+        const refusal = intakeGuardRefusal(
+          intakeGuard,
+          await receipts.window(),
+          await receipts.retainedBySuspension(),
+        );
         if (refusal !== null) {
           throw new AccessError('RECEIPT_WINDOW_UNHOLDABLE', {
             detail: intakeGuardDetail(refusal),

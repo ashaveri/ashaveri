@@ -71,9 +71,24 @@ describe('the intake guard, as arithmetic', () => {
       uncertaintySeconds: null,
       periodSeconds: TEN_YEARS_SECONDS,
       needed: 946_080_001,
+      // No suspension was handed to the reading this fixture writes out, so the figures say the set is
+      // what the two configured bounds reach, and the refusal says so in the same words.
+      retainedBySuspension: 0,
     });
     // The derived figure is the store's own arithmetic, not a copy of it.
     expect(receiptsNeededForWindow(TEN_YEARS_SECONDS, held(BOUND))).toBe(refusal?.needed);
+  });
+
+  it('names the entries a suspension keeps beside the count it refuses by', () => {
+    // The guard reads a window, so the count of what a suspension kept arrives from the store that owns
+    // the index, and the refusal carries it as the arithmetic carried the bound. A caller that hands no
+    // reading is answered zero, which says the set is what its own bounds reach.
+    expect(intakeGuardRefusal(atTheBound, held(BOUND), 8)).toMatchObject({
+      retained: 4,
+      bound: 4,
+      retainedBySuspension: 8,
+    });
+    expect(intakeGuardRefusal(atTheBound, held(BOUND))?.retainedBySuspension).toBe(0);
   });
 
   it('serves below the durability bound, where nothing is being shed', () => {
@@ -300,6 +315,25 @@ describe('a gateway whose store has reached the durability guard', () => {
       expect(message).toContain('946080001 receipts');
       expect(message).toContain('which is 946079997 more than the bound holds');
       expect(message).toContain('refusing from 4 of them');
+    } finally {
+      await s.h.app.close();
+    }
+  });
+
+  it('states zero kept by a suspension for a store that was handed none', async () => {
+    // The same refusal as the case above, read with the new term: this store consults nothing, so the
+    // sentence says what the four receipts are not, and an operator reading it has the bound and the
+    // period as the only two numbers that grew the set.
+    const s = await serving(atTheBound);
+    try {
+      for (let i = 0; i < BOUND; i++) {
+        expect((await s.complete(`fill ${String(i)}`)).statusCode).toBe(200);
+      }
+      const refused = await s.complete('refused');
+      expect(refused.statusCode).toBe(429);
+      const message = String(refused.error.message);
+      expect(message).toContain('0 of them kept by a suspension the store was handed');
+      expect(message).toContain('the store holds 4 of the 4 receipts its durability bound allows');
     } finally {
       await s.h.app.close();
     }
@@ -596,6 +630,10 @@ describe('a held store beside a guard that consults no hold', () => {
       // The two configured numbers and the count they take at the rate the held set measures: 21 receipts,
       // which is one past the bound, derived over the 200-day span the held stamps themselves state.
       expect(message).toContain('the store holds 22 of the 20 receipts its durability bound allows');
+      // The eight aged receipts stand in the set because the instruction covering them stopped the walk,
+      // and the refusal now says so. The number is the store's own count of what its suspension kept;
+      // this fixture only knows it because it wrote the eight.
+      expect(message).toContain('8 of them kept by a suspension the store was handed rather than by the');
       expect(message).toContain('refusing from 20 of them');
       expect(message).toContain(`the configured period is ${String(daysToSeconds(PERIOD_DAYS))} seconds`);
       expect(message).toContain('that period takes 21 receipts');

@@ -749,8 +749,12 @@ refusal states the arithmetic of the two configured numbers and the retained sta
 because the door that weighs them is record-agnostic and holds no fact that would say which instruction kept
 the prefix. The start-up report is where that is read, one line per hold record the run read; a start stopped
 at the door prints no such line, and the instruction it was handed is the one its own command line named. The
-levers an operator has over the pairing are `--receipts-keep`, `--receipts-guard-at` and
-`--receipts-grow-past-guard`, never an edited hold record. A window shorter than the stated period is refused beside an active hold with the
+guard's refusal carries the same arithmetic and one term more: how many of the retained receipts a suspension
+the store was handed keeps rather than the bounds it was configured with, and zero where it was handed none.
+That term is a count of the store's own index and not a naming of any record, because a count is what the
+store is asked, and the instruction behind it stays the report's to state. The levers an operator has over
+the pairing are `--receipts-keep`, `--receipts-guard-at` and `--receipts-grow-past-guard`, never an edited
+hold record. A window shorter than the stated period is refused beside an active hold with the
 identical sentence, because a hold is an instruction to keep and not a second way to answer a shortfall; the
 start-up report prints one note line per in-force hold beside each of the two window judgements, naming that
 record's path and the sha256 of the bytes it was read from, and prints nothing where no hold is in force.
