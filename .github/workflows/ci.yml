@@ -79,6 +79,9 @@ jobs:
       # that does not typecheck before it runs one: a script that compiles wrong can still emit
       # plausible-looking output, and the diff below would then be read as the only verdict.
       - run: pnpm -C packages/fixtures typecheck
+      # One step per generate key in the package manifest: the diff below can only refuse bytes a step
+      # above it wrote, so a family whose generator the job never runs is a family whose committed file
+      # carries no pin at all.
       - run: pnpm -C packages/fixtures generate
       - run: pnpm -C packages/fixtures generate:challenge
       - run: pnpm -C packages/fixtures generate:pop
@@ -86,6 +89,8 @@ jobs:
       - run: pnpm -C packages/fixtures generate:res
       - run: pnpm -C packages/fixtures generate:marking
       - run: pnpm -C packages/fixtures generate:disclosure-record
+      - run: pnpm -C packages/fixtures generate:hold
+      - run: pnpm -C packages/fixtures generate:model-inventory
       - run: pnpm -C packages/fixtures generate:chain
       - run: pnpm -C packages/fixtures generate:export
       - run: pnpm -C packages/fixtures generate:manifest

@@ -482,6 +482,67 @@ export function loadModelInventoryVectors(): ModelInventoryVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'model-inventory-v1.json'), 'utf8')) as ModelInventoryVectorFile;
 }
 
+/** One hold record layout case: the bytes the writer made, and the verdict the reader owes them. */
+export interface HoldVector {
+  name: string;
+  note: string;
+  /** `verify-ok`, or the code the refusal answers with. */
+  expected: string;
+  recordBase64Url: string;
+  recordByteLength: number;
+  fault?: { at: string; states: string };
+}
+
+/** One consultation case: the holds one shipped door was handed, the call it was given, and the answer it gave. */
+export interface HoldConsultationVector {
+  name: string;
+  note: string;
+  /** Which of the three shipped doors answered this row. */
+  door: 'erasure' | 'active' | 'coverage';
+  /**
+   * The answer the door named in `door` gave. `verify-ok` or `HOLD_ERASURE_REFUSED` at the erasure door,
+   * `active` or `inactive` at the reach door, and `covers` or `does-not-cover` at the window door.
+   */
+  expected: string;
+  /** The holds as the bytes a reader is handed them in, in the order the door scans them. */
+  holdsBase64Url: string[];
+  call: { at: number; credential?: string; iat?: number };
+}
+
+export interface HoldVectorFile {
+  version: number;
+  description: string;
+  rule: {
+    registry: string;
+    reader: string;
+    writer: string;
+    consultations: { active: string; coverage: string; erasure: string };
+    doors: string;
+    versions: number[];
+    members: string[];
+    windowMembers: string[];
+    limits: string;
+    textMaxUnits: number;
+    instants: {
+      issue: number;
+      windowFrom: number;
+      windowTo: number;
+      released: number;
+      receiptFixtureStamp: number;
+      note: string;
+    };
+    unsigned: string;
+    encodings: string;
+  };
+  vectors: HoldVector[];
+  consultations: HoldConsultationVector[];
+}
+
+/** The hold record, the refusals its strict reader owes, and the answers its three consultation doors give. */
+export function loadHoldVectors(): HoldVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'hold-v1.json'), 'utf8')) as HoldVectorFile;
+}
+
 /** What a reader is handed beside an export document: companion files, endpoints, and the key it uses. */
 export interface ExportReadArguments {
   companions?: Array<{ name: string; bytesBase64Url: string }>;

@@ -33,6 +33,7 @@ each shape.
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
 | Disclosure record | `packages/fixtures/data/disclosure-record-v1.json` | The record beside the marking region: the layout its strict reader reads, the duty pointers it enumerates, the limits sentence every record states verbatim, and the transformation outcomes measured over the published buffered completion, with unsupported transformations recorded as untested; the content path is a fixture path, and detectability through a named application's own transformations is not claimed here | `version: 1` |
+| Hold record | `packages/fixtures/data/hold-v1.json` | The hold record beside the receipts it asks to be kept: the layout its strict reader reads, one edit of the writer's own bytes per refusal, the answers the three shipped consultation doors give the calls these rows state, the authored-text bound measured at the unit either side of the ceiling, and the one record two doors answer differently because the erasure arm declines to weigh the window; the record carries no signature, the family publishes no key material, and every row is labeled fixture | `version: 1` |
 | Model inventory | `packages/fixtures/data/model-inventory-v1.json` | The inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the bound cases replayed beside the manifest bytes each record designates including the mutation pair that witnesses the split, the Australia APP 1.7-1.9 automated-decision extract as a fixture row whose scope states the enacted periods transcribed from the corpus cut the appSource block names with its measured digests, and the record riding one inline item of the published export contract; the fixture deployment is the one the published receipt family came from, and the extract is labeled fixture | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
@@ -45,10 +46,10 @@ each shape.
 | Retention assessment | `packages/fixtures/data/retention-assessment-v1.json` | Whole assessment documents and the outcome the published reading computes for each one: the declared scope with a head an independent party pinned and a customer-held checkpoint schedule, the observed intake runs and acknowledgments, the checkpoint receipts, the observed head, explicit gaps, duplicates, rollbacks and suffix loss, and the three outcomes a reader replays, including a span-only input the old span rule would have called met and a covered period that genuinely reaches met | `version: 1` |
 | Challenge binding | `packages/fixtures/data/challenge-v1.json` | The pre-image each `enc` arm of a version 2 receipt builds and the digest it hashes to, both read out of the two receipts the manifest publishes: the plain arm folding `nce` and `req` into 48 bytes, the session arm folding `enc.pk` and that key's identifier between them into 112, and four refusals beside them: the session document weighed as though its arm named no key, the plain document weighed with the attestation digest put where a key would go, the same four members concatenated request-last, and the session composite with the identifier left out, which is the value this rule shipped before the identifier joined it. The order is published as bytes as well as named, because a second implementation can agree on every member and width and still fold them the other way round. What the family does not pin is the platform's seal over a composite: no captured report data in this repository carries one, because those bytes are fixed by the signature over them, so the second capture is stated as an owed thing in `layout.owedPlatformCapture` rather than left for a reader to infer | `version: 1` |
 
-`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `disclosure-record-v1.json`, `model-inventory-v1.json`, `chain-v1.json`, `export-v1.json`,
+`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `disclosure-record-v1.json`, `hold-v1.json`, `model-inventory-v1.json`, `chain-v1.json`, `export-v1.json`,
 `manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
 `import-v1.json`, `retention-assessment-v1.json` and `challenge-v1.json` each carry a
-`description` stating their rule in prose, and the digest, marked-region, disclosure-record, model-inventory, chain, export,
+`description` stating their rule in prose, and the digest, marked-region, disclosure-record, hold, model-inventory, chain, export,
 sealed-manifest, pack, redaction, inventory, capture, import, retention-assessment and challenge suites carry a `rule`
 or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
@@ -366,8 +367,8 @@ specific to that case.
 
 ## Every suite refuses something
 
-Each of the seventeen suites the table above lists carries at least one case whose stated verdict is a refusal,
-and every code those cases name is one [error-codes.md](error-codes.md) lists. The seventeen are that table's
+Each of the eighteen suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The eighteen are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
 a refused one, drawn from the same
@@ -421,6 +422,7 @@ pnpm --filter @ashaveri/fixtures generate:req
 pnpm --filter @ashaveri/fixtures generate:res
 pnpm --filter @ashaveri/fixtures generate:marking
 pnpm --filter @ashaveri/fixtures generate:disclosure-record
+pnpm --filter @ashaveri/fixtures generate:hold
 pnpm --filter @ashaveri/fixtures generate:model-inventory
 pnpm --filter @ashaveri/fixtures generate:chain
 pnpm --filter @ashaveri/fixtures generate:export
@@ -500,6 +502,14 @@ These vectors check bytes. They say nothing about trust:
   this suite publishes, and they say nothing about a named application's own content path, which is a
   separate test this family does not claim. The duty pointers are pointers for counsel rather than
   conclusions, and no row here states that a duty applies or was met.
+- The hold record vectors pin a layout and the three consultation doors. The record carries no signature,
+  so nothing here authenticates one: a reader weighs the layout and the reach, and the trust in a hold
+  arrives from whoever hands it over beside the receipts it speaks of, the export container being what
+  carries these bytes as evidence under its own signature. The consultation rows say which shipped door
+  suspends which call at the fixture instants the `rule` block states, and they say nothing about whether
+  a matter calls for a hold, nothing about a deployment's own periods, which a hold changes none of, and
+  nothing about a notification deadline, which stays the deployment's process obligation. The refusal of a
+  redaction and the refusal at a command edge are read in their own suites and not here.
 - The model inventory vectors pin a layout and the split between bound and asserted fields. The bound
   cases are replayed beside the manifest bytes each record designates, and the mutation pair witnesses
   the split: a bound mutation is refused and an asserted mutation is read. The pointers are pointers
