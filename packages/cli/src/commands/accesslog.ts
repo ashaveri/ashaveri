@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { ReceiptError, parseHoldRecord, refuseErasureUnderHold, sha256Hex, type HoldRecord } from '@ashaveri/receipt';
 import { publishNew, writeGuarded } from '../atomic.js';
 import { checkId } from '../records.js';
-import { escapeInvisibleJson, UsageError, writeJson } from '../usage.js';
+import { escapeInvisible, escapeInvisibleJson, printedToken, UsageError, writeJson } from '../usage.js';
 
 /**
  * The parts this program will open, which is the gateway's own log-file name copied rather than
@@ -85,6 +85,37 @@ export interface ScrubResult {
   removed: number;
   files: number;
   marker: string | null;
+  /**
+   * The hold records this run read because the operator named them, absent exactly when the flag named
+   * nothing. {@link accesslogScrub} is handed records rather than paths, so it cannot name the paths it
+   * was weighed against; `runAccessLog` reads them and fills this in, which is where the disclosure of a
+   * designation belongs and why it is absent rather than empty when no file was named.
+   */
+  holdRecords?: HoldDisclosure;
+}
+
+/**
+ * One hold record this run read: the name the operator gave, the digest of the bytes that came from that
+ * name, and the record those bytes parsed to.
+ *
+ * The three travel together because the disclosure line says all three about one file, and a record kept
+ * apart from the bytes it was parsed from would leave that line quoting a digest no reading of this run
+ * reached. Same shape, same reason, as the handover door's `NamedHold`.
+ */
+interface NamedHold {
+  readonly path: string;
+  readonly digestHex: string;
+  readonly record: HoldRecord;
+}
+
+/**
+ * What the erasure door says about the designations it was handed: how many records it read, and which
+ * bytes each came from. A digest rather than only a name, because the name is already on the operator's
+ * own command line and says nothing about what stood at it when this run read it.
+ */
+export interface HoldDisclosure {
+  read: number;
+  records: Array<{ path: string; sha256: string }>;
 }
 
 export interface AccessLogFlags {
@@ -717,9 +748,21 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, nowMill
   // marker, and an erasure whose own report can carry a forged line is a receipt that proves nothing.
   checkId(credential, '--credential');
   const holds = await holdRecordsNamed(flags['hold-record']);
+  // What the operator was handed is disclosed whatever the erasure turns out to be, and the records reach
+  // the consultation as records: the disclosure names paths and digests, the seam below takes neither.
+  const disclosure: HoldDisclosure | undefined =
+    holds.length === 0
+      ? undefined
+      : { read: holds.length, records: holds.map((one) => ({ path: one.path, sha256: one.digestHex })) };
   let result: ScrubResult;
   try {
-    result = await accesslogScrub(dir, credential, nowMillis, { request: requestOf(flags.request), holds });
+    result = {
+      ...(await accesslogScrub(dir, credential, nowMillis, {
+        request: requestOf(flags.request),
+        holds: holds.map((one) => one.record),
+      })),
+      ...(disclosure === undefined ? {} : { holdRecords: disclosure }),
+    };
   } catch (error) {
     // A hold's refusal is a `ReceiptError` carrying the code the operator has to read, and the
     // top-level handler prints anything that is not a `UsageError` as an unexpected error, with a stack
@@ -735,9 +778,26 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, nowMill
     writeJson(result);
     return 0;
   }
+  // A designation that did nothing at this door is still disclosed: an operator who typed the flag and
+  // got the pre-flag report cannot tell a hold weighed and found not to cover from an argument that was
+  // swallowed. The clause on the outcome line is the second half of that answer, and it states only what
+  // this run reached: the consultation above is what makes a run that got here one no named hold covers,
+  // and it says nothing about any notification, which stays the deployment's own obligation to make.
   const noun = result.files === 1 ? 'file' : 'files';
   const count = result.removed === 1 ? 'record' : 'records';
-  process.stdout.write(`removed ${String(result.removed)} ${count} for ${credential} in ${String(result.files)} ${noun}\n`);
+  const outcome = `removed ${String(result.removed)} ${count} for ${credential} in ${String(result.files)} ${noun}`;
+  const lines =
+    disclosure === undefined
+      ? [outcome]
+      : [
+          `${String(disclosure.read)} hold record(s) read from the paths --hold-record names, one per distinct path: ${
+            holds.map((one) => `${printedToken(one.path)} sha256 ${one.digestHex}`).join('; ')
+          }. Each digest is sha256 over the bytes this run read at that path, so it names what was weighed and not the file that name now holds.`,
+          `${outcome}, and none of the ${String(disclosure.read)} hold record(s) this run read covers ${credential}`,
+        ];
+  for (const line of lines) {
+    process.stdout.write(`${escapeInvisible(line)}\n`);
+  }
   if (result.marker !== null) {
     process.stdout.write(`marker: ${result.marker}\n`);
   }
@@ -782,9 +842,13 @@ function requestOf(raw: string | undefined): string | null {
  * suspension twice without adding anything to it. The dedupe is of the text as typed and not of the file it
  * points at: one document spelled two ways is two paths and is read twice, which moves nothing the refusal
  * says, because the same record answers the same way and the consultation stops at the first hold in force.
+ *
+ * Each record keeps the name it came from and the digest of the bytes read at it, because the disclosure
+ * this command prints states which files it weighed and identifies each by its bytes: the run that erased
+ * is answered for by the bytes it read, and not by a name that may since have been replaced.
  */
-async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<HoldRecord[]> {
-  const holds: HoldRecord[] = [];
+async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<NamedHold[]> {
+  const holds: NamedHold[] = [];
   for (const path of new Set(paths ?? [])) {
     let bytes: Buffer;
     try {
@@ -794,8 +858,9 @@ async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<H
         `--hold-record names '${path}' and no bytes could be read from it: ${reasonOf(error)}, so a run whose operator named a hold record reads it or refuses to erase`,
       );
     }
+    const digestHex = sha256Hex(bytes);
     try {
-      holds.push(parseHoldRecord(bytes));
+      holds.push({ path, digestHex, record: parseHoldRecord(bytes) });
     } catch (error) {
       if (error instanceof ReceiptError) {
         throw new UsageError(
