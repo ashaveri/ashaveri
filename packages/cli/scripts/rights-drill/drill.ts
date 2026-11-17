@@ -203,7 +203,10 @@ async function main(argv: readonly string[]): Promise<number> {
   printTable(settled);
 
   const finishedAt = new Date();
-  const recordPath = options.record ?? join(root, 'rights-drill-record.json');
+  // The record outlives the store it describes, so the default path cannot sit inside the directory the
+  // run clears: an operator who ran the command without flags would have printed a path to a file the
+  // same command had just deleted.
+  const recordPath = options.record ?? join(tmpdir(), 'ashaveri-rights-drill-records', `rights-drill-${startedAt.toISOString().replace(/[:.]/gu, '-')}.json`);
   const counts = {
     legs: settled.length,
     exercised: settled.filter((one) => one.verdict === 'EXERCISED').length,
