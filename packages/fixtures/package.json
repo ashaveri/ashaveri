@@ -41,6 +41,7 @@
     "generate:marking": "node scripts/marking-vectors.ts",
     "generate:disclosure-record": "node scripts/disclosure-record-vectors.ts",
     "generate:hold": "node scripts/hold-vectors.ts",
+    "generate:incident-bundle": "node scripts/incident-bundle-vectors.ts",
     "generate:model-inventory": "node scripts/model-inventory-vectors.ts",
     "generate:chain": "node scripts/chain-vectors.ts",
     "generate:export": "node scripts/export-vectors.ts",

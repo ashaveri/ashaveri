@@ -147,6 +147,15 @@ function verdictsOf(basename: string): { verdict: string; code: string | null }[
           .filter((answer) => /^[A-Z][A-Z0-9_]*$/u.test(answer))
           .map((answer) => ({ verdict: answer, code: null })),
       ];
+    case 'incident-bundle-v1.json':
+      // The layout rows state what `parseIncidentBundle` answered and the verification rows state what
+      // `verifyIncidentBundle` answered, each as the accepted word or the code of the refusal, so both arrays
+      // carry verdicts in the shape this reading takes. Nothing here decides which of the two doors a row
+      // belongs to: the family states that in the array a row sits in.
+      return [
+        ...rows('vectors').map((row) => ({ verdict: field(row, 'expected'), code: null })),
+        ...rows('verifyCases').map((row) => ({ verdict: field(row, 'expected'), code: null })),
+      ];
     case 'export-v1.json':
     case 'manifest-v1.json':
     case 'pack-v1.json':

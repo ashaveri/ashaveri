@@ -543,6 +543,93 @@ export function loadHoldVectors(): HoldVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'hold-v1.json'), 'utf8')) as HoldVectorFile;
 }
 
+/** One incident bundle layout case: the bytes the writer made, and the verdict the layout door owes them. */
+export interface IncidentBundleVector {
+  name: string;
+  note: string;
+  /** `verify-ok`, or the code the refusal answers with. */
+  expected: string;
+  recordBase64Url: string;
+  recordByteLength: number;
+  fault?: { at: string; states: string };
+}
+
+/** One verification case: the bundle beside the hold bytes it is handed, and the answer the verifying door gave. */
+export interface IncidentBundleVerifyCase {
+  name: string;
+  note: string;
+  /**
+   * The answer the verifying door gave. `verify-ok` or one of `INCIDENT_BUNDLE_BOUND_DISAGREES`,
+   * `INCIDENT_BUNDLE_HOLD_MISMATCH` and `INCIDENT_BUNDLE_HOLD_UNREADABLE`: a pair agreeing, a copied field
+   * contradicting the designated hold, bytes that are not the record's hold, and a designated document the
+   * hold reader cannot read.
+   */
+  expected: string;
+  recordBase64Url: string;
+  /** The hold-family row these bytes come from, so a reader can see which published record was handed. */
+  holdRow: string;
+  holdBase64Url: string;
+  /** Where the record and the designated hold disagree, on the cases that say so. */
+  disagree?: { at: string; states: string; binds: string };
+}
+
+export interface IncidentBundleVectorFile {
+  version: number;
+  description: string;
+  rule: {
+    registry: string;
+    reader: string;
+    verifier: string;
+    writer: string;
+    doors: string;
+    versions: number[];
+    members: string[];
+    incidentMembers: string[];
+    holdMembers: string[];
+    windowMembers: string[];
+    floorMembers: string[];
+    pointers: string[];
+    pointerCitations: Record<string, string>;
+    limits: string;
+    textMaxUnits: number;
+    boundFields: string[];
+    assertedFields: string[];
+    floor: { incidentAt: number; days: number; preserveUntil: number; daysMax: number; note: string };
+    instants: {
+      assembly: number;
+      incidentAt: number;
+      holdIssue: number;
+      windowFrom: number;
+      windowTo: number | null;
+      receiptFixtureStamp: number;
+      note: string;
+    };
+    hold: { row: string; recordBase64Url: string; note: string };
+    unsigned: string;
+    exportRide: {
+      exportBase64Url: string;
+      publicKeyBase64Url: string;
+      receiptItemIds: string[];
+      holdItemId: string;
+      bundleItemId: string;
+      walkedItemIds: string[];
+      floor: number;
+      note: string;
+    };
+    encodings: string;
+  };
+  vectors: IncidentBundleVector[];
+  verifyCases: IncidentBundleVerifyCase[];
+}
+
+/**
+ * The incident preservation bundle, the refusals its strict reader owes, the answers its verifying door
+ * gives beside the hold bytes it designates, and the export ride that carries both records.
+ */
+export function loadIncidentBundleVectors(): IncidentBundleVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'incident-bundle-v1.json'), 'utf8')) as IncidentBundleVectorFile;
+}
+
 /** What a reader is handed beside an export document: companion files, endpoints, and the key it uses. */
 export interface ExportReadArguments {
   companions?: Array<{ name: string; bytesBase64Url: string }>;

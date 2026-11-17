@@ -49,6 +49,21 @@ mapping and no retention figure, and it never states whether any duty was met, b
 could be met or missed. The one stamp the container does bound is the claim's own, and it is bounded against
 another member of the same document rather than against a span.
 
+## Unsigned records ride as originals, and no member moves for them
+
+A hold record, a model inventory and an incident preservation bundle travel in this container as originals
+and not as members of it: each is one item's inline `orig` bytes, digested by `item.d` beside any receipt or
+file the same run carries, and read back through the door of its own layout by whoever unwraps the document.
+No member of the export contract moves for any of them, and the label that chooses a shape is the content
+type this document already names. What the export signature covers is the assembly: that these bytes were
+collected at one instant and are digested as stated. Whether a hold states a real instruction, whether an
+inventory's asserted fields are true, and whether a bundle's floor is the right number are questions the
+container does not answer, and a reader that took the signature as answering them would be reading a claim
+that was never made. The rides are published rather than described: the `exportRide` block of
+`packages/fixtures/data/incident-bundle-v1.json` carries a run built by extending the anchored document this
+suite publishes as `well-formed-anchored` with the hold and the bundle as two more inline items, and
+`model-inventory-v1.json` carries an inventory as one item of a plain collection.
+
 ## The envelope
 
 The framing is section 2 of [receipt-spec.md](receipt-spec.md), reused unchanged but for the content type: a

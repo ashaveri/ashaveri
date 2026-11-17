@@ -34,6 +34,7 @@ each shape.
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
 | Disclosure record | `packages/fixtures/data/disclosure-record-v1.json` | The record beside the marking region: the layout its strict reader reads, the duty pointers it enumerates, the limits sentence every record states verbatim, and the transformation outcomes measured over the published buffered completion, with unsupported transformations recorded as untested; the content path is a fixture path, and detectability through a named application's own transformations is not claimed here | `version: 1` |
 | Hold record | `packages/fixtures/data/hold-v1.json` | The hold record beside the receipts it asks to be kept: the layout its strict reader reads, one edit of the writer's own bytes per refusal, the answers the three shipped consultation doors give the calls these rows state, the authored-text bound measured at the unit either side of the ceiling, and the one record two doors answer differently because the erasure arm declines to weigh the window; the record carries no signature, the family publishes no key material, and every row but the one that tests the label vocabulary carries `prov: fixture` | `version: 1` |
+| Incident preservation bundle | `packages/fixtures/data/incident-bundle-v1.json` | The incident preservation bundle beside the hold record it designates and the receipts that attest the material: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the floor arithmetic its layout door recomputes rather than believes, measured at the day and the unit either side of both bounds, the verification cases replayed beside the hold bytes each case designates including the mutation pair that witnesses the split and the two refusals that name which document the reader was handed, and both records riding inline items of the export the export family publishes for its honest anchored run; the designated hold is the row `hold-v1.json#hold-fixture-v1`, every record is labeled fixture, and the floor is a pointer for counsel rather than a conclusion about a provision | `version: 1` |
 | Model inventory | `packages/fixtures/data/model-inventory-v1.json` | The inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the bound cases replayed beside the manifest bytes each record designates including the mutation pair that witnesses the split, the Australia APP 1.7-1.9 automated-decision extract as a fixture row whose scope states the enacted periods transcribed from the corpus cut the appSource block names with its measured digests, and the record riding one inline item of the published export contract; the fixture deployment is the one the published receipt family came from, and the extract is labeled fixture | `version: 1` |
 | Receipt store chain | `packages/fixtures/data/chain-v1.json` | The record frames a gateway writes to `receipts.log`, the state a reader derives from them, and what it refuses | `version: 1` |
 | Technical export | `packages/fixtures/data/export-v1.json` | Whole export documents, the arguments a reader is handed beside each one, and the verdict a conforming reader owes it | `version: 1` |
@@ -46,10 +47,10 @@ each shape.
 | Retention assessment | `packages/fixtures/data/retention-assessment-v1.json` | Whole assessment documents and the outcome the published reading computes for each one: the declared scope with a head an independent party pinned and a customer-held checkpoint schedule, the observed intake runs and acknowledgments, the checkpoint receipts, the observed head, explicit gaps, duplicates, rollbacks and suffix loss, and the three outcomes a reader replays, including a span-only input the old span rule would have called met and a covered period that genuinely reaches met | `version: 1` |
 | Challenge binding | `packages/fixtures/data/challenge-v1.json` | The pre-image each `enc` arm of a version 2 receipt builds and the digest it hashes to, both read out of the two receipts the manifest publishes: the plain arm folding `nce` and `req` into 48 bytes, the session arm folding `enc.pk` and that key's identifier between them into 112, and four refusals beside them: the session document weighed as though its arm named no key, the plain document weighed with the attestation digest put where a key would go, the same four members concatenated request-last, and the session composite with the identifier left out, which is the value this rule shipped before the identifier joined it. The order is published as bytes as well as named, because a second implementation can agree on every member and width and still fold them the other way round. What the family does not pin is the platform's seal over a composite: no captured report data in this repository carries one, because those bytes are fixed by the signature over them, so the second capture is stated as an owed thing in `layout.owedPlatformCapture` rather than left for a reader to infer | `version: 1` |
 
-`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `disclosure-record-v1.json`, `hold-v1.json`, `model-inventory-v1.json`, `chain-v1.json`, `export-v1.json`,
+`pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `disclosure-record-v1.json`, `hold-v1.json`, `incident-bundle-v1.json`, `model-inventory-v1.json`, `chain-v1.json`, `export-v1.json`,
 `manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
 `import-v1.json`, `retention-assessment-v1.json` and `challenge-v1.json` each carry a
-`description` stating their rule in prose, and the digest, marked-region, disclosure-record, hold, model-inventory, chain, export,
+`description` stating their rule in prose, and the digest, marked-region, disclosure-record, hold, incident-bundle, model-inventory, chain, export,
 sealed-manifest, pack, redaction, inventory, capture, import, retention-assessment and challenge suites carry a `rule`
 or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
@@ -367,8 +368,8 @@ specific to that case.
 
 ## Every suite refuses something
 
-Each of the eighteen suites the table above lists carries at least one case whose stated verdict is a refusal,
-and every code those cases name is one [error-codes.md](error-codes.md) lists. The eighteen are that table's
+Each of the nineteen suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The nineteen are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
 a refused one, drawn from the same
@@ -388,11 +389,12 @@ derived row that is not the bytes the transformation it names produces.
 Each is one small edit to
 bytes this repository already publishes, so reproducing it is reading a row and not guessing at what the
 author meant. The client path over them is in `packages/cli/test/vector-conformance.test.ts`, which
-drives every suite in this table but the technical export, the capture record, the import envelope and the
-retention assessment through the shipped
+drives the receipt fixtures, the marked region, the request and response digests, the proof of possession,
+the store chain, the sealed deployment manifest, the pack, the redaction manifest and the epoch inventory through the shipped
 verification code rather than
 through a copy of the rule it is checking, and asserts the verdict in both directions: the accepted rows
-accepted, the refusing ones refused for the reason stated. The export suite travels the client path
+accepted, the refusing ones refused for the reason stated. The suites that one file does not reach are named
+where each is read. The export suite travels the client path
 through `packages/cli/test/verify-handover.test.ts` instead, beside the command's own cases. The capture
 rows are read by the two published capture entry points themselves, `parseCaptureRecord` and `assessCapture` of
 `@ashaveri/sdk`, in `packages/fixtures/test/capture-vectors.test.ts`, because those two are the shipped reading of
@@ -401,7 +403,12 @@ this format and no command of this package reads a capture record, and the impor
 import envelope is read by a library caller and no command of this package reads one. The assessment rows are
 read by `parseRetentionAssessment` and `assessRetention` in
 `packages/fixtures/test/retention-assessment-vectors.test.ts`, because a retention assessment is a library
-surface and no command of this package reads one. The inventory
+surface and no command of this package reads one. The disclosure record, the hold record, the model inventory,
+the incident preservation bundle and the challenge binding are read the same way, by the doors the format
+package ships for each of them, in `disclosure-record-vectors.test.ts`, `hold-vectors.test.ts`,
+`model-inventory-vectors.test.ts`, `incident-bundle-vectors.test.ts` and `challenge-vectors.test.ts`: the
+first four are unsigned records no command dispatches on a content type, and the fifth states a pre-image
+rather than a document a reader is handed. The inventory
 rows are read there by the two exported inventory readers, `verifyEpochInventory` and
 `decodeEpochInventory`, rather than through a command, because the claim a port has to satisfy at those two
 doors is about the library surface, and that block names the file which answers the same rows at the command
@@ -417,12 +424,14 @@ on the rows it names.
 
 ```sh
 pnpm --filter @ashaveri/fixtures generate
+pnpm --filter @ashaveri/fixtures generate:challenge
 pnpm --filter @ashaveri/fixtures generate:pop
 pnpm --filter @ashaveri/fixtures generate:req
 pnpm --filter @ashaveri/fixtures generate:res
 pnpm --filter @ashaveri/fixtures generate:marking
 pnpm --filter @ashaveri/fixtures generate:disclosure-record
 pnpm --filter @ashaveri/fixtures generate:hold
+pnpm --filter @ashaveri/fixtures generate:incident-bundle
 pnpm --filter @ashaveri/fixtures generate:model-inventory
 pnpm --filter @ashaveri/fixtures generate:chain
 pnpm --filter @ashaveri/fixtures generate:export
@@ -433,12 +442,15 @@ pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 pnpm --filter @ashaveri/fixtures generate:capture
 pnpm --filter @ashaveri/fixtures generate:import
 pnpm --filter @ashaveri/fixtures generate:retention-assessment
+pnpm --filter @ashaveri/fixtures generate:scan-allowlist
 ```
 
 The generators live beside the loaders in `packages/fixtures`, and running all of them after a change
 to anything they publish has to leave the working tree clean; that is a check in CI, so a published
 file cannot quietly fall behind the code it records. The chain generator is the one with a volume in
-it: it writes real stores in a temporary directory and publishes what came back off disk.
+it: it writes real stores in a temporary directory and publishes what came back off disk. The scan
+allowlist is derived from the bytes every generator above it writes, so it runs last and publishes a
+scan config rather than a vector file.
 
 ## What a mismatch means
 
@@ -477,7 +489,8 @@ These vectors check bytes. They say nothing about trust:
 
 - Nothing here establishes that a key belongs to anybody. The signing keys published in
   `data/keys/receipt-key-v1.json`, in `pop-v1.json`, in `export-v1.json`, in `manifest-v1.json`, in
-  `pack-v1.json`, in `redaction-v1.json`, in `epoch-inventory-v1.json` and in the `layout.keyMaterial` of
+  `pack-v1.json`, in `redaction-v1.json`, in `epoch-inventory-v1.json`, as the public half beside the export
+  ride of `model-inventory-v1.json` and `incident-bundle-v1.json`, and in the `layout.keyMaterial` of
   `capture-v1.json` are test-only, labelled as such in the files themselves, and protect nothing. A port that
   verifies against them has exercised its verifier, not appraised a deployment.
 - Nothing here touches attestation. Evidence documents, platform roots, device certificate chains and
@@ -518,6 +531,16 @@ These vectors check bytes. They say nothing about trust:
   block names, whose digests were measured over the corpus files; the in-force APP 1.1-1.6 context
   stands under its own source label in that cut, and no consolidated text combining the two versions
   is assembled here.
+- The incident preservation bundle vectors pin a layout, the arithmetic of one floor and the split between
+  the fields copied from a designated hold and the fields the deployment asserts. The record carries no
+  signature, so nothing here authenticates one: the trust in a bundle arrives from whoever hands it over
+  beside the receipts and the hold it speaks of, and the export ride states that the two records travel as
+  inline originals of a signed container rather than that the container vouches for what they say. The
+  pointers are pointers for counsel rather than conclusions, and no row here states that a provision
+  applies or was met: the accepted records state a thirty-day and a ninety-day floor and the reader answers
+  for both on the arithmetic alone, because the days are the deployment's own statement. What the vectors
+  say nothing about is whether the material the hold covers is complete at its source, and whether any
+  deadline a deployment owes anybody was met, which stays that deployment's own process obligation.
 - Which published families are one pair is a fact of the bytes and not of a reader's guess. The receipt
   fixtures under `data/receipts/` and the row `paired-with-the-published-receipt-family` of
   `manifest-v1.json` describe one deployment, so a published receipt and a published manifest can be

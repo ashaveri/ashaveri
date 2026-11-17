@@ -1,0 +1,458 @@
+{
+  "version": 1,
+  "description": "The incident preservation bundle beside the hold record it designates and the receipts that attest the material: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, and the floor arithmetic the layout door recomputes rather than believes. The designated hold is the record the hold family publishes, byte for byte out of that file, so the digest, the copied issue stamp and author and the copied window are one document's facts and a port handed both families finds them in agreement. Every row is labeled fixture and speaks of fixture material, and the preservation floor is a pointer for counsel rather than a conclusion about a provision: the accepted records state thirty days and ninety days and the reader answers the same way for both, because the days are the deployment's own statement and no period here weighs them. The layout rows carry the bytes the shipped writer made, or one edit of them at the position the fault names, and the verdict `parseIncidentBundle` answers for them. The verification cases carry the record beside the hold bytes it designates and the answer `verifyIncidentBundle` owes the pair, including the mutation pair that witnesses the split: a bound mutation refused and an asserted mutation read, and the two refusals that name which document the reader was handed rather than which field moved. The export ride publishes the hold and the bundle as two more inline items of the technical export the export family publishes for its honest anchored run, signed by the fixture receipt key, which the shipped reader closes over and reads back through both records' own doors; no member of the export contract moves for either record.",
+  "rule": {
+    "registry": "docs/receipt-spec.md section 4.11",
+    "reader": "parseIncidentBundle in @ashaveri/receipt",
+    "verifier": "verifyIncidentBundle in @ashaveri/receipt",
+    "writer": "incidentBundleBytes in @ashaveri/receipt",
+    "doors": "The layout door answers the record's own shape and arithmetic, and the floor is part of that: preserveUntil is recomputed from the incident stamp and the stated days, both inside this one document, and no byte outside it is read. The verifying door is handed the designated hold's bytes and compares the copied fields against them, field by field, naming both values. What neither door asks is whether the days are the right number: they are the deployment's own statement, weighed against no provision's period.",
+    "versions": [
+      1
+    ],
+    "members": [
+      "v",
+      "prov",
+      "at",
+      "incident",
+      "hold",
+      "window",
+      "floor",
+      "pointers",
+      "limits"
+    ],
+    "incidentMembers": [
+      "id",
+      "at",
+      "states"
+    ],
+    "holdMembers": [
+      "sha256",
+      "at",
+      "by"
+    ],
+    "windowMembers": [
+      "from",
+      "to"
+    ],
+    "floorMembers": [
+      "days",
+      "preserveUntil",
+      "pointer"
+    ],
+    "pointers": [
+      "gsa-552-239-7001-f-5"
+    ],
+    "pointerCitations": {
+      "gsa-552-239-7001-f-5": "GSA 552.239-7001 (f)(5) (Federal Acquisition Regulation; incident preservation, ninety days)"
+    },
+    "limits": "The preservation floor is a pointer for counsel, not a compliance claim. The seventy-two-hour notification is a process obligation of the deployment, which nothing in this record states or proves. The asserted fields are the deployment's own.",
+    "textMaxUnits": 400,
+    "boundFields": [
+      "hold.at",
+      "hold.by",
+      "window.from",
+      "window.to"
+    ],
+    "assertedFields": [
+      "incident.id",
+      "incident.at",
+      "incident.states",
+      "floor.days"
+    ],
+    "floor": {
+      "incidentAt": 1771996400,
+      "days": 30,
+      "preserveUntil": 1774588400,
+      "daysMax": 104249991374,
+      "note": "Unix seconds and whole days. The floor is the incident stamp plus the stated days in seconds, recomputed by the reader; daysMax is the widest count whose product with 86400 is still a whole number a reader carries exactly. Nothing here weighs a period: the rows state thirty, ninety and the ceiling itself, and the reader answers for each on the arithmetic alone."
+    },
+    "instants": {
+      "assembly": 1772000000,
+      "incidentAt": 1771996400,
+      "holdIssue": 1772000000,
+      "windowFrom": 1771913600,
+      "windowTo": 1772086400,
+      "receiptFixtureStamp": 1772000000,
+      "note": "Unix seconds. The assembly stamp is the instant every published receipt fixture is issued at, the incident is stamped one hour before it, and the window and hold issue stamp are read out of the designated hold rather than typed beside it. Nothing here is a deployment's date: these are fixture instants, stated so a port can hand its own reader the same numbers."
+    },
+    "hold": {
+      "row": "hold-v1.json#hold-fixture-v1",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "note": "The hold this record designates, byte for byte the row the hold family publishes, together with the two other published hold rows the verification cases hand over: the open record whose null window end is a bound field like any other, the released record that is whole but not this record's hold, and the refused document that makes the unreadable refusal a finding about the hold rather than about the bundle. Each case carries its own hold bytes, so a port replays a pair without reaching into another family."
+    },
+    "unsigned": "An incident preservation bundle carries no signature, as the hold record and the model inventory carry none. No row of this family is sealed by a key of its own, and no digest of a record is claimed by anything here: what a reader weighs is the layout, the designated hold's bytes and the arithmetic of the floor. The export container is what carries these bytes as evidence under its own signature, and the ride below is that statement measured rather than asserted.",
+    "exportRide": {
+      "exportBase64Url": "0oRYN6MBJwNvYXNoYXZlcmkvZXhwb3J0BFggNQE6bgALjV3KUcS9XB258oYCg2Bsdq7u6o7nK3K14V6gWQqzpWF2AWJhdBppnpMAZWNsYWltpGJieXR0aGUgZml4dHVyZSBkZXBsb3llcmRraW5kanByb3ZlbmFuY2VkbWFkZRppnpMAZnN0YXRlc3h2Rml4dHVyZSBob2xkIHJlY29yZCBhbmQgaW5jaWRlbnQgcHJlc2VydmF0aW9uIGJ1bmRsZSByaWRpbmcgdGhlIHB1Ymxpc2hlZCBleHBvcnQgY29udHJhY3QgYmVzaWRlIHRoZSBmaXh0dXJlIHJlY2VpcHRzLmphc3Nlc3NtZW50omFrZG5vbmVmc3RhdGVzeC9ObyBhc3Nlc3NtZW50IGlzIHN0YXRlZCBieSB0aGlzIGZpeHR1cmUgZXhwb3J0Lmpjb2xsZWN0aW9upWFraGFuY2hvcmVkZGhlYWRYIKHGepCujFag5GU2Q4qh4-9kAf4TtPyEmUJjAMiXZJq-ZHByb3ZnZml4dHVyZWVpdGVtc4WmYWRYIOqfJZ4Q8p8ypRwGaeHMdosT10vkWLDKLT_iS8-scQNIYXBYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYmlkY3ItMGNpYXQaaZ6TAGRvcmlnomFrZmlubGluZWVieXRlc01maXJzdCByZWNlaXB0ZHByb3ZnZml4dHVyZaZhZFggaxHrunjNVSaPY8bxv1z3dvJULTi6cbjCJ98SuhD60FRhcFggV6t0R01x-N68yS1SzcqKZldFYtpmFtkQLJPWXgZOgXtiaWRjci0xY2lhdBppnpMBZG9yaWeiYWtmaW5saW5lZWJ5dGVzTnNlY29uZCByZWNlaXB0ZHByb3ZnZml4dHVyZaZhZFggqF2awjIIwQ1Zdqno3UiYywn5RVLgK9oe8inhWyPLAORhcFggirjGeL0dj3cjec-Cj2fJiSl2MbX39kC6qYqCOOUY5e1iaWRjci0yY2lhdBppnpMCZG9yaWeiYWtmaW5saW5lZWJ5dGVzTXRoaXJkIHJlY2VpcHRkcHJvdmdmaXh0dXJlpmFkWCC281kUGhbCHr66IMlXLXJgdlsgWkLIfOJ0n8FbnPovMWFwWCDDRmXDRHQx8Ki6Fxrrpz6eQgND-XXZRG15pJGtain6d2JpZG9ob2xkLWZpeHR1cmUtdjFjaWF0GmmekwBkb3JpZ6Jha2ZpbmxpbmVlYnl0ZXNZAqh7CiAgInYiOiAxLAogICJwcm92IjogImZpeHR1cmUiLAogICJhdCI6IDE3NzIwMDAwMDAsCiAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIiwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImNyZWRlbnRpYWxzIjogWwogICAgImNyZWQtZml4dHVyZS1oZWxkIiwKICAgICJjcmVkLWZpeHR1cmUtZWxzZXdoZXJlIgogIF0sCiAgInJlYXNvbiI6ICJGaXh0dXJlIGhvbGQgb3ZlciB0aGUgbWF0ZXJpYWwgdGhlIHB1Ymxpc2hlZCByZWNlaXB0cyBhdHRlc3QsIGlzc3VlZCBzbyB0aGF0IHRoaXMgc3VpdGUgcmVhZHMgaXRzIG93biBieXRlcyBhZ2FpbnN0IGEgcnVsZSBpdCBzaGlwcy4iLAogICJyZWxlYXNlZCI6IG51bGwsCiAgImxpbWl0cyI6ICJUaGlzIHJlY29yZCBpcyB0aGUgZGVwbG95bWVudCdzIG93biBpbnN0cnVjdGlvbiB0byBwcmVzZXJ2ZSwgbm90IGEgbGVnYWwgZGV0ZXJtaW5hdGlvbi4gSXQgc3VzcGVuZHMgZXJhc3VyZSBhbmQgZXhwaXJ5IG9ubHkgaW4gcmVhZGVycyB0aGF0IGNvbnN1bHQgaXQsIGFuZCBjaGFuZ2VzIG5vIHBlcmlvZCB0aGUgZGVwbG95bWVudCBzdGF0ZWQuIE5vdGlmaWNhdGlvbiBkZWFkbGluZXMgcmVtYWluIHRoZSBkZXBsb3ltZW50J3Mgb3duIHByb2Nlc3Mgb2JsaWdhdGlvbnMuIgp9CmRwcm92Z2ZpeHR1cmWmYWRYIFWYhICpeaBUrEt98gfEfb6g8uKyLGoj9nVs76pYBxSLYXBYIE-xRy1Dy6McBW2vo7JLBxJlciZiMDo-l-8dbhoIVbBgYmlkeBppbmNpZGVudC1idW5kbGUtZml4dHVyZS12MWNpYXQaaZ6TAGRvcmlnomFrZmlubGluZWVieXRlc1kDxXsKICAidiI6IDEsCiAgInByb3YiOiAiZml4dHVyZSIsCiAgImF0IjogMTc3MjAwMDAwMCwKICAiaW5jaWRlbnQiOiB7CiAgICAiaWQiOiAiaW5jLWZpeHR1cmUtMDAxIiwKICAgICJhdCI6IDE3NzE5OTY0MDAsCiAgICAic3RhdGVzIjogIkZpeHR1cmUgc3RhdGVtZW50IG9mIHRoZSBpbmNpZGVudCB0aGUgcHVibGlzaGVkIGhvbGQgcmVjb3JkIHdhcyBpc3N1ZWQgb3Zlcjogb25lIGNvbXBsZXRpb24gd2luZG93IHdob3NlIG1hdGVyaWFsIGlzIHVuZGVyIHRoYXQgaW5zdHJ1Y3Rpb24sIHN0YXRlZCBieSB0aGUgZml4dHVyZSBkZXBsb3llciBmb3IgY291bnNlbCB0byB3ZWlnaC4iCiAgfSwKICAiaG9sZCI6IHsKICAgICJzaGEyNTYiOiAiYjZmMzU5MTQxYTE2YzIxZWJlYmEyMGM5NTcyZDcyNjA3NjViMjA1YTQyYzg3Y2UyNzQ5ZmMxNWI5Y2ZhMmYzMSIsCiAgICAiYXQiOiAxNzcyMDAwMDAwLAogICAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIgogIH0sCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJmbG9vciI6IHsKICAgICJkYXlzIjogMzAsCiAgICAicHJlc2VydmVVbnRpbCI6IDE3NzQ1ODg0MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0KZHByb3ZnZml4dHVyZWZhbmNob3JYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEAkDyd50BWxwRiMoQFVbcXCrOAGajJbLelETjV99mgaRMR9PGJHjJZgZOj1youeVwEh5uHRWnIOdCHuxW3_w9kD",
+      "publicKeyBase64Url": "E6uO0ed3_zm-Ix32lLu8j5Z9W3eet8q1WHYstU-WCwU",
+      "receiptItemIds": [
+        "r-0",
+        "r-1",
+        "r-2"
+      ],
+      "holdItemId": "hold-fixture-v1",
+      "bundleItemId": "incident-bundle-fixture-v1",
+      "walkedItemIds": [
+        "r-0",
+        "r-1",
+        "r-2",
+        "hold-fixture-v1",
+        "incident-bundle-fixture-v1"
+      ],
+      "floor": 1774588400,
+      "note": "The hold record and the bundle as two inline items of the anchored export the export family publishes for its honest run, signed by the fixture receipt key. verifyExport closes the walk over all five records; each item's original bytes are read back through the shipped door of the record it carries, and the bundle is verified against the hold bytes taken out of the export itself, so the pair the ride attests is the pair this family publishes. The floor stated beside it is the preserveUntil of the record the ride carries, recomputed from the incident stamp and the days the same bytes state. No member of the export contract moved for either record."
+    },
+    "encodings": "byte strings unpadded base64url, digests lowercase hex, instants whole numbers of unix seconds"
+  },
+  "vectors": [
+    {
+      "name": "bundle-fixture-v1",
+      "note": "A whole bundle beside the hold record the hold family publishes: the incident the deployment states, the designated hold's own digest with its issue stamp and author copied from it, the window copied from it, a floor of thirty days whose stamp recomputes from the incident stamp, the one pointer the registry enumerates, and the format's limits sentence verbatim. The provenance is fixture, so the record labels itself as describing fixture material. These are the bytes every refusal row below edits one position of.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965
+    },
+    {
+      "name": "bundle-floor-days-not-weighed-v1",
+      "note": "The same record stating ninety days, the period the cited instrument names, and read exactly as the thirty-day record above is: the days are the deployment's own statement, and the reader judges that number against no provision's period. The pair is the witness that a floor is a pointer for counsel rather than a compliance claim, because a reader that weighed it would accept one of these two and refuse the other.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiA5MCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3OTc3MjQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965
+    },
+    {
+      "name": "bundle-narrative-at-width-v1",
+      "note": "A record whose incident narrative is exactly 400 units wide, the ceiling this layout states for every authored text member. The row is the measured half of the bound: the width is the number the rule block publishes, and these accepted bytes beside the refusal one unit wider are what say so.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiQSBmaXh0dXJlIG5hcnJhdGl2ZSBwYWRkZWQgdG8gdGhlIHdpZGVzdCBhdXRob3JlZCB0ZXh0IHRoaXMgbGF5b3V0IHJlYWRzOiBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcCIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 1172
+    },
+    {
+      "name": "bundle-floor-days-at-ceiling-v1",
+      "note": "A record stating the widest floor this layout can state, 104249991374 days from an incident stamped at the epoch, whose preserveUntil is that product and is still a whole number of unix seconds a reader can hold exactly. The bound on a day count is a bound on what a stamp can say, not on how long a period may be, and this row beside the refusal one day past it is what measures it.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAxMDQyNDk5OTEzNzQsCiAgICAicHJlc2VydmVVbnRpbCI6IDkwMDcxOTkyNTQ3MTM2MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 963
+    },
+    {
+      "name": "bundle-floor-preserve-until-moved-v1",
+      "note": "The honest record with its floor's stamp moved one second, the days and the incident stamp left where they were. Both figures are inside this one record, so a preserveUntil that is not the incident stamp plus the stated days is the document contradicting itself, and the layout door answers it before any hold is handed over: a floor a reviewer reads off the page would otherwise point at an instant no arithmetic in the record states.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMSwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965,
+      "fault": {
+        "at": "floor.preserveUntil",
+        "states": "a floor stamp that is not the incident stamp plus the stated days"
+      }
+    },
+    {
+      "name": "bundle-floor-days-zero-v1",
+      "note": "A record stating a floor of no days. The days are the deployment's own undertaking to keep material past the incident, and zero of them is the record stating no undertaking while carrying the member that states it; an open-ended floor is already what the window's null end says about reach, and this position says how long, which has to be a number of days.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAwLAogICAgInByZXNlcnZlVW50aWwiOiAxNzc0NTg4NDAwLAogICAgInBvaW50ZXIiOiAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgfSwKICAicG9pbnRlcnMiOiBbCiAgICAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgXSwKICAibGltaXRzIjogIlRoZSBwcmVzZXJ2YXRpb24gZmxvb3IgaXMgYSBwb2ludGVyIGZvciBjb3Vuc2VsLCBub3QgYSBjb21wbGlhbmNlIGNsYWltLiBUaGUgc2V2ZW50eS10d28taG91ciBub3RpZmljYXRpb24gaXMgYSBwcm9jZXNzIG9ibGlnYXRpb24gb2YgdGhlIGRlcGxveW1lbnQsIHdoaWNoIG5vdGhpbmcgaW4gdGhpcyByZWNvcmQgc3RhdGVzIG9yIHByb3Zlcy4gVGhlIGFzc2VydGVkIGZpZWxkcyBhcmUgdGhlIGRlcGxveW1lbnQncyBvd24uIgp9Cg",
+      "recordByteLength": 964,
+      "fault": {
+        "at": "floor.days",
+        "states": "a day count that is not a positive whole number"
+      }
+    },
+    {
+      "name": "bundle-floor-days-past-a-statable-floor-v1",
+      "note": "The widest statable floor with one day added to it, 104249991375 days and nothing else moved. Past that count the product of the days and the seconds in a day is no longer a whole number any reader carries exactly, so the floor would be an equality this layout cannot state rather than a disagreement it can refuse; the refusal names the count it met, which is what keeps its own detail statable.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAxMDQyNDk5OTEzNzUsCiAgICAicHJlc2VydmVVbnRpbCI6IDkwMDcxOTkyNTQ3MTM2MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 963,
+      "fault": {
+        "at": "floor.days",
+        "states": "a day count whose floor no stamp can state exactly"
+      }
+    },
+    {
+      "name": "bundle-floor-sum-past-a-statable-stamp-v1",
+      "note": "An incident stamped near the top of the range a stamp holds, with the widest statable floor added to it. The day count is inside the ceiling above and the sum is not, so this is the other half of the same rule: what the layout bounds is the arithmetic a reader has to state, and the refusal names the two terms that do not land inside it rather than printing a recomputed floor that could not be printed.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiA4MDAwMDAwMDAwMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogODAwMDAwMDAwMDAwMDAwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAxMDQyNDk5OTEzNzQsCiAgICAicHJlc2VydmVVbnRpbCI6IDgwMDAwMDAwMDAwODY0MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 993,
+      "fault": {
+        "at": "floor",
+        "states": "an incident stamp and a floor whose sum leaves the range a unix second holds"
+      }
+    },
+    {
+      "name": "bundle-unknown-member-v1",
+      "note": "A well-formed record carrying one member the top level does not define. The layout closes every map it declares, so an unknown member is a malformed document rather than a member a reader agreed to forget, and a bundle that silently carried a notification member would be read as a record that states one.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIsCiAgImZ1dHVyZSI6ICJhIG1lbWJlciBubyB2ZXJzaW9uIG5hbWVzIgp9Cg",
+      "recordByteLength": 1006,
+      "fault": {
+        "at": "record",
+        "states": "a top-level member the layout does not define"
+      }
+    },
+    {
+      "name": "bundle-unknown-incident-member-v1",
+      "note": "A record whose incident block carries a member the incident does not define, beside the three it does. The closure rule reaches the maps inside the record and not only the record itself: the incident is what this record asserts, and an unlisted position there is a second answer to a question the layout never asks.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIsCiAgICAic2V2ZXJpdHkiOiAiYSBjbGFpbSBubyBtZW1iZXIgb2YgdGhpcyBsYXlvdXQgaG9sZHMiCiAgfSwKICAiaG9sZCI6IHsKICAgICJzaGEyNTYiOiAiYjZmMzU5MTQxYTE2YzIxZWJlYmEyMGM5NTcyZDcyNjA3NjViMjA1YTQyYzg3Y2UyNzQ5ZmMxNWI5Y2ZhMmYzMSIsCiAgICAiYXQiOiAxNzcyMDAwMDAwLAogICAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIgogIH0sCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJmbG9vciI6IHsKICAgICJkYXlzIjogMzAsCiAgICAicHJlc2VydmVVbnRpbCI6IDE3NzQ1ODg0MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 1023,
+      "fault": {
+        "at": "incident",
+        "states": "an incident member the layout does not define"
+      }
+    },
+    {
+      "name": "bundle-unknown-floor-member-v1",
+      "note": "A record whose floor block carries a member the floor does not define. The floor is the one figure a reviewer of a bundle reads as an undertaking, so an extension stated beside the days and their recomputed stamp is exactly the position a reader must not have to weigh: either it is in the layout and checked, or the document is malformed.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IiwKICAgICJleHRlbmRlZEJ5IjogImEgcGVyaW9kIG5vIG1lbWJlciBvZiB0aGlzIGxheW91dCBob2xkcyIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 1026,
+      "fault": {
+        "at": "floor",
+        "states": "a floor member the layout does not define"
+      }
+    },
+    {
+      "name": "bundle-limits-reworded-v1",
+      "note": "A record wording its own limits. The limits are the format's sentence, verbatim, and a record widening or narrowing them is a document of a shape the layout does not define: the one thing a reader of a bundle must not have to weigh is whether the record's own account of its limits is true.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGlzIGJ1bmRsZSBoYXMgbm8gbGltaXRzLiIKfQo",
+      "recordByteLength": 749,
+      "fault": {
+        "at": "limits",
+        "states": "a limits sentence the format does not own"
+      }
+    },
+    {
+      "name": "bundle-version-two-v1",
+      "note": "A record declaring a version nothing has published. The version is asked before any member is read, because which member list applies is the one question a wrong version cannot be talked out of.",
+      "expected": "INCIDENT_BUNDLE_UNSUPPORTED_VERSION",
+      "recordBase64Url": "ewogICJ2IjogMiwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965,
+      "fault": {
+        "at": "v",
+        "states": "a version no layout this package reads defines"
+      }
+    },
+    {
+      "name": "bundle-version-not-an-integer-v1",
+      "note": "A record spelling its version as text. The number is asked of a closed list, and a string that looks like one of its members is not that member: the answer is the malformed-document code rather than the unsupported-version one, because the reader never reaches the question of which layout applies.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogIjEiLAogICJwcm92IjogImZpeHR1cmUiLAogICJhdCI6IDE3NzIwMDAwMDAsCiAgImluY2lkZW50IjogewogICAgImlkIjogImluYy1maXh0dXJlLTAwMSIsCiAgICAiYXQiOiAxNzcxOTk2NDAwLAogICAgInN0YXRlcyI6ICJGaXh0dXJlIHN0YXRlbWVudCBvZiB0aGUgaW5jaWRlbnQgdGhlIHB1Ymxpc2hlZCBob2xkIHJlY29yZCB3YXMgaXNzdWVkIG92ZXI6IG9uZSBjb21wbGV0aW9uIHdpbmRvdyB3aG9zZSBtYXRlcmlhbCBpcyB1bmRlciB0aGF0IGluc3RydWN0aW9uLCBzdGF0ZWQgYnkgdGhlIGZpeHR1cmUgZGVwbG95ZXIgZm9yIGNvdW5zZWwgdG8gd2VpZ2guIgogIH0sCiAgImhvbGQiOiB7CiAgICAic2hhMjU2IjogImI2ZjM1OTE0MWExNmMyMWViZWJhMjBjOTU3MmQ3MjYwNzY1YjIwNWE0MmM4N2NlMjc0OWZjMTViOWNmYTJmMzEiLAogICAgImF0IjogMTc3MjAwMDAwMCwKICAgICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIKICB9LAogICJ3aW5kb3ciOiB7CiAgICAiZnJvbSI6IDE3NzE5MTM2MDAsCiAgICAidG8iOiAxNzcyMDg2NDAwCiAgfSwKICAiZmxvb3IiOiB7CiAgICAiZGF5cyI6IDMwLAogICAgInByZXNlcnZlVW50aWwiOiAxNzc0NTg4NDAwLAogICAgInBvaW50ZXIiOiAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgfSwKICAicG9pbnRlcnMiOiBbCiAgICAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgXSwKICAibGltaXRzIjogIlRoZSBwcmVzZXJ2YXRpb24gZmxvb3IgaXMgYSBwb2ludGVyIGZvciBjb3Vuc2VsLCBub3QgYSBjb21wbGlhbmNlIGNsYWltLiBUaGUgc2V2ZW50eS10d28taG91ciBub3RpZmljYXRpb24gaXMgYSBwcm9jZXNzIG9ibGlnYXRpb24gb2YgdGhlIGRlcGxveW1lbnQsIHdoaWNoIG5vdGhpbmcgaW4gdGhpcyByZWNvcmQgc3RhdGVzIG9yIHByb3Zlcy4gVGhlIGFzc2VydGVkIGZpZWxkcyBhcmUgdGhlIGRlcGxveW1lbnQncyBvd24uIgp9Cg",
+      "recordByteLength": 967,
+      "fault": {
+        "at": "v",
+        "states": "a version spelled as text where the layout holds an integer"
+      }
+    },
+    {
+      "name": "bundle-member-named-twice-v1",
+      "note": "The writer's bytes with the version member written a second time, the two spellings identical. A JSON parse would keep the last and say nothing while the bytes carry both, so the strict reading refuses the document while the characters are still distinguishable.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAidiI6IDEsCiAgInByb3YiOiAiZml4dHVyZSIsCiAgImF0IjogMTc3MjAwMDAwMCwKICAiaW5jaWRlbnQiOiB7CiAgICAiaWQiOiAiaW5jLWZpeHR1cmUtMDAxIiwKICAgICJhdCI6IDE3NzE5OTY0MDAsCiAgICAic3RhdGVzIjogIkZpeHR1cmUgc3RhdGVtZW50IG9mIHRoZSBpbmNpZGVudCB0aGUgcHVibGlzaGVkIGhvbGQgcmVjb3JkIHdhcyBpc3N1ZWQgb3Zlcjogb25lIGNvbXBsZXRpb24gd2luZG93IHdob3NlIG1hdGVyaWFsIGlzIHVuZGVyIHRoYXQgaW5zdHJ1Y3Rpb24sIHN0YXRlZCBieSB0aGUgZml4dHVyZSBkZXBsb3llciBmb3IgY291bnNlbCB0byB3ZWlnaC4iCiAgfSwKICAiaG9sZCI6IHsKICAgICJzaGEyNTYiOiAiYjZmMzU5MTQxYTE2YzIxZWJlYmEyMGM5NTcyZDcyNjA3NjViMjA1YTQyYzg3Y2UyNzQ5ZmMxNWI5Y2ZhMmYzMSIsCiAgICAiYXQiOiAxNzcyMDAwMDAwLAogICAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIgogIH0sCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJmbG9vciI6IHsKICAgICJkYXlzIjogMzAsCiAgICAicHJlc2VydmVVbnRpbCI6IDE3NzQ1ODg0MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 975,
+      "fault": {
+        "at": "record",
+        "states": "the member name v, stated twice in the file's own text"
+      }
+    },
+    {
+      "name": "bundle-float-stamp-v1",
+      "note": "The assembly stamp written as a fraction that equals the integer it imitates. By the time a field check could ask which spelling the writer chose the two are one JavaScript number, so the reading refuses the spelling rather than the value, and a stamp two documents disagree about in text alone stays a disagreement a reader sees.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLjAsCiAgImluY2lkZW50IjogewogICAgImlkIjogImluYy1maXh0dXJlLTAwMSIsCiAgICAiYXQiOiAxNzcxOTk2NDAwLAogICAgInN0YXRlcyI6ICJGaXh0dXJlIHN0YXRlbWVudCBvZiB0aGUgaW5jaWRlbnQgdGhlIHB1Ymxpc2hlZCBob2xkIHJlY29yZCB3YXMgaXNzdWVkIG92ZXI6IG9uZSBjb21wbGV0aW9uIHdpbmRvdyB3aG9zZSBtYXRlcmlhbCBpcyB1bmRlciB0aGF0IGluc3RydWN0aW9uLCBzdGF0ZWQgYnkgdGhlIGZpeHR1cmUgZGVwbG95ZXIgZm9yIGNvdW5zZWwgdG8gd2VpZ2guIgogIH0sCiAgImhvbGQiOiB7CiAgICAic2hhMjU2IjogImI2ZjM1OTE0MWExNmMyMWViZWJhMjBjOTU3MmQ3MjYwNzY1YjIwNWE0MmM4N2NlMjc0OWZjMTViOWNmYTJmMzEiLAogICAgImF0IjogMTc3MjAwMDAwMCwKICAgICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIKICB9LAogICJ3aW5kb3ciOiB7CiAgICAiZnJvbSI6IDE3NzE5MTM2MDAsCiAgICAidG8iOiAxNzcyMDg2NDAwCiAgfSwKICAiZmxvb3IiOiB7CiAgICAiZGF5cyI6IDMwLAogICAgInByZXNlcnZlVW50aWwiOiAxNzc0NTg4NDAwLAogICAgInBvaW50ZXIiOiAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgfSwKICAicG9pbnRlcnMiOiBbCiAgICAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgXSwKICAibGltaXRzIjogIlRoZSBwcmVzZXJ2YXRpb24gZmxvb3IgaXMgYSBwb2ludGVyIGZvciBjb3Vuc2VsLCBub3QgYSBjb21wbGlhbmNlIGNsYWltLiBUaGUgc2V2ZW50eS10d28taG91ciBub3RpZmljYXRpb24gaXMgYSBwcm9jZXNzIG9ibGlnYXRpb24gb2YgdGhlIGRlcGxveW1lbnQsIHdoaWNoIG5vdGhpbmcgaW4gdGhpcyByZWNvcmQgc3RhdGVzIG9yIHByb3Zlcy4gVGhlIGFzc2VydGVkIGZpZWxkcyBhcmUgdGhlIGRlcGxveW1lbnQncyBvd24uIgp9Cg",
+      "recordByteLength": 967,
+      "fault": {
+        "at": "at",
+        "states": "a number written as a fraction where the layout holds an integer"
+      }
+    },
+    {
+      "name": "bundle-incident-after-assembly-v1",
+      "note": "A record whose incident is stamped one second after the bundle that carries it. Both instants are inside one record, so an incident postdating its own statement is another document's incident, the same rule the export states beside a claim that outlives the assembly it is made in.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MjAwMDAwMSwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965,
+      "fault": {
+        "at": "incident.at",
+        "states": "an incident stamp after the bundle that carries it"
+      }
+    },
+    {
+      "name": "bundle-window-closes-before-opens-v1",
+      "note": "The honest record with its copied window end moved before its own start. The hold this record designates states both ends in order, so this is the bundle contradicting itself before it ever contradicts the hold, and the layout door answers it: which of the two the reader was handed stops being a question.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MTkxMzU5OQogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965,
+      "fault": {
+        "at": "window.to",
+        "states": "a window end before the window start beside it"
+      }
+    },
+    {
+      "name": "bundle-negative-stamp-v1",
+      "note": "A record opening its window at one second before the unix epoch. Every stamp is a whole number of unix seconds no smaller than zero, and a negative reach is refused rather than read as an open start, because the layout already states an open start as a null at the other end.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAtMSwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJmbG9vciI6IHsKICAgICJkYXlzIjogMzAsCiAgICAicHJlc2VydmVVbnRpbCI6IDE3NzQ1ODg0MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 957,
+      "fault": {
+        "at": "window.from",
+        "states": "a stamp below zero where the layout holds unix seconds"
+      }
+    },
+    {
+      "name": "bundle-narrative-one-unit-wide-v1",
+      "note": "The record at the width ceiling with one character added to its narrative, 401 units at one position and nothing else moved. A text bound is worth nothing unless it refuses at the step past it, and a reader that truncated rather than refused would report a narrative the record never stated.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiQSBmaXh0dXJlIG5hcnJhdGl2ZSBwYWRkZWQgdG8gdGhlIHdpZGVzdCBhdXRob3JlZCB0ZXh0IHRoaXMgbGF5b3V0IHJlYWRzOiBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHAiCiAgfSwKICAiaG9sZCI6IHsKICAgICJzaGEyNTYiOiAiYjZmMzU5MTQxYTE2YzIxZWJlYmEyMGM5NTcyZDcyNjA3NjViMjA1YTQyYzg3Y2UyNzQ5ZmMxNWI5Y2ZhMmYzMSIsCiAgICAiYXQiOiAxNzcyMDAwMDAwLAogICAgImJ5IjogInRoZSBmaXh0dXJlIGRlcGxveWVyIgogIH0sCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJmbG9vciI6IHsKICAgICJkYXlzIjogMzAsCiAgICAicHJlc2VydmVVbnRpbCI6IDE3NzQ1ODg0MDAsCiAgICAicG9pbnRlciI6ICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICB9LAogICJwb2ludGVycyI6IFsKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 1173,
+      "fault": {
+        "at": "incident.states",
+        "states": "authored text 401 units wide against the 400 this layout holds"
+      }
+    },
+    {
+      "name": "bundle-padded-narrative-v1",
+      "note": "A record whose narrative carries a space at either end. A printed row does not pad itself, and the text that survives a trim is not the text the deployment wrote: the rule is one check on the authored values rather than a repair, because a reader that trimmed would answer for a narrative the record never stated.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiIEZpeHR1cmUgc3RhdGVtZW50IG9mIHRoZSBpbmNpZGVudCB0aGUgcHVibGlzaGVkIGhvbGQgcmVjb3JkIHdhcyBpc3N1ZWQgb3Zlcjogb25lIGNvbXBsZXRpb24gd2luZG93IHdob3NlIG1hdGVyaWFsIGlzIHVuZGVyIHRoYXQgaW5zdHJ1Y3Rpb24sIHN0YXRlZCBieSB0aGUgZml4dHVyZSBkZXBsb3llciBmb3IgY291bnNlbCB0byB3ZWlnaC4gIgogIH0sCiAgImhvbGQiOiB7CiAgICAic2hhMjU2IjogImI2ZjM1OTE0MWExNmMyMWViZWJhMjBjOTU3MmQ3MjYwNzY1YjIwNWE0MmM4N2NlMjc0OWZjMTViOWNmYTJmMzEiLAogICAgImF0IjogMTc3MjAwMDAwMCwKICAgICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIKICB9LAogICJ3aW5kb3ciOiB7CiAgICAiZnJvbSI6IDE3NzE5MTM2MDAsCiAgICAidG8iOiAxNzcyMDg2NDAwCiAgfSwKICAiZmxvb3IiOiB7CiAgICAiZGF5cyI6IDMwLAogICAgInByZXNlcnZlVW50aWwiOiAxNzc0NTg4NDAwLAogICAgInBvaW50ZXIiOiAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgfSwKICAicG9pbnRlcnMiOiBbCiAgICAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgXSwKICAibGltaXRzIjogIlRoZSBwcmVzZXJ2YXRpb24gZmxvb3IgaXMgYSBwb2ludGVyIGZvciBjb3Vuc2VsLCBub3QgYSBjb21wbGlhbmNlIGNsYWltLiBUaGUgc2V2ZW50eS10d28taG91ciBub3RpZmljYXRpb24gaXMgYSBwcm9jZXNzIG9ibGlnYXRpb24gb2YgdGhlIGRlcGxveW1lbnQsIHdoaWNoIG5vdGhpbmcgaW4gdGhpcyByZWNvcmQgc3RhdGVzIG9yIHByb3Zlcy4gVGhlIGFzc2VydGVkIGZpZWxkcyBhcmUgdGhlIGRlcGxveW1lbnQncyBvd24uIgp9Cg",
+      "recordByteLength": 967,
+      "fault": {
+        "at": "incident.states",
+        "states": "authored text padded on either side"
+      }
+    },
+    {
+      "name": "bundle-forging-character-in-incident-id-v1",
+      "note": "A record whose incident identity carries one character of the printed-line class, the code point that reverses the order the rest of the row renders in. Every authored text is asked of that class because a bundle is printed beside the hold and the receipts it names: an identity that reorders a row makes the line a reviewer reads a different document than the bytes.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmPigK5pZGVudCIsCiAgICAiYXQiOiAxNzcxOTk2NDAwLAogICAgInN0YXRlcyI6ICJGaXh0dXJlIHN0YXRlbWVudCBvZiB0aGUgaW5jaWRlbnQgdGhlIHB1Ymxpc2hlZCBob2xkIHJlY29yZCB3YXMgaXNzdWVkIG92ZXI6IG9uZSBjb21wbGV0aW9uIHdpbmRvdyB3aG9zZSBtYXRlcmlhbCBpcyB1bmRlciB0aGF0IGluc3RydWN0aW9uLCBzdGF0ZWQgYnkgdGhlIGZpeHR1cmUgZGVwbG95ZXIgZm9yIGNvdW5zZWwgdG8gd2VpZ2guIgogIH0sCiAgImhvbGQiOiB7CiAgICAic2hhMjU2IjogImI2ZjM1OTE0MWExNmMyMWViZWJhMjBjOTU3MmQ3MjYwNzY1YjIwNWE0MmM4N2NlMjc0OWZjMTViOWNmYTJmMzEiLAogICAgImF0IjogMTc3MjAwMDAwMCwKICAgICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIKICB9LAogICJ3aW5kb3ciOiB7CiAgICAiZnJvbSI6IDE3NzE5MTM2MDAsCiAgICAidG8iOiAxNzcyMDg2NDAwCiAgfSwKICAiZmxvb3IiOiB7CiAgICAiZGF5cyI6IDMwLAogICAgInByZXNlcnZlVW50aWwiOiAxNzc0NTg4NDAwLAogICAgInBvaW50ZXIiOiAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgfSwKICAicG9pbnRlcnMiOiBbCiAgICAiZ3NhLTU1Mi0yMzktNzAwMS1mLTUiCiAgXSwKICAibGltaXRzIjogIlRoZSBwcmVzZXJ2YXRpb24gZmxvb3IgaXMgYSBwb2ludGVyIGZvciBjb3Vuc2VsLCBub3QgYSBjb21wbGlhbmNlIGNsYWltLiBUaGUgc2V2ZW50eS10d28taG91ciBub3RpZmljYXRpb24gaXMgYSBwcm9jZXNzIG9ibGlnYXRpb24gb2YgdGhlIGRlcGxveW1lbnQsIHdoaWNoIG5vdGhpbmcgaW4gdGhpcyByZWNvcmQgc3RhdGVzIG9yIHByb3Zlcy4gVGhlIGFzc2VydGVkIGZpZWxkcyBhcmUgdGhlIGRlcGxveW1lbnQncyBvd24uIgp9Cg",
+      "recordByteLength": 961,
+      "fault": {
+        "at": "incident.id",
+        "states": "a character that forges the printed line it is printed on"
+      }
+    },
+    {
+      "name": "bundle-unknown-pointer-v1",
+      "note": "A well-formed record whose pointer list names a label one paragraph short of the registry entry: a near miss of the provision the registry holds rather than a label no instrument resembles. The document is whole and it is the provision it names that this reader has no pointer for, which is the refusal INCIDENT_BUNDLE_UNKNOWN_POINTER exists for, apart from a malformed document.",
+      "expected": "INCIDENT_BUNDLE_UNKNOWN_POINTER",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi02IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965,
+      "fault": {
+        "at": "pointers[0]",
+        "states": "a label the pointer registry does not hold"
+      }
+    },
+    {
+      "name": "bundle-floor-pointer-unknown-v1",
+      "note": "The same label moved at the position the floor itself names, where the array of counsel pointers agrees with the registry. Which position a pointer is refused at is a fact about the record: the floor's pointer is the provision its own stamp is weighed against, and a registry answer to a list cannot settle it.",
+      "expected": "INCIDENT_BUNDLE_UNKNOWN_POINTER",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi02IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 965,
+      "fault": {
+        "at": "floor.pointer",
+        "states": "a label the pointer registry does not hold"
+      }
+    },
+    {
+      "name": "bundle-pointer-not-text-v1",
+      "note": "A record whose pointers list carries a number where a label sits. A pointer is a citation counsel reads off the page, and a value that is not text names no instrument at all, so the answer is the malformed-document code rather than the unknown-pointer one: the reader never reaches the question of which provision is named.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgNzAwMQogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 947,
+      "fault": {
+        "at": "pointers[0]",
+        "states": "a pointer that is not a text label"
+      }
+    },
+    {
+      "name": "bundle-empty-pointers-v1",
+      "note": "A record whose pointer list is empty while its floor states a provision it is weighed against. An empty list would leave the floor's own pointer the only citation in the document, which is the same vacuity the pack and the model inventory refuse beside an empty list of their own: a record whose figures are vacuous reads as evidence while attesting nothing.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogW10sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "recordByteLength": 935,
+      "fault": {
+        "at": "pointers",
+        "states": "the non-empty list the layout requires, emptied"
+      }
+    },
+    {
+      "name": "bundle-duplicate-pointer-v1",
+      "note": "A record naming the one registered label twice. The list is a set of provisions a floor is weighed against, so a duplicate says nothing new while making a refusal ambiguous about which entry it answers, and the unique rule is what keeps the list a statement rather than a transcript.",
+      "expected": "INCIDENT_BUNDLE_BAD_DOCUMENT",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IiwKICAgICJnc2EtNTUyLTIzOS03MDAxLWYtNSIKICBdLAogICJsaW1pdHMiOiAiVGhlIHByZXNlcnZhdGlvbiBmbG9vciBpcyBhIHBvaW50ZXIgZm9yIGNvdW5zZWwsIG5vdCBhIGNvbXBsaWFuY2UgY2xhaW0uIFRoZSBzZXZlbnR5LXR3by1ob3VyIG5vdGlmaWNhdGlvbiBpcyBhIHByb2Nlc3Mgb2JsaWdhdGlvbiBvZiB0aGUgZGVwbG95bWVudCwgd2hpY2ggbm90aGluZyBpbiB0aGlzIHJlY29yZCBzdGF0ZXMgb3IgcHJvdmVzLiBUaGUgYXNzZXJ0ZWQgZmllbGRzIGFyZSB0aGUgZGVwbG95bWVudCdzIG93bi4iCn0K",
+      "recordByteLength": 993,
+      "fault": {
+        "at": "pointers[1]",
+        "states": "the pointer pointers[0] already names"
+      }
+    }
+  ],
+  "verifyCases": [
+    {
+      "name": "verified-honest-hold",
+      "note": "The honest bundle beside the exact bytes of the hold it designates, the record the hold family publishes. The digest matches, the hold reads, and every copied field agrees, which is the pair this family is built on and the row every case below moves one side of.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "holdRow": "hold-fixture-v1",
+      "holdBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+    },
+    {
+      "name": "verified-open-window-hold",
+      "note": "A bundle designating the hold family's open record: the one that leaves the credentials member off and states no window end. A null end is a bound field like any other, copied and compared, and this row is what says the verifying door reads that null rather than replacing it with a number or refusing it as missing.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICIzZjBmMTg5MmNlMjA0MmQ5MmE2NTA1OTFkOWZlMDMwYWIyZWVmYTJiZTQ1NjkzNzViNDFmYzNlMTM3MDZmNWM1IiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogbnVsbAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "holdRow": "hold-covers-every-credential-v1",
+      "holdBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IG51bGwKICB9LAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+    },
+    {
+      "name": "bound-mutated-hold-at-refused",
+      "note": "The honest bundle with its copied hold issue stamp moved one second, beside the untouched hold bytes. The stamp is copied from that record and checked against it, so a bundle stating another instant is contradicting the hold it designates, and the refusal names both values and the position they disagree at.",
+      "expected": "INCIDENT_BUNDLE_BOUND_DISAGREES",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDEsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "holdRow": "hold-fixture-v1",
+      "holdBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "disagree": {
+        "at": "hold.at",
+        "states": "1772000001",
+        "binds": "1772000000"
+      }
+    },
+    {
+      "name": "bound-mutated-window-to-refused",
+      "note": "The honest bundle with its copied window end moved one second past the hold's own, the start left agreeing. One of four bound fields disagreeing is enough to refuse the pair: the window this record states is a claim about which records the designated hold covers, and a reader that weighed only the first field would accept a bundle whose reach claim is false.",
+      "expected": "INCIDENT_BUNDLE_BOUND_DISAGREES",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMQogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "holdRow": "hold-fixture-v1",
+      "holdBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo",
+      "disagree": {
+        "at": "window.to",
+        "states": "1772086401",
+        "binds": "1772086400"
+      }
+    },
+    {
+      "name": "asserted-mutation-read",
+      "note": "The honest bundle with one asserted field moved: the narrative is another statement the deployment could make about the same incident. Nothing in the designated hold compares against it, so the verifying door reads it and reports the record whole, while the bound fields still agree. This row and the two above are the split's witness: a bound mutation is refused and an asserted mutation is read.",
+      "expected": "verify-ok",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiQSBuYXJyYXRpdmUgdGhlIGZpeHR1cmUgZGVwbG95ZXIgc3RhdGVkIGFmdGVyIGFzc2VtYmx5LiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "holdRow": "hold-fixture-v1",
+      "holdBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+    },
+    {
+      "name": "hold-mismatch-refused",
+      "note": "The honest bundle beside the bytes of a different hold, the released record the hold family publishes: whole, readable, and not the document this record designates. The digest refuses before a copied field is read, because comparing against bytes the record never named would be comparing it against a document it never named.",
+      "expected": "INCIDENT_BUNDLE_HOLD_MISMATCH",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICJiNmYzNTkxNDFhMTZjMjFlYmViYTIwYzk1NzJkNzI2MDc2NWIyMDVhNDJjODdjZTI3NDlmYzE1YjljZmEyZjMxIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "holdRow": "hold-released-v1",
+      "holdBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiAxNzcyMDAwMTAwLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIKfQo"
+    },
+    {
+      "name": "hold-unreadable-refused",
+      "note": "A bundle designating the hold family's own refused bytes and handed exactly those: the designation is right, the hold cannot be read, and the answer is neither a malformed bundle nor a disagreement about a field. There is nothing on the other side to compare the copied claims to, so the hold's own refusal rides in the detail and an operator sees which position the hold failed at. A record designating the honest hold beside these bytes would be refused for the designation first, which is the row above.",
+      "expected": "INCIDENT_BUNDLE_HOLD_UNREADABLE",
+      "recordBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJpbmNpZGVudCI6IHsKICAgICJpZCI6ICJpbmMtZml4dHVyZS0wMDEiLAogICAgImF0IjogMTc3MTk5NjQwMCwKICAgICJzdGF0ZXMiOiAiRml4dHVyZSBzdGF0ZW1lbnQgb2YgdGhlIGluY2lkZW50IHRoZSBwdWJsaXNoZWQgaG9sZCByZWNvcmQgd2FzIGlzc3VlZCBvdmVyOiBvbmUgY29tcGxldGlvbiB3aW5kb3cgd2hvc2UgbWF0ZXJpYWwgaXMgdW5kZXIgdGhhdCBpbnN0cnVjdGlvbiwgc3RhdGVkIGJ5IHRoZSBmaXh0dXJlIGRlcGxveWVyIGZvciBjb3Vuc2VsIHRvIHdlaWdoLiIKICB9LAogICJob2xkIjogewogICAgInNoYTI1NiI6ICI5ZTY1YWJmMjM1YTdmYWRlY2IwNDVlODhkZmQxNzU1MTJkYTM2ZGI2ZTkwZjMxN2ZkZWE0YWFlZmZmYTExY2RkIiwKICAgICJhdCI6IDE3NzIwMDAwMDAsCiAgICAiYnkiOiAidGhlIGZpeHR1cmUgZGVwbG95ZXIiCiAgfSwKICAid2luZG93IjogewogICAgImZyb20iOiAxNzcxOTEzNjAwLAogICAgInRvIjogMTc3MjA4NjQwMAogIH0sCiAgImZsb29yIjogewogICAgImRheXMiOiAzMCwKICAgICJwcmVzZXJ2ZVVudGlsIjogMTc3NDU4ODQwMCwKICAgICJwb2ludGVyIjogImdzYS01NTItMjM5LTcwMDEtZi01IgogIH0sCiAgInBvaW50ZXJzIjogWwogICAgImdzYS01NTItMjM5LTcwMDEtZi01IgogIF0sCiAgImxpbWl0cyI6ICJUaGUgcHJlc2VydmF0aW9uIGZsb29yIGlzIGEgcG9pbnRlciBmb3IgY291bnNlbCwgbm90IGEgY29tcGxpYW5jZSBjbGFpbS4gVGhlIHNldmVudHktdHdvLWhvdXIgbm90aWZpY2F0aW9uIGlzIGEgcHJvY2VzcyBvYmxpZ2F0aW9uIG9mIHRoZSBkZXBsb3ltZW50LCB3aGljaCBub3RoaW5nIGluIHRoaXMgcmVjb3JkIHN0YXRlcyBvciBwcm92ZXMuIFRoZSBhc3NlcnRlZCBmaWVsZHMgYXJlIHRoZSBkZXBsb3ltZW50J3Mgb3duLiIKfQo",
+      "holdRow": "hold-unknown-member-v1",
+      "holdBase64Url": "ewogICJ2IjogMSwKICAicHJvdiI6ICJmaXh0dXJlIiwKICAiYXQiOiAxNzcyMDAwMDAwLAogICJieSI6ICJ0aGUgZml4dHVyZSBkZXBsb3llciIsCiAgIndpbmRvdyI6IHsKICAgICJmcm9tIjogMTc3MTkxMzYwMCwKICAgICJ0byI6IDE3NzIwODY0MDAKICB9LAogICJjcmVkZW50aWFscyI6IFsKICAgICJjcmVkLWZpeHR1cmUtaGVsZCIsCiAgICAiY3JlZC1maXh0dXJlLWVsc2V3aGVyZSIKICBdLAogICJyZWFzb24iOiAiRml4dHVyZSBob2xkIG92ZXIgdGhlIG1hdGVyaWFsIHRoZSBwdWJsaXNoZWQgcmVjZWlwdHMgYXR0ZXN0LCBpc3N1ZWQgc28gdGhhdCB0aGlzIHN1aXRlIHJlYWRzIGl0cyBvd24gYnl0ZXMgYWdhaW5zdCBhIHJ1bGUgaXQgc2hpcHMuIiwKICAicmVsZWFzZWQiOiBudWxsLAogICJsaW1pdHMiOiAiVGhpcyByZWNvcmQgaXMgdGhlIGRlcGxveW1lbnQncyBvd24gaW5zdHJ1Y3Rpb24gdG8gcHJlc2VydmUsIG5vdCBhIGxlZ2FsIGRldGVybWluYXRpb24uIEl0IHN1c3BlbmRzIGVyYXN1cmUgYW5kIGV4cGlyeSBvbmx5IGluIHJlYWRlcnMgdGhhdCBjb25zdWx0IGl0LCBhbmQgY2hhbmdlcyBubyBwZXJpb2QgdGhlIGRlcGxveW1lbnQgc3RhdGVkLiBOb3RpZmljYXRpb24gZGVhZGxpbmVzIHJlbWFpbiB0aGUgZGVwbG95bWVudCdzIG93biBwcm9jZXNzIG9ibGlnYXRpb25zLiIsCiAgImZ1dHVyZSI6ICJhIG1lbWJlciBubyB2ZXJzaW9uIG5hbWVzIgp9Cg"
+    }
+  ]
+}
