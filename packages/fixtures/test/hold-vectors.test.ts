@@ -202,6 +202,19 @@ describe('the hold layout rows replay', () => {
     expect(wideDocument.reason.length).toBe(HOLD_RECORD_TEXT_MAX_UNITS + 1);
     expect(verdictOf(fromBase64Url(wide!.recordBase64Url))).toBe('HOLD_RECORD_BAD_DOCUMENT');
   });
+
+  it('pins the open hold to the two absences its name claims', () => {
+    // The row is named for what it leaves out, and nothing in the published bytes says so: an accepted row
+    // whose content could be swapped for the two-credential record would keep every verdict above green
+    // while its name and its note became false. Absence is read here as the record's own statement, the way
+    // the consultation rows read it, so the omission is a fact of the bytes rather than a word beside them.
+    const open = layoutNamed('hold-covers-every-credential-v1');
+    expect(open.credentials, 'the row that covers every credential names some').toBeUndefined();
+    expect(open.window.to, 'the row with an open window end states one').toBeNull();
+    expect('credentials' in open, 'the parsed record carries the member the layout lets a record leave off').toBe(
+      false,
+    );
+  });
 });
 
 describe('the hold consultation rows replay', () => {
