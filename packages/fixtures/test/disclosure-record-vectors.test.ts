@@ -123,11 +123,70 @@ describe('the disclosure record vectors', () => {
     if (record.served.kind === 'region') expect(record.served.sha256).toBe(marking!.dHex);
   });
 
-  it('state the fixture content path as a fixture, and claim no named application path', () => {
+  it('state the fixture path as the fixture it is, and name where the real path is recorded', () => {
     expect(file.rule.contentPath.response).toBe('marking-v1.json#buffered-member');
-    expect(file.description).toContain('this family does not claim');
+    expect(file.description).toContain('No row carries a claim');
+    expect(file.rule.contentPath.note).toContain('rule.realContentPath');
     for (const one of file.rule.transformations.filter((each) => !each.implemented)) {
       expect(one.note).toContain('untested');
     }
+  });
+});
+
+/**
+ * The same completion put through the copying, rendering and export transformations of applications
+ * that exist outside this repository, each stage published with the bytes those applications produced
+ * so the verdict beside it is this file's own reading of them rather than a word beside a name.
+ *
+ * The fixture harness above can only say what the rule locates after a transformation this package
+ * implements. These rows are a recorded run of real applications over the same starting bytes, and the
+ * split they measure is the one the limits sentence draws: a copy of the transcript still carries the
+ * region, and a rendered document of it carries none.
+ */
+describe('the real content path measured beside the fixture harness', () => {
+  const real = file.rule.realContentPath;
+
+  it('starts from the response the marking suite publishes', () => {
+    expect(real).toBeDefined();
+    const start = fromBase64Url(real.startBase64Url);
+    expect(toHex(sha256(start))).toBe(toHex(sha256(fromBase64Url(file.rule.contentPath.responseBase64Url))));
+    expect(real.start).toBe('marking-v1.json#buffered-member');
+  });
+
+  it('publishes for each measured stage the bytes the application produced', () => {
+    for (const stage of real.stages.filter((one) => one.outcome !== 'untested')) {
+      expect(stage.outputBase64Url, `${stage.name} states a verdict over no bytes`).toBeDefined();
+      expect(stage.application, `${stage.name} states a verdict produced by no application`).not.toBe('');
+      expect(stage.applicationVersion, `${stage.name} states a verdict from an unversioned application`).not.toBe('');
+    }
+  });
+
+  it('states outcomes this file\'s own reading of the published stage bytes gives', () => {
+    for (const stage of real.stages) {
+      if (stage.outputBase64Url === undefined) {
+        expect(stage.outcome, `${stage.name} publishes no bytes and states a verdict`).toBe('untested');
+        continue;
+      }
+      expect(stage.outcome, stage.name).toBe(measuredOutcome(fromBase64Url(stage.outputBase64Url)));
+    }
+  });
+
+  it('carries the copy through and loses the mark at every rendering, export and scan stage', () => {
+    const byName = new Map(real.stages.map((one) => [one.name, one.outcome]));
+    expect(byName.get('client-fetch-to-file')).toBe('detectable');
+    for (const name of ['browser-rendered-document', 'browser-exported-pdf', 'pdf-text-export', 'pdf-text-export-second-application', 'pdf-page-raster-ocr-text']) {
+      expect(byName.get(name), name).toBe('not-detectable');
+    }
+  });
+
+  it('records a stage it could not run, and words its reason as a stage rather than a verdict', () => {
+    const unrun = real.stages.filter((one) => one.outcome === 'untested');
+    expect(unrun.length, 'no stage of the intended path went unrun').toBeGreaterThan(0);
+    for (const one of unrun) {
+      expect(one.note, `${one.name} records no reason for its silence`).not.toBe('');
+      expect(one.outputBase64Url, `${one.name} published bytes beside an untested outcome`).toBeUndefined();
+    }
+    const words = unrun.map((one) => one.name).sort();
+    expect(words).toEqual(['media-container-transcode', 'office-document-export']);
   });
 });
