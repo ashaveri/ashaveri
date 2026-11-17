@@ -537,6 +537,17 @@ deployer's, and the log is where its use shows.
 
 One JSON object per line, one line per request this process routes, written whether the request was
 admitted or refused; a request the HTTP parser refuses before a route is looked up leaves no line.
+
+The write is made while the answer is still inside this process. `onSend` is the last hook a buffered
+reply passes through with its status final, and the reply is not handed to the socket until the record has
+been written and waited for, so a caller that holds a whole answer holds one whose own line this process
+has already accounted for rather than one still in flight behind it. A hijacked streaming reply is the
+one shape that reaches no `onSend`: it is recorded when its last frame has gone, or when the client walks
+away from it, whichever the socket reports first, so on that one path the answer is observable before the
+line is. What is waited for is an append handed to the operating system, not a flush of a volume's own
+cache: a process stopped by a signal loses no line it had already answered behind, and a machine that dies
+inside the kernel's buffer can lose lines no process was left alive to write.
+
 The field names are the entire allowlist: the writer reads exactly these keys out of an object, so an
 object a future hook learns to assemble cannot widen the record. There is no field for a body, a
 header, a key, a secret, or an address to be written into.

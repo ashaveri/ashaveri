@@ -235,8 +235,8 @@ function asOneLine(text: string): string {
   return text.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ');
 }
 
-function upstreamError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, message: string): void {
-  reply.code(502).send({ error: { message, type: 'upstream_error' } });
+async function upstreamError(reply: FastifyReply, message: string): Promise<void> {
+  await reply.code(502).send({ error: { message, type: 'upstream_error' } });
 }
 
 /**
@@ -703,15 +703,23 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       deny: null,
       logged: false,
     });
-    // finish and close, both, because a hijacked streaming reply ends on close and a
-    // buffered one on finish, and a record this process loses is a gap nobody can
-    // account for later. The logged flag makes the pair idempotent.
+    // The backstop for a hijacked streaming reply, which reaches no `onSend` below: finish for a stream
+    // that ended, close for one the client abandoned. `logged` makes the three sites one record apiece.
     reply.raw.once('finish', () => {
       void flush(request, reply);
     });
     reply.raw.once('close', () => {
       void flush(request, reply);
     });
+  });
+
+  // The record is owed before the answer is: `onSend` is the last hook a buffered reply passes through
+  // with its status final, and Fastify awaits it before a byte reaches the socket, so an answer a caller
+  // holds whole implies a line this process has already waited on. A handler that sends its own reply has
+  // to await that send, because an awaited hook leaves the reply unsent when the handler resolves and
+  // Fastify would then answer the request a second time, with no body.
+  app.addHook('onSend', async (request, reply) => {
+    await flush(request, reply);
   });
 
   app.addHook('preHandler', async (request, reply) => {
@@ -954,7 +962,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   app.get('/v1/deployment-manifest', async (_request, reply) => {
     if (sealedManifest === null) return manifest;
     reply.header('content-type', 'application/cose');
-    reply.send(Buffer.from(sealedManifest));
+    await reply.send(Buffer.from(sealedManifest));
   });
 
   // The bytes a receipt's `wts` names, addressable by that digest. The manifest is read once at start-up
@@ -966,18 +974,18 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   app.get('/v1/weights/:digest', async (request, reply) => {
     const digest = (request.params as { digest: string }).digest;
     if (!WEIGHTS_DIGEST_HEX.test(digest)) {
-      reply.code(400).send({
+      await reply.code(400).send({
         error: { message: 'digest must be 64 lowercase hex characters', type: 'invalid_request_error' },
       });
       return;
     }
     const weightsManifest = deployment.weightsManifest;
     if (weightsManifest === undefined || toHex(weightsManifest.digest) !== digest) {
-      reply.code(404).send({ error: { message: `no weights manifest for digest ${digest}`, type: 'not_found' } });
+      await reply.code(404).send({ error: { message: `no weights manifest for digest ${digest}`, type: 'not_found' } });
       return;
     }
     reply.header('content-type', 'application/json');
-    reply.send(Buffer.from(weightsManifest.bytes));
+    await reply.send(Buffer.from(weightsManifest.bytes));
   });
 
   app.get('/v1/attestation', async (request, reply) => {
@@ -985,7 +993,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     let reportData: Uint8Array | null = null;
     if (query.report_data !== undefined) {
       if (!REPORT_DATA_HEX.test(query.report_data)) {
-        reply
+        await reply
           .code(400)
           .send({ error: { message: 'report_data must be 64 hex characters', type: 'invalid_request_error' } });
         return;
@@ -994,26 +1002,26 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     }
     const bundle = await deployment.attestation(reportData);
     reply.header('content-type', 'application/octet-stream');
-    reply.send(Buffer.from(bundle.document));
+    await reply.send(Buffer.from(bundle.document));
   });
 
   // The device leg has no standing answer to fall back on: an accelerator document is
   // only worth fetching if it names the challenge of the receipt being checked.
   app.get('/v1/attestation/gpu', async (request, reply) => {
     if (deployment.deviceAttestation === undefined) {
-      reply.code(404).send({ error: { message: 'this deployment makes no device claim', type: 'not_found' } });
+      await reply.code(404).send({ error: { message: 'this deployment makes no device claim', type: 'not_found' } });
       return;
     }
     const query = request.query as { report_data?: string };
     if (query.report_data === undefined || !REPORT_DATA_HEX.test(query.report_data)) {
-      reply.code(400).send({
+      await reply.code(400).send({
         error: { message: 'report_data must be 64 hex characters', type: 'invalid_request_error' },
       });
       return;
     }
     const device = await deployment.deviceAttestation(fromHex(query.report_data));
     reply.header('content-type', 'application/octet-stream');
-    reply.send(Buffer.from(device.document));
+    await reply.send(Buffer.from(device.document));
   });
 
   app.get('/v1/receipts/:id', async (request, reply) => {
@@ -1025,16 +1033,16 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     const tag = stateOf(request)?.tag;
     const bytes = typeof tag !== 'string' || !receiptIds.carries(id, tag) ? null : await receipts.get(id);
     if (bytes === null) {
-      reply.code(404).send({ error: { message: `no receipt for id ${id}`, type: 'not_found' } });
+      await reply.code(404).send({ error: { message: `no receipt for id ${id}`, type: 'not_found' } });
       return;
     }
     reply.header('content-type', 'application/cbor');
-    reply.send(Buffer.from(bytes));
+    await reply.send(Buffer.from(bytes));
   });
 
   app.post('/v1/chat/completions', async (request, reply) => {
     if (!(request.body instanceof Buffer)) {
-      reply.code(400).send({ error: { message: 'request body must be application/json', type: 'invalid_request_error' } });
+      await reply.code(400).send({ error: { message: 'request body must be application/json', type: 'invalid_request_error' } });
       return;
     }
     const raw = request.body;
@@ -1043,12 +1051,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       parsed = parseChatCompletionRequest(JSON.parse(raw.toString('utf8')));
     } catch (err) {
       const message = err instanceof RequestError ? err.message : 'request body is not valid JSON';
-      reply.code(400).send({ error: { message, type: 'invalid_request_error' } });
+      await reply.code(400).send({ error: { message, type: 'invalid_request_error' } });
       return;
     }
     const declared = deployment.models.find((model) => model.id === parsed.model);
     if (declared === undefined) {
-      reply.code(400).send({
+      await reply.code(400).send({
         error: { message: asOneLine(`model '${parsed.model}' is not served by this deployment`), type: 'invalid_request_error' },
       });
       return;
@@ -1060,11 +1068,11 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       try {
         nonce = fromBase64Url(nonceHeader);
       } catch {
-        reply.code(400).send({ error: { message: 'x-ashaveri-nonce is not valid base64url', type: 'invalid_request_error' } });
+        await reply.code(400).send({ error: { message: 'x-ashaveri-nonce is not valid base64url', type: 'invalid_request_error' } });
         return;
       }
       if (nonce.length !== NONCE_BYTES) {
-        reply.code(400).send({ error: { message: `x-ashaveri-nonce must be ${NONCE_BYTES} bytes`, type: 'invalid_request_error' } });
+        await reply.code(400).send({ error: { message: `x-ashaveri-nonce must be ${NONCE_BYTES} bytes`, type: 'invalid_request_error' } });
         return;
       }
     } else {
@@ -1077,7 +1085,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // so its receipt would be unreadable by everyone including its owner.
     const receiptTag = stateOf(request)?.tag;
     if (typeof receiptTag !== 'string') {
-      reply.code(500).send({
+      await reply.code(500).send({
         error: {
           message: 'this request was admitted without a credential, so its receipt could not be addressed',
           type: 'server_error',
@@ -1090,7 +1098,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     try {
       response = await backend.respond(raw, parsed);
     } catch (err) {
-      upstreamError(reply, `inference upstream failed: ${errorMessage(err)}`);
+      await upstreamError(reply, `inference upstream failed: ${errorMessage(err)}`);
       return;
     }
 
@@ -1114,24 +1122,24 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       try {
         body = await collect(response);
       } catch (err) {
-        upstreamError(reply, errorMessage(err));
+        await upstreamError(reply, errorMessage(err));
         return;
       }
       reply.header('content-type', response.contentType);
       if (failed) {
         reply.status(response.status);
-        reply.send(body);
+        await reply.send(body);
         return;
       }
       let usage: CompletionUsage;
       try {
         usage = await response.usage;
       } catch (err) {
-        upstreamError(reply, errorMessage(err));
+        await upstreamError(reply, errorMessage(err));
         return;
       }
       if (usage.model.length > 0 && usage.model !== declared.id) {
-        upstreamError(reply, `inference upstream served '${usage.model}' instead of '${declared.id}'`);
+        await upstreamError(reply, `inference upstream served '${usage.model}' instead of '${declared.id}'`);
         return;
       }
       const receiptId = receiptIds.mint(receiptTag);
@@ -1147,7 +1155,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         // caller has to be told. Serving the body unmarked and signing `sch: none` would be true of
         // the bytes and false to the deployment's own configuration, and the reader who could act on
         // the difference is this one.
-        upstreamError(reply, marked.why);
+        await upstreamError(reply, marked.why);
         return;
       }
       const sent = marked === null ? body : Buffer.from(marked.body);
@@ -1166,7 +1174,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         marking: marked === null ? unmarked() : marked.marking,
       });
       reply.header('x-ashaveri-receipt-id', receiptId);
-      reply.send(sent);
+      await reply.send(sent);
       return;
     }
 
@@ -1184,11 +1192,11 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         early.push(Buffer.from(next.value));
       }
     } catch (err) {
-      upstreamError(reply, errorMessage(err));
+      await upstreamError(reply, errorMessage(err));
       return;
     }
     if (early.length === 0) {
-      upstreamError(reply, 'inference upstream produced an empty response body');
+      await upstreamError(reply, 'inference upstream produced an empty response body');
       return;
     }
     const id = receiptIds.mint(receiptTag);
