@@ -85,8 +85,8 @@ all.
 
 `--hold-record` is read under exactly that rule, with one difference: it is repeated, one file per distinct
 path, because a deployment can have two matters under hold at once and a reader that stopped at the first
-record no longer in force would retire material the second still covers. Each named file is read once, whatever
-the number of times its path was typed, at start-up, before any store or log opens, and the report prints one
+record no longer in force would retire material the second still covers. Each path is read once, whatever the
+number of times that exact text was typed, at start-up, before any store or log opens, and the report prints one
 line per record with the sha256 of the bytes that came back from it, the window it states and its state at that
 instant; the note a window judgement prints beside those bytes carries the same digest. What a hold does with
 them is suspend retirement in the readers that consult it, and nothing else: no window, stated period,

@@ -586,9 +586,11 @@ interface HeldRecordFile {
  * own clock. The two suspensions built below are each asked about the instant their own source hands
  * them, so nothing printed here decides what either one keeps.
  *
- * One path is read once however many times it was typed. Two occurrences name one instruction and the same
- * bytes, so a report that printed it twice, or a note that named it at each edge twice, would count one
- * deployment's hold as two.
+ * One path text is read once however many times it was typed. Two occurrences of one spelling name one
+ * instruction and the same bytes, so a report that printed it twice, or a note that named it at each edge
+ * twice, would count one deployment's hold as two. The dedupe is of the text as typed and not of the file
+ * behind it: one document spelled two ways is two paths, is read twice, and prints two lines, which says
+ * the same thing about the same hold rather than suspending anything twice.
  */
 const holdReadAt = Math.floor(HOST_CLOCK_SOURCE.nowSeconds());
 const heldRecords: HeldRecordFile[] = [];

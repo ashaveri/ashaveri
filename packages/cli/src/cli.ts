@@ -463,14 +463,18 @@ Credential and log options:
                      nothing, so a marker is always asked the question.
   --hold-record <file>
                      accesslog scrub: one file holding a hold record this run must consult before it
-                     erases anything. Repeatable, one record per flag, and read at the instant the
-                     command runs. There is no default path: name none and consult none, which is
-                     what this command did before the flag existed. A credential an active hold names
-                     is refused with HOLD_ERASURE_REFUSED, in the hold's own words, beside the issue
-                     stamp and the author that issued it, and the refusal is weighed before the log
-                     directory is listed, so no part is opened, no marker is filed and no byte
-                     moves. A hold that names no credential suspends every one of them. A file this
-                     flag names that is not there, cannot be read, or does not parse is refused by
+                     erases anything. Repeatable, one record per flag, and each file is read as the
+                     command runs. The instant a hold is weighed at is the instant the run stamps,
+                     which is what --now names, so this is the deployment's own guard rail and not
+                     something an outside party can rely on to make an erasure impossible. There is
+                     no default path: name none and consult none, which is what this command did
+                     before the flag existed. A credential an active hold names is refused with
+                     HOLD_ERASURE_REFUSED: the sentence the format fixes for that code, then the
+                     credential, the hold's issue stamp and the author that issued it. The words the
+                     hold itself carries in its reason member are not printed. The refusal is weighed
+                     before the log directory is listed, so no part is opened, no marker is filed and
+                     no byte moves. A hold that names no credential suspends every one of them. A file
+                     this flag names that is not there, cannot be read, or does not parse is refused by
                      path and reason rather than treated as no hold at all. The gateway's flag of the
                      same name feeds its own store and access log at start-up and reaches nothing
                      here; this one reaches only this command.
@@ -490,10 +494,12 @@ Credential and log options:
 Options for every command:
   --now <iso>        The clock the command reads instead of the wall clock: the
                      verification time for verify and verify-receipt, the whole-second createdAt or revokedAt of
-                     a credential record for credential add and revoke, and the day a scrub
-                     marker is named for in accesslog scrub. For the two verify verbs a date
-                     outside the span the verifier weighs stamps in is refused by name, so a
-                     reading counted in the wrong scale never answers for the receipt.
+                     a credential record for credential add and revoke, and, in accesslog scrub, both
+                     the day a marker is named for and the instant a hold the run was named is weighed
+                     at. A scrub given --hold-record judges every record against this instant and never
+                     against the wall clock, so the two edges a hold states move with it. For the two
+                     verify verbs a date outside the span the verifier weighs stamps in is refused by
+                     name, so a reading counted in the wrong scale never answers for the receipt.
   --json             Machine-readable output for every command: the verification result, a
                      credential listing or the record just touched, a scrub's counts and its
                      marker name. On keygen and credential add the object carries the one-time

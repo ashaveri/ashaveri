@@ -1200,6 +1200,23 @@ describe('the holds a scrub is named', () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('HOLD_ERASURE_REFUSED');
     expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('reads one file once when its path is typed twice, and states the refusal once', () => {
+    // The dedupe `holdRecordsNamed` applies is of the path text as typed, so these two spellings are one
+    // string and reach the consultation as one record. Either way the operator reads one line: the
+    // consultation stops at the first hold in force, so a record counted twice could not state the same
+    // suspension twice even if it were read twice.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const path = holdFile(hold());
+    const result = scrub(dir, 'svc-a', '--hold-record', path, '--hold-record', path);
+    expect(result.status).toBe(2);
+    expect(result.stderr.match(/HOLD_ERASURE_REFUSED/gu) ?? []).toHaveLength(1);
+    expect(result.stderr).toContain('credential "svc-a" is under the hold issued at');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
   });
 
   it('erases a credential a named hold does not name', () => {
@@ -1232,6 +1249,28 @@ describe('the holds a scrub is named', () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('HOLD_ERASURE_REFUSED');
     expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('refuses on the credential alone, so a window that excludes this instant suspends the erasure', () => {
+    // The erasure arm weighs `credentials` against the name this run erases and `at` and `released` against
+    // the erasure instant, and never consults `window`: an erasure takes all of a credential's material at
+    // once, so a hold over that credential suspends the whole of it rather than the slice its window
+    // states. The record below is active at the erasure instant and its window opens a minute after it, so
+    // a consultation that began asking the window would erase what this row refuses.
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const result = scrub(
+      dir,
+      'svc-a',
+      '--hold-record',
+      holdFile(hold({ window: { from: ERASURE_SECONDS + 60, to: ERASURE_SECONDS + 3_600 } })),
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('HOLD_ERASURE_REFUSED');
+    expect(result.stderr).toContain('credential "svc-a" is under the hold issued at');
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
   });
 
   it('consults no hold the operator did not name, whatever stands in the directory', () => {
@@ -1275,6 +1314,7 @@ describe('the holds a scrub is named', () => {
     expect(result.stderr).toContain(path);
     expect(result.stderr).toContain('no bytes could be read from it');
     expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
   });
 
   it('refuses a named file whose bytes are not a hold record, naming the code and the path', () => {
@@ -1287,6 +1327,26 @@ describe('the holds a scrub is named', () => {
     expect(result.stderr).toContain('not a hold record this command reads');
     expect(result.stderr).toContain('HOLD_RECORD_BAD_DOCUMENT');
     expect(result.stderr).toContain(path);
+    expect(volumeBytes(dir)).toEqual(before);
+    expect(markers(dir)).toEqual([]);
+  });
+
+  it('refuses a named hold record at a version this package does not read, naming that version', () => {
+    const dir = heldVolume();
+    const before = volumeBytes(dir);
+    const path = holdFile(hold());
+    // The version is the first thing the reader weighs, before any member of the layout, so this document
+    // is refused for the version it claims rather than for anything the version would have gone on to ask.
+    writeFileSync(path, `${JSON.stringify({ ...hold(), v: 2 }, null, 2)}\n`);
+    const result = scrub(dir, 'svc-a', '--hold-record', path);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('not a hold record this command reads');
+    expect(result.stderr).toContain('HOLD_RECORD_UNSUPPORTED_VERSION');
+    expect(result.stderr).toContain('hold record version 2 is not a layout this package reads');
+    expect(result.stderr).toContain(path);
+    // The operator's file being unreadable is not a credential under hold, so the two refusals stay
+    // distinguishable on the line, whichever of its two faults the reader reached.
+    expect(result.stderr).not.toContain('HOLD_ERASURE_REFUSED');
     expect(volumeBytes(dir)).toEqual(before);
     expect(markers(dir)).toEqual([]);
   });

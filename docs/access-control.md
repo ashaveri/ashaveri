@@ -628,16 +628,21 @@ credential rather than the window there, because an erasure takes all of a crede
 a hold over it suspends the whole of it rather than a slice.
 
 `ashaveri accesslog scrub` is that erasure call, and its `--hold-record` is the only way a hold reaches it.
-The files that flag names are read at the instant the command runs and handed to the consultation above
-before the log directory is listed, so the refusal arrives naming the credential and the hold's issue stamp
-and the author who issued it while every part still holds what it held and no marker has been filed. A run
-whose operator named nothing consults nothing: there is no default path for a hold, and an erasure is not to
-go looking for an instruction nobody gave it. A hold that names no credential suspends every credential,
-which is what such a record states rather than what a reader assumes of it. A file the flag names that this
-program cannot read, or cannot parse, is refused naming that path and the reason it could not be used: the
-operator pointed at a document, and a run that erased as though no document existed would be answering a
-question nobody asked. None of this states a period: a hold instructs that material be kept, and section 8.2
-states what a deployment still configures while it does.
+The files that flag names are read as the command runs and handed to the consultation above before the log
+directory is listed, so the refusal arrives naming the credential and the hold's issue stamp and the author
+who issued it while every part still holds what it held and no marker has been filed. The instant that
+consultation weighs at is the instant the run stamps, and the operator names it, since `--now` states exactly
+that instant: name an instant before a hold was issued and it suspends nothing this run erases, name one
+inside a span a release has since closed and it suspends an erasure the wall clock would allow, and name no
+`--now` and the wall clock is what is weighed. The refusal is therefore the deployment's own guard rail, set
+by the clock its operator types, and not something an outside party can rely on to make an erasure
+impossible. A run whose operator named nothing consults nothing: there is no default path for a hold, and an
+erasure is not to go looking for an instruction nobody gave it. A hold that names no credential suspends every
+credential, which is what such a record states rather than what a reader assumes of it. A file the flag names
+that this program cannot read, or cannot parse, is refused naming that path and the reason it could not be
+used: the operator pointed at a document, and a run that erased as though no document existed would be
+answering a question nobody asked. None of this states a period: a hold instructs that material be kept, and
+section 8.2 states what a deployment still configures while it does.
 
 ## 8. Retention, erasure, and who decides
 

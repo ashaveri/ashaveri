@@ -718,8 +718,11 @@ export async function runAccessLog(sub: string[], flags: AccessLogFlags, nowMill
     // A hold's refusal is a `ReceiptError` carrying the code the operator has to read, and the
     // top-level handler prints anything that is not a `UsageError` as an unexpected error, with a stack
     // and an exit 1: a code nobody sees is not a named refusal, and an exit that is not 2 tells the
-    // caller the input was fine. Every other error keeps the route it already had.
-    if (error instanceof ReceiptError) throw new UsageError(`${error.code}: ${error.message}`);
+    // caller the input was fine. This door raises one code, so one code is taken this way: any other
+    // `ReceiptError` keeps the route it already had rather than being relabelled as an input error.
+    if (error instanceof ReceiptError && error.code === 'HOLD_ERASURE_REFUSED') {
+      throw new UsageError(`${error.code}: ${error.message}`);
+    }
     throw error;
   }
   if (flags.json === true) {
@@ -768,9 +771,11 @@ function requestOf(raw: string | undefined): string | null {
  * this command reads the format through the reader that owns it and never around it, so a hold record at
  * a version this package does not read is named by that version's code rather than erased over.
  *
- * One path is read once however many times it was typed, because two occurrences name one instruction
+ * One path text is read once however many times it was typed, because two occurrences name one instruction
  * and the same bytes, and a consultation that counted one deployment's hold twice would state the same
- * suspension twice without adding anything to it.
+ * suspension twice without adding anything to it. The dedupe is of the text as typed and not of the file it
+ * points at: one document spelled two ways is two paths and is read twice, which moves nothing the refusal
+ * says, because the same record answers the same way and the consultation stops at the first hold in force.
  */
 async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<HoldRecord[]> {
   const holds: HoldRecord[] = [];
