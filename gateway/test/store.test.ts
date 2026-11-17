@@ -1202,6 +1202,56 @@ describe('a retirement the store is told to suspend', () => {
     expect((await unheld.window()).count, 'the same file answers its window with nothing held').toBe(4);
   });
 
+  it('refuses the opening of a held set that stands past its durability bound', async () => {
+    // The pairing the opening refuses by, arrived at through a suspension rather than through traffic:
+    // the held prefix survives, the set stands one receipt past the bound configured beside the same
+    // period, and that period takes more receipts than the bound holds. A run that has reached this
+    // state has already answered the question, so the refusal belongs here, before a completion is
+    // served from a set the deployment cannot keep, and not at the first request that asks.
+    const dir = await emptyDir();
+    const written = await openFileReceiptStore({ dir });
+    await agedThenFresh(written);
+    const file = join(dir, RECEIPT_STORE_FILE);
+    const bytes = await readFile(file);
+    // Fourteen retained receipts span 1,013 seconds and the period asks for 1,000 of them, so the rate
+    // these stamps state takes ceil(13 * 1000 / 1013) + 1 = 14 receipts and the bound is thirteen.
+    const retention: ReceiptRetention = {
+      maxAgeSeconds: WINDOW_SECONDS,
+      maxCount: 13,
+      time: fixedClock(() => AGED_AT),
+    };
+
+    const message = await openFileReceiptStore({ dir, retention, hold: holding([STAMP]) }).then(
+      () => 'opened, no refusal',
+      (error: unknown) => (error as Error).message,
+    );
+    // Both counts, printed as the two numbers they are, so the set is legible off the line beside the
+    // bound it stands past, and the shortfall the same arithmetic worked out.
+    expect(message).toContain('holds 14 receipts against its durability bound of 13 receipts');
+    expect(message).toContain('the configured period is 1000 seconds, which takes 14 receipts');
+    expect(message).toContain('short by 1 receipts');
+    expect(message).toContain('RETENTION_WINDOW_UNHOLDABLE');
+    // The held set is the evidence the refusal reads, so a refused opening leaves it byte for byte.
+    expect(await readFile(file)).toEqual(bytes);
+  });
+
+  it('opens the same volume below the bound the held set stands past', async () => {
+    // The unheld pairing of one file and the same two bounds, which is the state this door refuses
+    // never: the prefix retires as its period says, the set sits under the bound, and a store shedding
+    // what it was configured to shed has nothing asked of it however narrow its stamps are.
+    const dir = await emptyDir();
+    const written = await openFileReceiptStore({ dir });
+    await agedThenFresh(written);
+    const retention: ReceiptRetention = {
+      maxAgeSeconds: WINDOW_SECONDS,
+      maxCount: 13,
+      time: fixedClock(() => AGED_AT),
+    };
+
+    const reopened = await openFileReceiptStore({ dir, retention });
+    expect(await reopened.window()).toEqual({ from: AGED_AT, to: AGED_AT + 3, count: 4 });
+  });
+
   it('consults it on the append that lands, and on the append after a release', async () => {
     // The other moment a prefix is applied is the instant a record lands, and a hold that arrives or
     // leaves between two appends has to be read at each one rather than once at the opening.
@@ -1361,6 +1411,28 @@ describe('the window a store is configured to hold', () => {
     expect(message).toContain('bound of 5 receipts');
     expect(message).toContain('630720001 receipts');
     expect(message).toContain('RETENTION_WINDOW_UNHOLDABLE');
+  });
+
+  it('names both counts where a set stands exactly at its bound', { timeout: FILE_CASE_TIMEOUT }, async () => {
+    // The state this door was written for, read once more with the retained count in front of it: at
+    // the bound the two counts are the same figure, so the sentence that serves a set past its bound
+    // says nothing different about one that is at it, and a reader can see that no second keeping is
+    // what put these receipts here.
+    const dir = await emptyDir();
+    const retention: ReceiptRetention = {
+      maxAgeSeconds: FIVE_YEARS_SECONDS,
+      maxCount: FIXTURE_BOUND,
+      time: fixedClock(() => STAMP + 10),
+    };
+    const written = await openFileReceiptStore({ dir, retention });
+    await burst(written, FIXTURE_RECEIPTS);
+
+    const message = await openFileReceiptStore({ dir, retention }).then(
+      () => 'opened, no refusal',
+      (error: unknown) => (error as Error).message,
+    );
+    expect(message).toContain('holds 5 receipts against its durability bound of 5 receipts');
+    expect(message).toContain('short by 630719996 receipts');
   });
 
   it('opens the same five-year period on a bound the burst cannot reach', { timeout: FILE_CASE_TIMEOUT }, async () => {

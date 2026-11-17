@@ -118,9 +118,11 @@ at a rate the bound supports, and a store that has retained fewer than two recei
 rate at all, which is that condition's own precondition. The span is a rate over the retained set and
 not a record that every receipt across the period survived; the retention assessment, `assessRetention`
 in `@ashaveri/sdk`, answers that question. The threshold is a fraction of
-the bound and defaults to the bound itself: the retained set never exceeds the count that retires it,
-so that default is the one state a store already refuses to open at, which is why a deployment that
-configures nothing behaves here exactly as it did before this pairing was read while serving.
+the bound and defaults to the bound itself: a retained set that nothing suspends never exceeds the count that
+retires it, so that default is the state a store already refuses to open at, which is why a deployment that
+configures nothing behaves here exactly as it did before this pairing was read while serving. A set that does
+stand past the bound is one a retirement was told to suspend, and the opening refuses it before a request
+reaches this guard.
 
 Growing past the guard is permitted as a named decision and not as a value of the threshold.
 `--receipts-grow-past-guard` turns the refusal off, off being its default: with it the volume keeps
@@ -740,10 +742,15 @@ of the four doors moves is a number. `--receipts-days`, `--access-log-days`, the
 states, the durability bound and the period configured beside it, the bounds a trim record files and the
 figures a retention manifest states all read as this deployment configured them, and the set a held run serves
 is larger than those numbers alone describe. The intake guard section 1 describes consults no hold and reads
-that enlarged set, so a held store standing past its durability bound answers `RECEIPT_WINDOW_UNHOLDABLE` on
-completions where the same store, holding nothing, stays below the point the guard is armed at, and the levers
-an operator has over it are `--receipts-keep`, `--receipts-guard-at` and `--receipts-grow-past-guard`, never
-an edited hold record. A window shorter than the stated period is refused beside an active hold with the
+that enlarged set, and so does the store's own opening, which weighs a set standing past its durability bound
+exactly as it weighs one standing at it: a held volume past the bound is refused at the start, ahead of the
+first completion, rather than opened and left to throttle traffic for the length of the instruction. That
+refusal states the arithmetic of the two configured numbers and the retained stamps, and names nothing else,
+because the door that weighs them is record-agnostic and holds no fact that would say which instruction kept
+the prefix. The start-up report is where that is read, one line per hold record the run read; a start stopped
+at the door prints no such line, and the instruction it was handed is the one its own command line named. The
+levers an operator has over the pairing are `--receipts-keep`, `--receipts-guard-at` and
+`--receipts-grow-past-guard`, never an edited hold record. A window shorter than the stated period is refused beside an active hold with the
 identical sentence, because a hold is an instruction to keep and not a second way to answer a shortfall; the
 start-up report prints one note line per in-force hold beside each of the two window judgements, naming that
 record's path and the sha256 of the bytes it was read from, and prints nothing where no hold is in force.

@@ -1965,15 +1965,22 @@ function assertBoundsStatable(retention: ReceiptRetention | undefined): void {
  * count, or only by a period, has no pairing to contradict and is never checked here. A retained set
  * below its durability bound is keeping everything its period asked for, however few receipts that
  * turned out to be: nothing is being shed, and the traffic that would decide the question has not
- * arrived. And a store at its durability bound whose stamps do span the configured period holds what it
- * asked for at the rate it has been carrying, so it starts.
+ * arrived. And a store at or past its durability bound whose stamps do span the configured period holds
+ * what it asked for at the rate it has been carrying, so it starts.
  *
- * That leaves the case this is for: a store at its durability bound whose retained stamps span less time
- * than the period it was configured with, which means the bound is what cut the window short and the
- * next receipt will cut it shorter. The count that pairing needs is derived above from the configured
- * period and the traffic this file has actually carried, so the refusal names two quantities that
- * disagree rather than repeating a number an operator could raise until the message went away, and it
+ * That leaves the case this is for: a store at or past its durability bound whose retained stamps span
+ * less time than the period it was configured with, which means the bound is what cut the window short
+ * and the next receipt will cut it shorter. The count that pairing needs is derived above from the
+ * configured period and the traffic this file has actually carried, so the refusal names two quantities
+ * that disagree rather than repeating a number an operator could raise until the message went away, and it
  * names the shortfall as well so the number to set is readable off the line rather than worked out.
+ *
+ * The door weighs a set at the bound and a set past it by the same arithmetic, because a set past the
+ * bound is already the shortfall rather than a forecast of one: whatever kept these records is asked the
+ * same question as the traffic, and it is a question this file answers from stamps. What the suspension
+ * that kept them is, and for whom, is not stated here, because this file holds no facts that would make
+ * the sentence true; the process that hands the predicate names the instruction each record was read
+ * from in its own start-up report.
  *
  * The comparison is with the durability bound alone, which is the case a deployment that configures
  * both counts can ask for and the one the split is for. One number standing for both how much the file
@@ -1993,7 +2000,9 @@ function assertWindowHeldable(
 ): void {
   const maxAgeSeconds = retention?.maxAgeSeconds;
   const maxCount = retention?.maxCount;
-  if (maxAgeSeconds === undefined || maxCount === undefined || held.count !== maxCount) {
+  // A set standing past the bound is not one the bound put there, and the pairing it contradicts is the
+  // same one a set at the bound does, so both are weighed by one rule rather than two.
+  if (maxAgeSeconds === undefined || maxCount === undefined || held.count < maxCount) {
     return;
   }
   const source = retention?.time ?? HOST_CLOCK_SOURCE;
@@ -2018,7 +2027,11 @@ function assertWindowHeldable(
       : '';
   throw new StoreError(
     'RETENTION_WINDOW_UNHOLDABLE',
-    `this store is at its durability bound of ${String(maxCount)} receipts and they span ` +
+    // The retained count travels beside the bound, because the two are not always one number: a set
+    // standing past its bound has to be readable off the line it is refused by, or the sentence would
+    // tell an operator a shortfall the file does not show.
+    `this store holds ${String(held.count)} receipts against its durability bound of ` +
+      `${String(maxCount)} receipts, and they span ` +
       `${String(held.to - held.from)} seconds as read from ${sourceSentence(source)}, which leaves ` +
       `${String(measurableSpanSeconds(held, source))} of those seconds this store can derive a rate from, while ` +
       `the configured period is ${String(maxAgeSeconds)} seconds, which takes ${String(needed)} receipts ` +

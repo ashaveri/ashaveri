@@ -2979,6 +2979,73 @@ describe('the hold records a run is handed', () => {
   );
 
   /**
+   * A volume whose front is older than the period the CLI ships: `aged` receipts stamped 200 days back
+   * and `fresh` ones at this instant, chained in that order, so the retirement prefix falls on the aged
+   * run and only a hold keeps it.
+   *
+   * Written directly rather than through an opening, which would prune the aged run against the policy
+   * it was handed and leave nothing for the pairing to be about. The stamps come off the current clock
+   * for the same reason `writeHeldStore`'s do: the CLI reads its own 184 day age bound at the instant it
+   * starts, so a fixture frozen in the past would be aged out twice over.
+   */
+  function writeAgedVolume(dir: string, aged: number, fresh: number): void {
+    const newest = Math.floor(Date.now() / 1000);
+    const frames: Buffer[] = [];
+    let prev: Uint8Array = new Uint8Array(32);
+    for (let index = 0; index < aged + fresh; index++) {
+      const iat = index < aged ? newest - 200 * DAY : newest;
+      const frame = receiptFrame(prev, iat, `rcpt_${String(index)}`, Buffer.alloc(8, 7));
+      prev = frame.subarray(frame.length - 32);
+      frames.push(frame);
+    }
+    writeFileSync(join(dir, RECEIPT_STORE_FILE), Buffer.concat(frames));
+  }
+
+  it(
+    'refuses the start of a held volume standing past its durability bound, and starts it released',
+    // One refused start and one boot over the same twelve receipts.
+    { timeout: spawnBudget(1) + bootBudget(1) },
+    async () => {
+      const dir = join(tempDir, 'hold-past-bound-volume');
+      mkdirSync(dir);
+      // The twelve records are the volume; the bound this run types is nine, and the period is the
+      // shipped 184 days. Held, the eight aged receipts stand with the four current ones, the set is
+      // twelve against a bound of nine, and the 200 day span those stamps state says the period takes
+      // ceil(11 * 15897600 / 17280000) + 1 = 12 receipts, three past the bound. Released, the prefix
+      // retires, four of them stand, and the start goes ahead on the same bytes.
+      writeAgedVolume(dir, 8, 4);
+      const held = holdFile({ ...base(), window: { from: 1, to: null } }, 'past-bound');
+
+      const refused = run(
+        '--mock',
+        '--port',
+        '0',
+        '--receipts-dir',
+        dir,
+        '--receipts-keep',
+        '9',
+        '--hold-record',
+        held.path,
+      );
+      expect(refused.status, refused.stderr).toBe(1);
+      const printed = `${refused.stdout}\n${refused.stderr}`;
+      expect(printed).toContain('signerd: RETENTION_WINDOW_UNHOLDABLE:');
+      // The two counts the operator acts on, as the two numbers they are: what the volume stands at and
+      // what this run was told it may reach. The instruction that put the eight there is the record this
+      // run named, and its own line arrives in the report of a start that gets one.
+      expect(printed).toContain('holds 12 receipts against its durability bound of 9 receipts');
+      expect(printed).toContain('short by 3 receipts');
+      expect(printed, 'a process that refused to boot printed no banner').not.toContain('listening on');
+
+      const banner = await readBanner('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-keep', '9');
+      const booted = banner.join('\n');
+      expect(booted).toContain('listening on');
+      const line = banner.find((each) => each.startsWith('  receipts kept in '));
+      expect(line, booted).toContain('a durability bound of 9 receipts');
+    },
+  );
+
+  /**
    * The `YYYY-MM-DD` a part name carries `daysBack` whole days before now, written in the one unit the log's
    * own names are made in.
    */
