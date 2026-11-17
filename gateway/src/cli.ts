@@ -263,10 +263,15 @@ Options:
                                    The receipts store and the access log each consult what was read: a
                                    stamp inside an active hold's window is not retired, and an access
                                    log part whose day overlaps one is not swept. A hold suspends and
-                                   never extends, so no configured window, no stated period and no
-                                   refusal moves because a record was read. A file that is named and
-                                   cannot be read, or that is not a hold record this gateway reads,
-                                   stops the start naming which path and why; naming none reads none.
+                                   never extends: no configured window, no stated period and no window
+                                   judgement moves because a record was read. What a hold does move is
+                                   the set the store retains, and the receipt intake guard reads that
+                                   set without consulting any hold, so a held store can stand past the
+                                   durability bound the guard is armed at and see a completion refused
+                                   RECEIPT_WINDOW_UNHOLDABLE where the same store, holding nothing,
+                                   stays below it. A file that is named and cannot be read, or that is
+                                   not a hold record this gateway reads, stops the start naming which
+                                   path and why; naming none reads none.
   --time-source-state <file>       Read every stamp this process signs from
                                    a state file this deployment's own clock
                                    synchronisation maintains, instead of from
@@ -602,7 +607,7 @@ for (const path of new Set(values['hold-record'] ?? [])) {
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     fail(
-      `--hold-record names ${path} and no bytes could be read from it: ${reason}, so a run whose operator ` +
+      `--hold-record names '${path}' and no bytes could be read from it: ${reason}, so a run whose operator ` +
         'named a hold record reads it or refuses to start',
     );
   }
@@ -615,7 +620,7 @@ for (const path of new Set(values['hold-record'] ?? [])) {
     // them the reader could not answer.
     const detail = error instanceof Error ? error.message : String(error);
     const reason = error instanceof ReceiptError ? `${error.code}: ${detail}` : detail;
-    fail(`--hold-record names ${path} and its bytes are not a hold record this gateway reads: ${reason}`);
+    fail(`--hold-record names '${path}' and its bytes are not a hold record this gateway reads: ${reason}`);
   }
   heldRecords.push({
     path,

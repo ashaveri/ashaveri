@@ -62,8 +62,9 @@ collected at one instant and are digested as stated. Whether a hold states a rea
 inventory's asserted fields are true, and whether a bundle's floor is the right number are questions the
 container does not answer, and a reader that took the signature as answering them would be reading a claim
 that was never made. The rides are published rather than described: the `exportRide` block of
-`packages/fixtures/data/incident-bundle-v1.json` carries a run built by extending the anchored document this
-suite publishes as `well-formed-anchored` with the hold and the bundle as two more inline items, and
+`packages/fixtures/data/incident-bundle-v1.json` carries a run built by extending the technical export the
+export family publishes for its honest anchored run, the row `well-formed-anchored` of
+`packages/fixtures/data/export-v1.json`, with the hold and the bundle as two more inline items, and
 `model-inventory-v1.json` carries an inventory as one item of a plain collection.
 
 ## The envelope

@@ -530,7 +530,13 @@ async function readAfterRemoval(path: string): Promise<PartSnapshot> {
   }
 }
 
-function reasonOf(error: unknown): string {
+/**
+ * A failure as the operator reads it: the message an `Error` carries, and the value itself where it carries
+ * none. Exported because `verify-handover` reads the same `--hold-record` paths this command does and prints
+ * the same refusal beside them, so one failure is stated in one shape at both doors rather than in two
+ * spellings of the same ternary.
+ */
+export function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 

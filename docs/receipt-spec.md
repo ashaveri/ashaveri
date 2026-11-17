@@ -922,6 +922,9 @@ A version no layout reads is `HOLD_RECORD_UNSUPPORTED_VERSION`; every structural
 `HOLD_RECORD_BAD_DOCUMENT`; the erasure suspension is `HOLD_ERASURE_REFUSED`; the redaction refusal is
 `HOLD_REDACTION_REFUSED`. The rows are in [error-codes.md](error-codes.md).
 
+The published vectors of the record, its refusals and the answers the three shipped consultation doors give
+the calls those rows state are `packages/fixtures/data/hold-v1.json`, indexed in [vectors.md](vectors.md).
+
 The limits sentence every record states:
 
 > This record is the deployment's own instruction to preserve, not a legal determination. It suspends
@@ -1015,6 +1018,10 @@ disagreeing with the hold, so a reader handed only the bundle is refused too. An
 compared, because there is nothing in the hold to compare it to. The bundle verifies offline with its
 floor stated: a reader holding the record and the hold it designates needs no network and no provision's
 text to check the pair.
+
+The published vectors of the record, its refusals, the verification cases beside the hold bytes they
+designate, and the export ride are `packages/fixtures/data/incident-bundle-v1.json`, indexed in
+[vectors.md](vectors.md).
 
 ## 5. Verification algorithm
 

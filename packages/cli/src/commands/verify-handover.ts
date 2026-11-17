@@ -40,6 +40,7 @@ import {
   type AshaveriPolicy,
 } from '@ashaveri/sdk';
 import { escapeInvisible, printedToken, UsageError, writeJson } from '../usage.js';
+import { reasonOf } from './accesslog.js';
 import {
   COLLATERAL_CPU_TYPE_FLAG,
   COLLATERAL_LEVEL_FLAG,
@@ -1620,7 +1621,7 @@ async function holdRecordsNamed(paths: readonly string[] | undefined): Promise<N
       bytes = await readFile(path);
     } catch (error) {
       throw new UsageError(
-        `--hold-record names '${path}' and no bytes could be read from it: ${error instanceof Error ? error.message : String(error)}, so a run whose operator named a hold record reads it rather than answer the amendment without it`,
+        `--hold-record names '${path}' and no bytes could be read from it: ${reasonOf(error)}, so a run whose operator named a hold record reads it rather than answer the amendment without it`,
       );
     }
     const digestHex = sha256Hex(bytes);

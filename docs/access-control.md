@@ -731,17 +731,23 @@ removed record's own chain stamp against the records handed beside the pack and 
 `refuseErasureUnderHold` weighs the credential an erasure call names against the records that call hands it
 and answers `HOLD_ERASURE_REFUSED` before the call moves a byte (`packages/receipt/src/hold.ts`). A reader
 handed no records consults none, which is the state a run naming no `--hold-record` leaves its two doors in.
-Two of those readings are wider than the material a hold speaks of, and both are the rule rather than an
+Three of those readings are wider than the material a hold speaks of, and each is the rule rather than an
 accident of it: retirement reaches only a prefix, so holding one receipt keeps every record newer than it with
-it, and a day is the widest fact a part's own name states, so a part that touches a hold by one second is kept
-whole. What none of the four doors moves is a number. `--receipts-days`, `--access-log-days`, the period an
-instruction record states, the durability bound and the period configured beside it, the bounds a trim record
-files and the figures a retention manifest states all read as this deployment configured them, and the set a
-held run serves is larger than those numbers alone describe. A window shorter than the stated period is
-refused beside an active hold with the identical sentence, because a hold is an instruction to keep and not a
-second way to answer a shortfall; the start-up report prints one note line per in-force hold beside each of
-the two window judgements, naming that record's path and the sha256 of the bytes it was read from, and prints
-nothing where no hold is in force. [receipt-spec.md](receipt-spec.md) section 4.10 carries the rest of the
+it; a day is the widest fact a part's own name states, so a part that touches a hold by one second is kept
+whole; and neither expiry door weighs the `credentials` list at all, so a hold naming one credential suspends
+the retirement of every record whose stamp falls inside that window, whichever credential issued it. What none
+of the four doors moves is a number. `--receipts-days`, `--access-log-days`, the period an instruction record
+states, the durability bound and the period configured beside it, the bounds a trim record files and the
+figures a retention manifest states all read as this deployment configured them, and the set a held run serves
+is larger than those numbers alone describe. The intake guard section 1 describes consults no hold and reads
+that enlarged set, so a held store standing past its durability bound answers `RECEIPT_WINDOW_UNHOLDABLE` on
+completions where the same store, holding nothing, stays below the point the guard is armed at, and the levers
+an operator has over it are `--receipts-keep`, `--receipts-guard-at` and `--receipts-grow-past-guard`, never
+an edited hold record. A window shorter than the stated period is refused beside an active hold with the
+identical sentence, because a hold is an instruction to keep and not a second way to answer a shortfall; the
+start-up report prints one note line per in-force hold beside each of the two window judgements, naming that
+record's path and the sha256 of the bytes it was read from, and prints nothing where no hold is in force.
+[receipt-spec.md](receipt-spec.md) section 4.10 carries the rest of the
 rule, in the limits sentence every hold record states verbatim: it is the deployment's own instruction to
 preserve and not a legal determination, and which duty an instruction answers to is settled outside this
 software.
