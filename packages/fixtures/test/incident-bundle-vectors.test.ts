@@ -22,6 +22,7 @@ import {
   verifyExport,
   verifyIncidentBundle,
   type IncidentBundleRecord,
+  type VerifiedExport,
 } from '@ashaveri/receipt';
 import { loadExportVectors, loadHoldVectors, loadIncidentBundleVectors, type IncidentBundleVerifyCase } from '../src/index.js';
 
@@ -258,8 +259,8 @@ describe('the incident bundle layout rows replay', () => {
   });
 
   it('refuses a pointer outside the registry and a pointer that names nothing at all', () => {
-    const unknown = file.vectors.find((one) => one.expected === 'INCIDENT_BUNDLE_UNKNOWN_POINTER');
-    expect(unknown, 'the family publishes no unknown-pointer row').toBeDefined();
+    const unknown = file.vectors.find((one) => one.name === 'bundle-unknown-pointer-v1');
+    expect(unknown, 'the family publishes no row named bundle-unknown-pointer-v1').toBeDefined();
     const notText = file.vectors.find((one) => one.name === 'bundle-pointer-not-text-v1');
     expect(notText, 'the family publishes no non-text pointer row').toBeDefined();
     expect(verdictOf(fromBase64Url(notText!.recordBase64Url))).toBe('INCIDENT_BUNDLE_BAD_DOCUMENT');
@@ -374,10 +375,16 @@ describe('the incident bundle verification cases replay', () => {
 
 describe('the export ride carries both records', () => {
   const ride = file.rule.exportRide;
-  const rideBytes = fromBase64Url(ride.exportBase64Url);
-  const verified = verifyExport(rideBytes, fromBase64Url(ride.publicKeyBase64Url));
+  let opened: VerifiedExport | undefined;
+  // The ride is opened at the export door from inside a test, never beside one: a ride that no longer
+  // verifies then fails under the name of the claim it breaks, rather than as a suite that never ran.
+  function openRide(): VerifiedExport {
+    opened ??= verifyExport(fromBase64Url(ride.exportBase64Url), fromBase64Url(ride.publicKeyBase64Url));
+    return opened;
+  }
 
   it('closes the walk the signed document claims', () => {
+    const verified = openRide();
     expect(verified.outcome.kind).toBe('anchored');
     if (verified.outcome.kind !== 'anchored') return;
     expect(verified.outcome.walked.map((one) => one.id)).toEqual(ride.walkedItemIds);
@@ -392,12 +399,19 @@ describe('the export ride carries both records', () => {
     for (const item of published.manifest.collection.items) {
       expect(rideIds, `the ride does not carry the published export item ${item.id}`).toContain(item.id);
       const ridden = verified.outcome.items.find((one) => one.id === item.id);
+      // An arm that moved is a failure here rather than a comparison skipped: the published run carries every
+      // item inline, so a ride handing one back on another arm has changed the contract, not narrowed the check.
+      expect(ridden?.orig.k, `the ride carries ${item.id} on an arm the published export does not state`).toBe(
+        item.orig.k,
+      );
+      expect(item.orig.k, `the published export carries ${item.id} on a non-inline arm`).toBe('inline');
       if (ridden === undefined || ridden.orig.k !== 'inline' || item.orig.k !== 'inline') continue;
       expect(equalBytes(ridden.orig.bytes, item.orig.bytes)).toBe(true);
     }
   });
 
   it('reads each item back through the door of the record it carries', () => {
+    const verified = openRide();
     if (verified.outcome.kind !== 'anchored') throw new Error('the ride is not the anchored arm it states');
     const items = verified.outcome.items;
     const holdItem = items.find((one) => one.id === ride.holdItemId);
@@ -415,6 +429,7 @@ describe('the export ride carries both records', () => {
   });
 
   it('recomputes the floor the ridden record states', () => {
+    const verified = openRide();
     if (verified.outcome.kind !== 'anchored') throw new Error('the ride is not the anchored arm it states');
     const bundleItem = verified.outcome.items.find((one) => one.id === ride.bundleItemId);
     if (bundleItem?.orig.k !== 'inline') throw new Error('the ride carries no inline bundle item');

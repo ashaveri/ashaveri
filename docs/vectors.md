@@ -408,8 +408,8 @@ the incident preservation bundle and the challenge binding are read the same way
 package ships for each of them, in `disclosure-record-vectors.test.ts`, `hold-vectors.test.ts`,
 `model-inventory-vectors.test.ts`, `incident-bundle-vectors.test.ts` and `challenge-vectors.test.ts`: the
 first four are unsigned records no command dispatches on a content type, and the fifth states a pre-image
-rather than a document a reader is handed. The inventory
-rows are read there by the two exported inventory readers, `verifyEpochInventory` and
+rather than a document a reader is handed. The epoch inventory rows are read there by the two
+exported inventory readers, `verifyEpochInventory` and
 `decodeEpochInventory`, rather than through a command, because the claim a port has to satisfy at those two
 doors is about the library surface, and that block names the file which answers the same rows at the command
 edge. Two verbs reach an epoch inventory at this command line: `ashaveri verify-handover`, which takes the type

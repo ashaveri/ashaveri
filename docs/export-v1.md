@@ -54,8 +54,10 @@ another member of the same document rather than against a span.
 A hold record, a model inventory and an incident preservation bundle travel in this container as originals
 and not as members of it: each is one item's inline `orig` bytes, digested by `item.d` beside any receipt or
 file the same run carries, and read back through the door of its own layout by whoever unwraps the document.
-No member of the export contract moves for any of them, and the label that chooses a shape is the content
-type this document already names. What the export signature covers is the assembly: that these bytes were
+No member of the export contract moves for any of them, and no member of it names which door a reader takes:
+an item carries no type member. The door is chosen by the record's own `v` and the closed member list that
+version names, at the far end of the inline bytes, and the header's `typ` states this container rather than
+anything riding inside it. What the export signature covers is the assembly: that these bytes were
 collected at one instant and are digested as stated. Whether a hold states a real instruction, whether an
 inventory's asserted fields are true, and whether a bundle's floor is the right number are questions the
 container does not answer, and a reader that took the signature as answering them would be reading a claim

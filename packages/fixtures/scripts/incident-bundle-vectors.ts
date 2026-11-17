@@ -719,7 +719,7 @@ function main(): void {
           hold: {
             row: 'hold-v1.json#hold-fixture-v1',
             recordBase64Url: toBase64Url(HOLD_BYTES),
-            note: 'The hold this record designates, byte for byte the row the hold family publishes, together with the two other published hold rows the verification cases hand over: the open record whose null window end is a bound field like any other, the released record that is whole but not this record\'s hold, and the refused document that makes the unreadable refusal a finding about the hold rather than about the bundle. Each case carries its own hold bytes, so a port replays a pair without reaching into another family.',
+            note: 'The hold this record designates, byte for byte the row the hold family publishes, together with the three other published hold rows the verification cases hand over: the open record whose null window end is a bound field like any other, the released record that is whole but not this record\'s hold, and the refused document that makes the unreadable refusal a finding about the hold rather than about the bundle. Each case carries its own hold bytes, so a port replays a pair without reaching into another family.',
           },
           unsigned: 'An incident preservation bundle carries no signature, as the hold record and the model inventory carry none. No row of this family is sealed by a key of its own, and no digest of a record is claimed by anything here: what a reader weighs is the layout, the designated hold\'s bytes and the arithmetic of the floor. The export container is what carries these bytes as evidence under its own signature, and the ride below is that statement measured rather than asserted.',
           exportRide: {
