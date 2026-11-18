@@ -408,6 +408,22 @@ export interface DisclosureRecordVectorFile {
     dutyCitations: Record<string, string>;
     limits: string;
     contentPath: { response: string; responseBase64Url: string; note: string };
+    realContentPath: {
+      start: string;
+      startBase64Url: string;
+      recordedBy: string;
+      note: string;
+      /** One step of a recorded run through an application, with the bytes that step produced. */
+      stages: Array<{
+        name: string;
+        application: string;
+        applicationVersion: string;
+        outcome: string;
+        note: string;
+        outputBase64Url?: string;
+        outputSha256?: string;
+      }>;
+    };
     transformations: Array<{ name: string; implemented: boolean; note: string }>;
     encodings: string;
   };
