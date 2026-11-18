@@ -3,19 +3,28 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createPublicKey, verify } from 'node:crypto';
 import { randomNonce } from '@ashaveri/receipt';
+import { fixtureCapture, fixtureIssuerPin, fixtureManifestKeys } from './checkpoint-fixture.js';
+import { DEFAULT_RECEIPT_DURABILITY_COUNT } from './receipt-volume.js';
 import { newPopCredential, serializeCredentialFile } from '../../src/access.js';
 import {
   canonicalDigest,
   generatePinKeyPair,
-  pinPublicKeyOfRaw,
-  rawPinKeyId,
+  readPinEvidence,
+  retainBootCapture,
+  HeadPinError,
   signHeadPin,
   verifyHeadPin,
   type HeadPin,
+  type PinKey,
   type PinKeyPair,
   type PinnedHead,
-} from '../../src/checkpoint-pin.js';
+  type PinEvidence,
+  type BootCapture,
+  type BootLedger,
+  type HeadPinRefusalCode,
+} from './checkpoint-pin.js';
 import { parseAccessLine, RETENTION_SWEEP_NAME } from '../../src/aclog.js';
 import { daysToSeconds } from '../../src/duty-window.js';
 import {
@@ -26,30 +35,11 @@ import {
   type ReceiptStoreCheckpoint,
 } from '../../src/store.js';
 import type { RetentionEvidence } from '../../src/retention-evidence.js';
-import { assertAcknowledged, bootServing, complete, sendCompletion, signedGet, type ServedGateway } from './served-gateway.js';
+import { assertAcknowledged, bootServing, complete, sendCompletion, signedGetBytes, type ServedGateway } from './served-gateway.js';
 import { buildVolume, readVolume, volumeHead, type VolumeReading } from './receipt-volume.js';
 
-/**
- * A real run of the gateway, read back as checkpoint evidence, and asked about its own losses.
- *
- * What serves here is a child process bound to a port this process picked, filing completions over HTTP
- * into a `receipts.log` on a volume. What answers is a second process that opens the sealed directory after
- * the first has stopped, so every head below comes out of bytes on a volume rather than out of the process
- * that wrote them. No arm is a fixture: each mutates the bytes the run left, asks the same reader the same
- * question, and puts them back.
- *
- * The hours are real stamps, not a clock injected into a library call. Each start is handed a time source
- * state document naming the next hour, which is the route `--time-source-state` exists for, so the receipts
- * this run files carry that source's name in their own `sd` member.
- *
- * The pinning key is generated away from the volume and written into a directory the store never sees, which
- * is all "held apart" can mean in an artifact a machine reads. It is still this drill's own key: the signing
- * act and the keeping of the key afterwards belong to a second engineer, and nothing here says they happened.
- */
-
-/** The durability and serving pairing `gateway/src/cli.ts` opens a volume with when an operator names nothing. */
+// Modeled stamps exercise retention without waiting hours; all holders remain local stand-ins.
 const RECEIPTS_DAYS = 184;
-const RECEIPT_BOUND = 10_000;
 /** The checkpoint schedule this deployment declares: every completed batch, and no hour without one. */
 const MAX_INTERVAL_SECONDS = 3_600;
 const CLOCK_SOURCE = 'drill synchronisation';
@@ -69,6 +59,32 @@ export const PROBE_DEADLINE_MS = 20_000;
 /** The batches the run serves, in the order they arrive. */
 type BatchLabel = 'A' | 'B' | 'C' | 'D' | 'E';
 const ORDER: readonly BatchLabel[] = ['A', 'B', 'C', 'D', 'E'];
+export const DRILL_BOOT_COUNT = ORDER.length;
+export const CHECKPOINT_READ_COUNT = ORDER.filter((label) => label !== 'E').length;
+
+interface Scenario {
+  readonly label: string;
+  readonly group: 'assessment' | 'recovery';
+  readonly pin: 'C' | 'B' | 'final' | 'none';
+  readonly mutation?: 'omitted' | 'extra' | 'rollback' | 'suffix' | 'beyond' | 'restore';
+  readonly whole?: boolean;
+  readonly omitReplay?: boolean;
+  readonly noIndex?: boolean;
+}
+export const DRILL_SCENARIOS: readonly Scenario[] = [
+  { label: 'control: the scope as it happened, with a local stand-in pin', group: 'assessment', pin: 'C' },
+  { label: 'omitted: one acknowledged receipt rebuilt out of the volume', group: 'assessment', pin: 'C', mutation: 'omitted' },
+  { label: 'extra: a receipt inside the scope no client was issued', group: 'assessment', pin: 'C', mutation: 'extra' },
+  { label: 'stale replay: an earlier checkpoint offered for the whole scope', group: 'assessment', pin: 'B' },
+  { label: 'rollback: the same positions, different bytes at five', group: 'assessment', pin: 'C', mutation: 'rollback' },
+  { label: 'suffix loss: the acknowledged tail is gone', group: 'assessment', pin: 'C', mutation: 'suffix' },
+  { label: 'unpinned: the same scope without a pin', group: 'assessment', pin: 'none' },
+  { label: 'no index: a volume that states no checkpoint', group: 'assessment', pin: 'C', noIndex: true },
+  { label: 'beyond scope: a receipt appended past the declared end', group: 'assessment', pin: 'C', mutation: 'beyond' },
+  { label: 'crash: the batch that ended in the kill has no checkpoint', group: 'recovery', pin: 'final', whole: true },
+  { label: 'retry: one intent the restarted process served twice', group: 'recovery', pin: 'final', whole: true, omitReplay: true },
+  { label: 'restore: an hour-one volume beside the index that is not its own', group: 'recovery', pin: 'C', mutation: 'restore' },
+];
 
 const PROBE = fileURLToPath(new URL('./evidence-probe.mjs', import.meta.url));
 
@@ -91,9 +107,9 @@ export interface DeclaredScope {
   readonly batches: readonly DeclaredBatch[];
   readonly period: { readonly from: number; readonly to: number };
   readonly maxIntervalSeconds: number;
-  /** The head a verified pin named, or null where no independent witness was produced. */
+  /** Null preserves the no-pin outcome instead of inventing a local witness. */
   readonly expectedHead: PinnedHead | null;
-  readonly pinnedBy: 'external-holder' | 'none';
+  readonly pinnedBy: 'local-stand-in' | 'none';
 }
 
 export type AssessmentVerdict = 'pass' | 'gap' | 'indeterminate' | 'refused';
@@ -142,7 +158,7 @@ interface ProbeAnswer {
 export interface PinCase {
   readonly label: string;
   readonly refused: boolean;
-  readonly code: string | null;
+  readonly code: HeadPinRefusalCode | null;
   readonly head: PinnedHead | null;
   readonly pin: HeadPin;
   readonly signer: string;
@@ -159,13 +175,17 @@ export interface DrillResult {
   readonly legs: readonly Assessment[];
   readonly pins: readonly PinCase[];
   readonly replay: { readonly status: number; readonly code: string | undefined; readonly receiptId: string | null };
-  /** One read of a receipt the first hour filed, answered by the process that serves the volume. */
+  /** This extra read preserves the served-HTTP check alongside the sealed-volume checks. */
   readonly receiptRead: { readonly status: number; readonly id: string };
   readonly clock: { readonly source: string; readonly uncertaintySeconds: number; readonly instants: readonly number[] };
   readonly access: { readonly files: readonly string[]; readonly lines: number };
   readonly holderKeyId: string;
-  readonly intakeStandInKeyId: string;
+  readonly fixtureIssuerKeyId: string;
   readonly issuanceIdentities: readonly string[];
+  readonly captureLedger: readonly BootLedger[];
+  readonly captures: readonly BootCapture[];
+  readonly pinEvidence: PinEvidence;
+  readonly wallTimeMs: number;
   readonly volumeListing: readonly string[];
   readonly table: readonly string[];
 }
@@ -191,19 +211,7 @@ export function scopeDigestOf(declared: DeclaredScope): string {
   });
 }
 
-/**
- * Weighs one declared scope against one reading of one store.
- *
- * The order is the claim. A store that refuses to say what it holds is answered with its own refusal, not
- * with a span inferred around it. A scope no outside key pinned is indeterminate whatever the bytes say,
- * because the comparison that detects a loss needs a head that did not come from the process being asked.
- * Then three witnesses are set beside each other: the position the scope declares as its end, the head the
- * pin names at that position, and the ids the deployment acknowledged against the ids the volume holds.
- *
- * The head is weighed *at the pinned position* rather than against the volume's last record, because a
- * declared scope ends where the customer says it does. A volume longer than the scope is not a loss, and a
- * pin stopping short of the scope is not a witness to the whole of it either.
- */
+// Compare at the pinned position so records beyond the declared scope are not losses.
 export function assessScope(args: { declared: DeclaredScope; probe: ProbeAnswer; volume: VolumeReading }): Assessment {
   const { declared, probe, volume } = args;
   const findings: Finding[] = [];
@@ -235,7 +243,7 @@ export function assessScope(args: { declared: DeclaredScope; probe: ProbeAnswer;
     findings.push({ kind: 'chain-disagreement', detail: `the chain stops agreeing with itself at position ${String(volume.brokenAtSeq)}` });
     return answer('refused', 'the volume does not chain');
   }
-  if (declared.expectedHead === null || declared.pinnedBy !== 'external-holder') {
+  if (declared.expectedHead === null || declared.pinnedBy !== 'local-stand-in') {
     findings.push({ kind: 'no-independent-pin', detail: 'no key outside the issuance set pinned a head, so nothing below is weighed against a witness' });
     return answer('indeterminate', 'unpinned');
   }
@@ -259,9 +267,7 @@ export function assessScope(args: { declared: DeclaredScope; probe: ProbeAnswer;
   if (missing.length > 0) {
     findings.push({ kind: 'omitted-record', detail: `${String(missing.length)} acknowledged receipt(s) are not in the volume: ${missing.join(', ')}` });
   }
-  // Only the records the scope reaches are weighed for surplus. A volume longer than the declaration holds
-  // receipts the customer did not ask about, and calling those extra would read the scope as narrower
-  // than the customer drew it.
+  // Surplus matters only inside the declared scope.
   const inScope = volume.records.filter((each) => each.seq <= declared.intake.to);
   const intended = new Set(declared.acknowledged);
   const surplus = inScope.filter((each) => !intended.has(each.id));
@@ -283,9 +289,7 @@ export function assessScope(args: { declared: DeclaredScope; probe: ProbeAnswer;
       findings.push({ kind: 'interval-exceeded', detail: `${String(apart)} seconds stand between the checkpoints at ${timed[at - 1]!.label} and ${timed[at]!.label}` });
     }
   }
-  // The schedule the customer declared is about the volume's own instants, not about the moments a
-  // checkpoint happened to be taken at: a tail of receipts carrying stamps past the last checkpoint is the
-  // interval no checkpoint reached, whatever the ledger says about the batches before it.
+  // Receipt stamps expose an unwitnessed tail after the last checkpoint.
   const lastAt = timed.at(-1)?.at;
   const newestInScope = inScope.at(-1)?.at;
   if (lastAt !== undefined && newestInScope !== undefined && newestInScope - lastAt > declared.maxIntervalSeconds) {
@@ -323,11 +327,27 @@ function startDeployment(paths: DrillPaths): Promise<ServedGateway> {
   ]);
 }
 
+async function withDeployment<T>(paths: DrillPaths, run: (served: ServedGateway) => Promise<T>): Promise<T> {
+  const served = await startDeployment(paths);
+  let succeeded = false;
+  try {
+    const result = await run(served);
+    succeeded = true;
+    return result;
+  } finally {
+    try {
+      await served.kill();
+    } catch (error) {
+      if (succeeded) throw error;
+    }
+  }
+}
+
 /** The retention pairing the deployment started with, restated for whoever opens its volume. */
 function deploymentRetention(instant: number): string {
   return JSON.stringify({
     maxAgeSeconds: daysToSeconds(RECEIPTS_DAYS),
-    maxCount: RECEIPT_BOUND,
+    maxCount: DEFAULT_RECEIPT_DURABILITY_COUNT,
     source: { name: CLOCK_SOURCE, uncertaintySeconds: CLOCK_UNCERTAINTY_SECONDS, instant },
   });
 }
@@ -340,21 +360,14 @@ function declarationOf(declared: DeclaredScope): string {
     intake: declared.intake,
     expectedHead: {
       sha256: declared.expectedHead?.sha256 ?? null,
-      pinnedBy: declared.pinnedBy,
-      reason: declared.pinnedBy === 'external-holder' ? 'a key outside the issuance set signed this head' : 'no pin was produced for this scope',
+      pinnedBy: declared.pinnedBy === 'local-stand-in' ? 'customer' : 'none',
+      reason: declared.pinnedBy === 'local-stand-in' ? 'synthetic local stand-in for the customer; independent custody unperformed' : 'no pin was produced for this scope',
     },
     maxIntervalSeconds: declared.maxIntervalSeconds,
   });
 }
 
-/**
- * Asks a second process what the sealed directory states.
- *
- * The reader opens the volume the deployment's own way, with its bounds and its named source, and it is a
- * child so the claim its opening files dies with it. `askForIndex` names the sidecar: a reading that wants
- * the store's own temporal witness asks for the index by name, and one that wants the bytes to answer for
- * themselves declines it and is read as a store that states no checkpoint.
- */
+// A separate process releases store ownership when the sealed reading ends.
 function probeEvidence(paths: DrillPaths, declared: DeclaredScope, instant: number, askForIndex: boolean): ProbeAnswer {
   const run = spawnSync(process.execPath, [PROBE, paths.volume, deploymentRetention(instant), declarationOf(declared), String(askForIndex)], {
     encoding: 'utf8',
@@ -392,14 +405,6 @@ function declaredScope(
   };
 }
 
-/** The identities a deployment publishes for the keys that sign its receipts. */
-function issuanceOf(manifestBody: string): string[] {
-  const parsed = JSON.parse(manifestBody) as { keys?: { publicKey?: string }[] };
-  return (parsed.keys ?? [])
-    .map((each) => (typeof each.publicKey === 'string' ? rawPinKeyId(each.publicKey) : ''))
-    .filter((each) => each.length > 0);
-}
-
 async function restoreSidecar(paths: DrillPaths, bytes: Buffer): Promise<void> {
   if (bytes.length === 0) {
     await rm(join(paths.volume, RECEIPT_SIDECAR_FILE), { force: true });
@@ -432,13 +437,7 @@ async function readAccessLog(dir: string): Promise<{ files: string[]; lines: num
   return { files: names, lines };
 }
 
-/**
- * Runs the drill: serve three hours, stop, seal, pin, then ask ten questions of the same bytes.
- *
- * Every arm restores the log and the index the run left before it mutates them, so one arm's answer is
- * never another's starting point. The restore arm plants back a log from the first hour beside the index
- * that is not its own, which is the state a volume brought back from a backup really arrives in.
- */
+// Each scenario starts from the same sealed bytes, not the previous scenario's mutation.
 export async function runCheckpointDrill(report: (line: string) => void = () => undefined): Promise<DrillResult> {
   const root = await mkdtemp(join(tmpdir(), 'ashaveri-checkpoint-drill-'));
   const paths: DrillPaths = {
@@ -463,8 +462,23 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
   const pop = newPopCredential({ id: 'drill-holder', scopes: ['read', 'complete'] });
   await writeFile(paths.credentials, serializeCredentialFile({ version: 1, credentials: [pop.record] }), 'utf8');
 
+  const wallStarted = performance.now();
   const holder = generatePinKeyPair();
-  const intakeStandIn = generatePinKeyPair();
+  const captured: BootCapture[] = [];
+  const retained: BootLedger[] = [];
+  async function captureBoot(served: ServedGateway, boot: BatchLabel): Promise<void> {
+    const manifest = await signedGetBytes(served, pop, '/v1/deployment-manifest');
+    if (manifest.status !== 200) throw new Error(`manifest read failed for boot ${boot}: ${String(manifest.status)}`);
+    const receipts: { id: string; bytes: Uint8Array }[] = [];
+    for (const id of batches[boot]) {
+      const response = await signedGetBytes(served, pop, `/v1/receipts/${id}`);
+      if (response.status !== 200) throw new Error(`receipt read failed for ${id}: ${String(response.status)}`);
+      receipts.push({ id, bytes: response.body });
+    }
+    const capture: BootCapture = { boot, manifest: manifest.body, receipts };
+    retained.push(retainBootCapture(capture));
+    captured.push(capture);
+  }
   await writeFile(join(paths.keys, 'head-pin-private.pem'), holder.privateKey, { encoding: 'utf8', mode: 0o600 });
 
   const hourOne = Math.floor(Date.now() / 1000);
@@ -515,14 +529,7 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
     });
   }
 
-  /**
-   * One checkpoint, taken the way the deployment's own customer takes it.
-   *
-   * The batch is over and the process that served it has stopped, so a second process opens the volume with
-   * the deployment's bounds and its named source and reads the head out of the sealed evidence. The head this
-   * returns is the checkpoint's, not the server's: nothing here asks the process that wrote the bytes what it
-   * wrote.
-   */
+  // Read the stopped volume rather than trusting a head supplied by the serving process.
   async function customerCheckpoint(label: BatchLabel, instant: number, through: string[]): Promise<PinnedHead> {
     const acknowledged = through;
     const declared = declaredScope(`checkpoint ${label}`, hourOne, instant, acknowledged, {
@@ -545,57 +552,61 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
 
   // Hour one: one batch, then the process stops so a reader can open what it wrote.
   await writeTimeSourceState(paths.state, hourOne);
-  const served1 = await startDeployment(paths);
-  const manifest = await signedGet(served1, pop, '/v1/deployment-manifest');
-  if (manifest.status !== 200) {
-    throw new Error(`the deployment answered ${String(manifest.status)} for its own manifest: ${manifest.body}`);
-  }
-  const issuanceIdentities = issuanceOf(manifest.body);
-  const issuanceKeys = issuancePublicKeys(manifest.body);
-  reportLine(report, table, `the served manifest publishes issuance identity ${issuanceIdentities.join(', ')}`);
-  await serveBatch(served1, BATCH_A, 'A');
-  await served1.kill();
+  await withDeployment(paths, async (served) => {
+    await serveBatch(served, BATCH_A, 'A');
+    await captureBoot(served, 'A');
+  });
   const afterA = await readFile(join(paths.volume, RECEIPT_STORE_FILE));
   await customerCheckpoint('A', hourOne, batches.A);
 
   // Hours two and three: one batch each, each closed by a checkpoint of the shape the schedule declares.
   await writeTimeSourceState(paths.state, hourTwo);
-  const served2 = await startDeployment(paths);
-  const bNonce = randomNonce();
-  batches.B.push(assertAcknowledged(await sendCompletion(served2, pop, bNonce), 'batch B first completion'));
-  await serveBatch(served2, BATCH_B - 1, 'B');
-  await served2.kill();
+  const bNonce = await withDeployment(paths, async (served) => {
+    const nonce = randomNonce();
+    batches.B.push(assertAcknowledged(await sendCompletion(served, pop, nonce), 'batch B first completion'));
+    await serveBatch(served, BATCH_B - 1, 'B');
+    await captureBoot(served, 'B');
+    return nonce;
+  });
   const checkpointB = await customerCheckpoint('B', hourTwo, [...batches.A, ...batches.B]);
 
   await writeTimeSourceState(paths.state, hourThree);
-  const served3 = await startDeployment(paths);
-  await serveBatch(served3, BATCH_C, 'C');
-  await served3.kill();
+  await withDeployment(paths, async (served) => {
+    await serveBatch(served, BATCH_C, 'C');
+    await captureBoot(served, 'C');
+  });
   const checkpointC = await customerCheckpoint('C', hourThree, [...batches.A, ...batches.B, ...batches.C]);
 
-  // Hour four: the nonce hour two presented is shown to a process that never saw it, an already served
-  // intent is asked for again, and the batch closes under a checkpoint.
+  // Restart permits the repeated nonce; the retried batch then closes under a checkpoint.
   await writeTimeSourceState(paths.state, hourFour);
-  const served4 = await startDeployment(paths);
-  const replay = await sendCompletion(served4, pop, bNonce);
-  if (replay.status === 200 && replay.receiptId !== null) {
-    batches.D.push(replay.receiptId);
-  }
-  const retry = await complete(served4, pop);
-  batches.D.push(assertAcknowledged(retry, 'the retry of an intent hour three already acknowledged'));
-  await serveBatch(served4, BATCH_D - batches.D.length, 'D');
-  // One receipt this process filed is read back over HTTP, which is the answer the server gives about its
-  // own store. The checkpoint readings take the volume instead, and the two are kept apart.
-  const receiptRead = await signedGet(served4, pop, `/v1/receipts/${retry.receiptId}`);
-  await served4.kill();
+  const { replay, retry, receiptRead } = await withDeployment(paths, async (served) => {
+    const replay = await sendCompletion(served, pop, bNonce);
+    if (replay.status === 200 && replay.receiptId !== null) {
+      batches.D.push(replay.receiptId);
+    }
+    const retry = await complete(served, pop);
+    batches.D.push(assertAcknowledged(retry, 'the retry of an intent hour three already acknowledged'));
+    await serveBatch(served, BATCH_D - batches.D.length, 'D');
+    // Keep the served HTTP witness separate from the sealed-volume readings.
+    const receiptRead = await signedGetBytes(served, pop, `/v1/receipts/${retry.receiptId}`);
+    await captureBoot(served, 'D');
+    return { replay, retry, receiptRead };
+  });
   await customerCheckpoint('D', hourFour, [...batches.A, ...batches.B, ...batches.C, ...batches.D]);
 
-  // Hour six: a batch that ends in a kill. Nothing pins the head at the moment the process died, and no
-  // checkpoint covers these receipts.
+  // Killing this batch leaves its receipts outside checkpoint coverage.
   await writeTimeSourceState(paths.state, hourCrash);
-  const served5 = await startDeployment(paths);
-  await serveBatch(served5, BATCH_E, 'E');
-  await served5.kill();
+  await withDeployment(paths, async (served) => {
+    await serveBatch(served, BATCH_E, 'E');
+    await captureBoot(served, 'E');
+  });
+  const captureLedger = Object.freeze([...retained]);
+  const captures = Object.freeze([...captured]);
+  const pinEvidence = readPinEvidence({ ledger: captureLedger, captures, trust: { mode: 'synthetic-tofu' } });
+  const issuanceIdentities = pinEvidence.issuanceIdentities;
+  for (const boot of pinEvidence.boots) {
+    reportLine(report, table, `boot ${boot.boot}: ${String(boot.receipts.length)} verified receipts; ${boot.authentication.advisory ?? 'authenticated manifest'}`);
+  }
 
   const finalBytes = await readFile(join(paths.volume, RECEIPT_STORE_FILE));
   const headFinal = volumeHead(readVolume(finalBytes));
@@ -644,8 +655,8 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
     if (options.pinTo !== null) {
       const scope = scopeDigestOf(base);
       const pin = signHeadPin({ key: holder, head: options.pinTo, scope });
-      // The issuance set this verifier is handed is the identity this run published, beside the stand-in.
-      declared = { ...base, expectedHead: verifyHeadPin(pin, { issuedBy: [intakeStandIn.keyId, ...issuanceIdentities], scope }), pinnedBy: 'external-holder' };
+      // Scope-loss scenarios must not rewrite the original capture ledger.
+      declared = { ...base, expectedHead: verifyHeadPin(pin, { expectedHolder: holder, evidence: pinEvidence, scope }).head, pinnedBy: 'local-stand-in' };
     }
     const probe = probeEvidence(paths, declared, instant, options.askForIndex ?? true);
     const volume = readVolume(await readFile(join(paths.volume, RECEIPT_STORE_FILE)));
@@ -661,16 +672,15 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
   /** Inserts a receipt no client was ever issued a receipt id for, inside the declared range. */
   const insertForged = (bytes: Buffer, at: number): Buffer => {
     const records = readVolume(bytes).records.map((each) => ({ at: each.at, id: each.id, payload: each.payload }));
-    const copy = Buffer.from(records[records.length - 1]!.payload);
-    copy[copy.length - 1] = (copy[copy.length - 1]! + 1) % 256;
+    const copy = mutatedLastByte(records[records.length - 1]!.payload, 1);
     records.splice(at, 0, { at: hourFour, id: 'rcpt_never_acknowledged', payload: copy });
     return rebuild(records);
   };
   /** Two receipts an acknowledgement names, at the same positions, over different bytes. */
   const divergeAt = (bytes: Buffer, at: number): Buffer => {
-    const records = readVolume(bytes).records.map((each) => ({ at: each.at, id: each.id, payload: Buffer.from(each.payload) }));
+    const records = readVolume(bytes).records.map((each) => ({ at: each.at, id: each.id, payload: each.payload }));
     const target = records[at]!;
-    target.payload[target.payload.length - 1] = (target.payload[target.payload.length - 1]! + 3) % 256;
+    target.payload = mutatedLastByte(target.payload, 3);
     target.at += 7;
     return rebuild(records);
   };
@@ -682,33 +692,39 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
   };
   const lastWitnessed = checkpointC.sequence;
 
-  const arms = [
-    await arm('control: the scope as it happened, pinned from outside', { pinTo: checkpointC }),
-    await arm('omitted: one acknowledged receipt rebuilt out of the volume', { pinTo: checkpointC, mutate: (bytes) => dropOne(bytes, 2) }),
-    await arm('extra: a receipt inside the scope no client was issued', { pinTo: checkpointC, mutate: (bytes) => insertForged(bytes, 3) }),
-    await arm('stale replay: an earlier checkpoint offered for the whole scope', { pinTo: checkpointB }),
-    await arm('rollback: the same positions, different bytes at five', { pinTo: checkpointC, mutate: (bytes) => divergeAt(bytes, 5) }),
-    await arm('suffix loss: the acknowledged tail is gone', { pinTo: checkpointC, mutate: (bytes) => truncateAfter(bytes, lastWitnessed - 3) }),
-    await arm('unpinned: the same scope with no witness outside the issuance set', { pinTo: null }),
-    await arm('no index: a volume that states no checkpoint', { pinTo: checkpointC, removeSidecar: true, askForIndex: false }),
-    await arm('beyond scope: a receipt appended past the declared end', { pinTo: checkpointC, mutate: (bytes) => rebuild([...readVolume(bytes).records.map((each) => ({ at: each.at, id: each.id, payload: each.payload })), { at: hourCrash, id: 'rcpt_past_the_scope', payload: forgedTail(bytes) }]) }),
-  ];
-
-  const legs = [
-    await arm('crash: the batch that ended in the kill has no checkpoint', { pinTo: headFinal, scope: 'whole' }),
-    await arm('retry: one intent the restarted process served twice', {
-      pinTo: headFinal,
-      scope: 'whole',
-      declare: { acknowledged: acknowledged.filter((id) => id !== replay.receiptId) },
-    }),
-    await arm('restore: an hour-one volume beside the index that is not its own', { pinTo: checkpointC, mutate: () => afterA }),
-  ];
+  const heads = { C: checkpointC, B: checkpointB, final: headFinal, none: null };
+  const mutations: Record<NonNullable<Scenario['mutation']>, (bytes: Buffer) => Buffer> = {
+    omitted: (bytes) => dropOne(bytes, 2),
+    extra: (bytes) => insertForged(bytes, 3),
+    rollback: (bytes) => divergeAt(bytes, 5),
+    suffix: (bytes) => truncateAfter(bytes, lastWitnessed - 3),
+    beyond: (bytes) => rebuild([...readVolume(bytes).records, { at: hourCrash, id: 'rcpt_past_the_scope', payload: mutatedLastByte(readVolume(bytes).records.at(-1)!.payload, 5) }]),
+    restore: () => afterA,
+  };
+  const arms: Assessment[] = [];
+  const legs: Assessment[] = [];
+  for (const scenario of DRILL_SCENARIOS) {
+    const assessed = await arm(scenario.label, {
+      pinTo: heads[scenario.pin],
+      mutate: scenario.mutation === undefined ? undefined : mutations[scenario.mutation],
+      removeSidecar: scenario.noIndex,
+      askForIndex: !scenario.noIndex,
+      scope: scenario.whole === true ? 'whole' : 'witnessed',
+      declare: scenario.omitReplay === true ? { acknowledged: acknowledged.filter((id) => id !== replay.receiptId) } : {},
+    });
+    (scenario.group === 'assessment' ? arms : legs).push(assessed);
+  }
+  reportLine(report, table, `${String(arms.length)} assessment scenarios and ${String(legs.length)} recovery scenarios; ${String((hourCrash - hourOne) / HOUR_SECONDS)} modeled hours across ${String(ORDER.length)} boots; wall time ${String(Math.round(performance.now() - wallStarted))}ms`);
 
   const control = arms[0]!;
+  const fixture = fixtureCapture();
+  const fixtureEvidence = readPinEvidence({
+    ledger: [retainBootCapture(fixture)], captures: [fixture],
+    trust: { mode: 'designated-keys', manifestKeys: fixtureManifestKeys },
+  });
   const pins: PinCase[] = [
-    pinCase('refused: a pin signed by a key the issuance set names', intakeStandIn, [intakeStandIn.keyId, ...issuanceIdentities], control, true),
-    pinCase('refused: a pin signed over the identity this run publishes', intakeStandIn, issuanceIdentities, control, false, issuanceKeys[0]),
-    pinCase('accepted: a pin signed by the key held apart from this run', holder, [intakeStandIn.keyId, ...issuanceIdentities], control, true),
+    pinCase('refused: a valid self-pin by an authenticated fixture issuer', fixtureIssuerPin, fixtureIssuerPin, fixtureEvidence, control),
+    pinCase('accepted: local stand-in, not independent operator custody', holder, holder, pinEvidence, control),
   ];
   for (const each of pins) {
     reportLine(
@@ -732,57 +748,43 @@ async function runDrill(paths: DrillPaths, report: (line: string) => void): Prom
     clock: { source: CLOCK_SOURCE, uncertaintySeconds: CLOCK_UNCERTAINTY_SECONDS, instants: [hourOne, hourTwo, hourThree, hourFour, hourCrash] },
     access,
     holderKeyId: holder.keyId,
-    intakeStandInKeyId: intakeStandIn.keyId,
+    fixtureIssuerKeyId: fixtureIssuerPin.keyId,
     issuanceIdentities,
+    captureLedger,
+    captures,
+    pinEvidence,
+    wallTimeMs: performance.now() - wallStarted,
     volumeListing,
     table,
   };
 }
 
-/** The payload bytes of the newest receipt, one byte away, for a record no client was ever issued. */
-function forgedTail(bytes: Buffer): Buffer {
-  const records = readVolume(bytes).records;
-  const copy = Buffer.from(records[records.length - 1]!.payload);
-  copy[copy.length - 1] = (copy[copy.length - 1]! + 5) % 256;
+function mutatedLastByte(bytes: Buffer, increment: number): Buffer {
+  const copy = Buffer.from(bytes);
+  copy[copy.length - 1] = (copy[copy.length - 1]! + increment) % 256;
   return copy;
 }
 
-/**
- * One pin case, answered the way the verifier answers it.
- *
- * `signed` says whether the pin carries a signature the named key really made. The private half of a
- * deployment's receipt key never leaves the process that signs with it, so no signature by *that* key exists
- * in this artifact; what is checkable about it is that the identity rule is reached before the signature
- * rule, which is the order the whole control depends on. The case that names the published identity therefore
- * carries this drill's signature under the deployment's public key, and is refused before that is weighed.
- * The case that proves a well-formed self-pin is refused anyway signs with a key the issuance set does name.
- */
 function pinCase(
   label: string,
   key: PinKeyPair,
-  issuedBy: readonly string[],
+  expectedHolder: PinKey,
+  evidence: PinEvidence,
   control: Assessment,
-  signed: boolean,
-  publishedPublicKey?: string,
 ): PinCase {
   const scope = scopeDigestOf(control.declared);
-  const head = control.expected ?? { sequence: 0, sha256: '0'.repeat(64) };
-  const made = signHeadPin({ key, head, scope });
-  const pin: HeadPin =
-    signed || publishedPublicKey === undefined
-      ? made
-      : { ...made, signer: { keyId: rawPinKeyId(publishedPublicKey), publicKey: pinPublicKeyOfRaw(publishedPublicKey) } };
-  const base = { label, pin, signer: pin.signer.keyId, issuedBy, signatureByThisKey: signed };
+  if (control.expected === null) throw new Error('the control must supply a head');
+  const pin = signHeadPin({ key, head: control.expected, scope });
+  // This check is independent of the guard whose refusal the case measures.
+  const body = Buffer.from(`${pin.document}|${pin.scope}|${pin.signer.keyId}|${pin.signer.publicKey}|${pin.head.sequence}|${pin.head.sha256}`);
+  const signatureByThisKey = verify(null, body, createPublicKey(key.publicKey), Buffer.from(pin.signature, 'hex'));
+  if (!signatureByThisKey) throw new Error('the fixture pin signature must verify');
+  const base = { label, pin, signer: pin.signer.keyId, issuedBy: evidence.issuanceIdentities, signatureByThisKey };
   try {
-    const answered = verifyHeadPin(pin, { issuedBy, scope });
-    return { ...base, refused: false, code: null, head: answered };
+    const answered = verifyHeadPin(pin, { expectedHolder, evidence, scope });
+    return { ...base, refused: false, code: null, head: answered.head };
   } catch (error) {
-    return { ...base, refused: true, code: error instanceof Error ? String((error as { code?: string }).code ?? 'UNKNOWN') : 'UNKNOWN', head: null };
+    if (!(error instanceof HeadPinError)) throw error;
+    return { ...base, refused: true, code: error.code, head: null };
   }
-}
-
-/** The public keys a deployment publishes for the keys that sign its receipts, as it publishes them. */
-function issuancePublicKeys(manifestBody: string): string[] {
-  const parsed = JSON.parse(manifestBody) as { keys?: { publicKey?: string }[] };
-  return (parsed.keys ?? []).map((each) => each.publicKey ?? '').filter((each) => each.length > 0);
 }
