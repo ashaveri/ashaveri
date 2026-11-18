@@ -535,18 +535,28 @@ deployer's, and the log is where its use shows.
 
 ## 7. The access log
 
-One JSON object per line, one line per request this process routes, written whether the request was
+One JSON object per line, one append attempt per request this process routes, whether the request was
 admitted or refused; a request the HTTP parser refuses before a route is looked up leaves no line.
 
-The write is made while the answer is still inside this process. `onSend` is the last hook a buffered
-reply passes through with its status final, and the reply is not handed to the socket until the record has
-been written and waited for, so a caller that holds a whole answer holds one whose own line this process
-has already accounted for rather than one still in flight behind it. A hijacked streaming reply is the
-one shape that reaches no `onSend`: it is recorded when its last frame has gone, or when the client walks
-away from it, whichever the socket reports first, so on that one path the answer is observable before the
-line is. What is waited for is an append handed to the operating system, not a flush of a volume's own
-cache: a process stopped by a signal loses no line it had already answered behind, and a machine that dies
-inside the kernel's buffer can lose lines no process was left alive to write.
+`onSend` is the last hook a buffered reply passes through with its status final. The reply waits for its
+access-log append before it is handed to the socket. A hijacked streaming reply bypasses that hook, so its
+success path waits for receipt issuance and then the append before releasing the terminal SSE signal
+(`data: [DONE]`, also accepted without the framing space). Earlier chunks still stream; a response with
+no sentinel waits before EOF instead. The terminal line and any bytes behind it retain their original
+order. A caller observing successful completion therefore observes an append attempt that has settled,
+not one still in flight behind the answer.
+
+Append rejection is fail-open: it does not change the decided response into a request failure. A fixed
+process warning, `ASHAVERI_ACCESS_LOG_WRITE_FAILED`, reports that the record was refused without including
+the error, payload, path or credential. There is no retry: an append may have written before rejecting,
+and another attempt could duplicate the line. Completion and close listeners share the same attempt,
+including while it is pending and after it rejects.
+
+A client can abort before issuance or before any append. Close is a best-effort recording backstop,
+not a guarantee that an aborted stream completed or earned a receipt. Killing the process before that
+backstop finishes can lose its line. When an append succeeds, waiting for its completion protects against
+a process killed immediately after the buffered answer or stream terminal signal; it is not `fsync`,
+and does not establish power-loss durability for the operating system's or volume's caches.
 
 The field names are the entire allowlist: the writer reads exactly these keys out of an object, so an
 object a future hook learns to assemble cannot widen the record. There is no field for a body, a
@@ -566,7 +576,7 @@ The twelve fields, in the order the writer emits them:
 | `rcp` | The receipt a read route was asked for. Only `GET /v1/receipts/:id` names one in its target, so a completion that issues a receipt records nothing here |
 | `nce` | The request's nonce, so a record can be tied to a receipt; `null` on a bearer request, which presents no nonce to record |
 | `st` | The HTTP status this gateway answered with |
-| `dur` | Request duration in milliseconds |
+| `dur` | Milliseconds from request arrival up to record creation, excluding the awaited access-log append and final output; not the client's end-to-end response duration |
 | `deny` | What this gateway decided the refusal was, on a request the pipeline rejected. This is not always the code the caller was told, and the difference is deliberate: the two part where a refusal is collapsed and where one answer stands for two decisions. An id this file does not carry is answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_UNKNOWN`, because the line sits inside the trust boundary and the response outside it, and an operator reading a spike needs the reason rather than the cover. The sibling case is a name this file carries as a bearer record, answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_SCHEME`. The third separation is between two limits rather than two names: a connection that has spent the request bound is answered `RATE_LIMITED`, the very code the credential's own bucket answers with, and written here as `PEER_RATE_LIMITED`. What differs between those two refusals is the operator's fix and not the client's, which is to wait `retry-after` either way, so the reason is recorded where a deployer reads and left out of an answer nobody can act on. It is in no status and no message, and it has no row of its own in `docs/error-codes.md`, whose `RATE_LIMITED` row names it as the deployer's reason and not as something a caller catches, which is what it being a reason rather than an answer means. Nothing the caller can observe changes: the status and the body both carry the collapsed answer. The fourth case on this line is the opposite shape, and it is here because the field is where the two are told apart: a completion refused on the durability guard is answered `RECEIPT_WINDOW_UNHOLDABLE` and written here as that same word, because that refusal is a fact about this deployment which no caller can act on and no wait answers, so it joined the codes a caller branches on rather than staying a reason only a deployer reads. A line whose `deny` names a credential the response never acknowledged is still that credential's record, so the scrub described below erases it on the same instruction |
 
 Deliberately not recorded: request and response bodies, so no prompt and no completion; the

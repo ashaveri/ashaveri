@@ -33,8 +33,9 @@ import { fromHex, sha256, toHex } from './digest.js';
 import { EpochJournalError, unsealedHistoryRefusal, type EpochJournal, type EpochJournalEntry } from './epoch-journal.js';
 import { stampDisclosureOf } from './issuance-disclosure.js';
 import { StreamedItemStamps, boundStampsAt, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
-import { MarkedStreamTail, markBufferedBody, markingFrame, unmarked } from './marking.js';
+import { markBufferedBody, markingFrame, unmarked } from './marking.js';
 import { parseChatCompletionRequest, RequestError } from './mock.js';
+import { AsyncMarkedStreamTail, StreamCompletionGate } from './stream-completion.js';
 import {
   HOST_CLOCK_SOURCE,
   measurableSpanSeconds,
@@ -648,7 +649,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     nonce: string | null;
     receiptId: string | null;
     deny: string | null;
-    logged: boolean;
+    logging?: Promise<void>;
   }
 
   const states = new WeakMap<FastifyRequest, RequestState>();
@@ -659,10 +660,8 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
   async function flush(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const state = stateOf(request);
-    if (state === undefined || state.logged) return;
-    // Set before the write, so a log that rejects this record costs the request its only line: the
-    // alternative is a retry that can land a second line for one request once both listeners fire.
-    state.logged = true;
+    if (state === undefined) return;
+    if (state.logging !== undefined) return state.logging;
     const record: AccessRecord = {
       t: state.arrivedAt,
       rid: state.rid,
@@ -677,13 +676,14 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       dur: Date.now() - state.startedAt,
       deny: state.deny,
     };
-    // A log that cannot take a line is an incident, not a reason to fail a request the pipeline
-    // already decided. The rejection stops here so it cannot become an unhandled one.
-    try {
-      await accessLog.record(record);
-    } catch (err) {
-      request.log.warn({ err }, 'the access log refused a record');
-    }
+    // Retain one shared attempt even if the writer throws or rejects.
+    state.logging = Promise.resolve().then(() => accessLog.record(record)).catch(() => {
+      // The disabled HTTP logger cannot report this; keep the process warning payload-free.
+      process.emitWarning('The access log refused a record; the response will continue without retry.', {
+        code: 'ASHAVERI_ACCESS_LOG_WRITE_FAILED',
+      });
+    });
+    return state.logging;
   }
 
   app.addHook('onRequest', async (request, reply) => {
@@ -701,23 +701,17 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       nonce: null,
       receiptId: null,
       deny: null,
-      logged: false,
     });
-    // The backstop for a hijacked streaming reply, which reaches no `onSend` below: finish for a stream
-    // that ended, close for one the client abandoned. `logged` makes the three sites one record apiece.
+    // Hijacked replies bypass onSend, so close and finish join the shared append.
     reply.raw.once('finish', () => {
-      void flush(request, reply);
+      flush(request, reply).catch(() => undefined);
     });
     reply.raw.once('close', () => {
-      void flush(request, reply);
+      flush(request, reply).catch(() => undefined);
     });
   });
 
-  // The record is owed before the answer is: `onSend` is the last hook a buffered reply passes through
-  // with its status final, and Fastify awaits it before a byte reaches the socket, so an answer a caller
-  // holds whole implies a line this process has already waited on. A handler that sends its own reply has
-  // to await that send, because an awaited hook leaves the reply unsent when the handler resolves and
-  // Fastify would then answer the request a second time, with no body.
+  // Await sends so handler resolution cannot restart the lifecycle while onSend awaits the append.
   app.addHook('onSend', async (request, reply) => {
     await flush(request, reply);
   });
@@ -812,8 +806,8 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       // `test/peer-throttle.test.ts` and the route matrix rather than by the compiler.
       state.deny = err.logCode;
       if (state.credential === null) state.credential = err.credentialId ?? null;
-      if (err.retryAfterSeconds !== undefined) reply.header('retry-after', String(err.retryAfterSeconds));
-      await reply.code(err.status).send({ error: { message: err.message, type: 'authentication_error', code: err.code } });
+      const refusal = err.retryAfterSeconds === undefined ? reply : reply.header('retry-after', String(err.retryAfterSeconds));
+      await refusal.code(err.status).send({ error: { message: err.message, type: 'authentication_error', code: err.code } });
       return;
     }
   });
@@ -961,8 +955,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
   app.get('/v1/deployment-manifest', async (_request, reply) => {
     if (sealedManifest === null) return manifest;
-    reply.header('content-type', 'application/cose');
-    await reply.send(Buffer.from(sealedManifest));
+    await reply.header('content-type', 'application/cose').send(Buffer.from(sealedManifest));
   });
 
   // The bytes a receipt's `wts` names, addressable by that digest. The manifest is read once at start-up
@@ -984,8 +977,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       await reply.code(404).send({ error: { message: `no weights manifest for digest ${digest}`, type: 'not_found' } });
       return;
     }
-    reply.header('content-type', 'application/json');
-    await reply.send(Buffer.from(weightsManifest.bytes));
+    await reply.header('content-type', 'application/json').send(Buffer.from(weightsManifest.bytes));
   });
 
   app.get('/v1/attestation', async (request, reply) => {
@@ -1001,8 +993,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       reportData = fromHex(query.report_data);
     }
     const bundle = await deployment.attestation(reportData);
-    reply.header('content-type', 'application/octet-stream');
-    await reply.send(Buffer.from(bundle.document));
+    await reply.header('content-type', 'application/octet-stream').send(Buffer.from(bundle.document));
   });
 
   // The device leg has no standing answer to fall back on: an accelerator document is
@@ -1020,8 +1011,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       return;
     }
     const device = await deployment.deviceAttestation(fromHex(query.report_data));
-    reply.header('content-type', 'application/octet-stream');
-    await reply.send(Buffer.from(device.document));
+    await reply.header('content-type', 'application/octet-stream').send(Buffer.from(device.document));
   });
 
   app.get('/v1/receipts/:id', async (request, reply) => {
@@ -1036,8 +1026,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       await reply.code(404).send({ error: { message: `no receipt for id ${id}`, type: 'not_found' } });
       return;
     }
-    reply.header('content-type', 'application/cbor');
-    await reply.send(Buffer.from(bytes));
+    await reply.header('content-type', 'application/cbor').send(Buffer.from(bytes));
   });
 
   app.post('/v1/chat/completions', async (request, reply) => {
@@ -1125,10 +1114,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         await upstreamError(reply, errorMessage(err));
         return;
       }
-      reply.header('content-type', response.contentType);
+      const buffered = reply.header('content-type', response.contentType);
       if (failed) {
-        reply.status(response.status);
-        await reply.send(body);
+        await buffered.status(response.status).send(body);
         return;
       }
       let usage: CompletionUsage;
@@ -1173,16 +1161,13 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         usage,
         marking: marked === null ? unmarked() : marked.marking,
       });
-      reply.header('x-ashaveri-receipt-id', receiptId);
-      await reply.send(sent);
+      await buffered.header('x-ashaveri-receipt-id', receiptId).send(sent);
       return;
     }
 
     const iterator = response.chunks[Symbol.asyncIterator]();
     const early: Buffer[] = [];
-    // Hold the headers until the upstream has produced bytes, so an upstream that accepts the
-    // connection and then says nothing is a 502 rather than a receipted empty 200. That is the one
-    // job the bytes check does: an id arriving in those bytes names nothing this gateway looks up.
+    // Delay headers so a silent upstream gets a 502 rather than an empty receipted 200.
     try {
       while (early.length === 0) {
         const next = await withTimeout(iterator.next(), FIRST_EVENT_TIMEOUT_MS, 'inference upstream produced no response bytes');
@@ -1201,40 +1186,35 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     }
     const id = receiptIds.mint(receiptTag);
     const hasher = createHash('sha256');
-    // The item stamps of this stream, fed from the one closure that puts bytes on the socket. Every
-    // digest the payload states is taken at the write: `res` over the whole sequence this hasher sees,
-    // each item's `d` over the frames that sequence holds, and `mk.d` over the region of the frame this
-    // gateway writes itself. Nothing upstream of `write` can state any of the three, because on a
-    // marking deployment the bytes a client receives are not the bytes the upstream sent.
+    // Receipt hashes and item stamps must cover the marked outgoing sequence.
     const items = new StreamedItemStamps(stamp);
-    // Only a gateway that marks holds back any part of a stream, and only its last frames: see
-    // `MarkedStreamTail`.
-    const tail = markingScheme === 'none' ? null : new MarkedStreamTail();
+    // Mark placement and completion gating have different boundaries.
+    const tail = markingScheme === 'none' ? null : new AsyncMarkedStreamTail();
+    const completion = new StreamCompletionGate();
 
-    // SSE is written to the raw response: Fastify's stream plumbing does not
-    // reliably deliver a generator-backed body, and a completion whose bytes
-    // never reached the client must not be receipted.
-    reply.hijack();
-    const res = reply.raw;
+    // Raw SSE avoids unreliable delivery through Fastify's generator-backed streams.
+    const res = reply.hijack().raw;
     res.writeHead(response.status, {
       'content-type': response.contentType,
       'x-ashaveri-receipt-id': id,
       'cache-control': 'no-cache',
     });
-    // Set from the close listener below, so it is held as a property: a `let` written only
-    // in a callback keeps the value it started with where the write loop reads it.
+    // A property keeps callback state visible to the write loop's narrowing.
     const client = { aborted: false };
+    const disposeCompletion = async (): Promise<void> => {
+      const results = await Promise.allSettled([tail?.dispose(), completion.dispose()]);
+      if (results.some((result) => result.status === 'rejected')) {
+        res.destroy(new Error('Temporary response storage cleanup failed'));
+      }
+    };
     res.once('close', () => {
       client.aborted = true;
+      disposeCompletion().catch(() => undefined);
     });
 
-    // The one place a byte of this response is handed to the client. The hash, the item framing and the
-    // socket see one sequence, in one order, with nothing in between them: a digest stated over bytes
-    // that were not written, or an instant attached to a frame that never passed, both start by a write
-    // reaching one of the three and not the others.
-    const write = async (chunk: Uint8Array): Promise<void> => {
-      hasher.update(chunk);
-      items.written(chunk);
+    // Both ordinary writes and the released terminal tail keep the socket's backpressure.
+    const send = async (chunk: Uint8Array): Promise<void> => {
+      if (chunk.length === 0 || client.aborted) return;
       if (res.write(chunk)) {
         return;
       }
@@ -1249,18 +1229,23 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       });
     };
 
-    // A write of upstream bytes goes through the tail when this gateway marks, because the last frame
-    // of a stream is the one place its mark has to sit ahead of, and through `write` either way, so
-    // the hash and the socket see one sequence of bytes.
+    // Account for gated bytes before issuance without releasing their completion signal.
+    const write = async (chunk: Uint8Array): Promise<void> => {
+      hasher.update(chunk);
+      items.written(chunk);
+      await completion.write(chunk, send);
+    };
+
+    // Mark placement must precede hashing and completion gating.
     const forward = async (chunk: Uint8Array): Promise<void> => {
       if (tail === null) {
         await write(chunk);
         return;
       }
-      const ready = tail.writable(chunk);
-      if (ready.length > 0) await write(ready);
+      await tail.write(chunk, write);
     };
 
+    let upstreamDone = false;
     try {
       for (const chunk of early) {
         await forward(chunk);
@@ -1268,12 +1253,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       while (!client.aborted) {
         const next = await iterator.next();
         if (next.done === true) {
+          upstreamDone = true;
           break;
         }
         await forward(next.value);
       }
       if (client.aborted) {
-        void iterator.return?.();
         return;
       }
       const usage = await response.usage;
@@ -1281,26 +1266,20 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         res.destroy(new Error(`inference upstream served '${usage.model}' instead of '${declared.id}'`));
         return;
       }
-      // The mark is the gateway's own bytes, added after the upstream's last byte and before the
-      // digest is finalized, through the same closure that put every other frame on the socket. A
-      // frame written from here on is inside `res`; one written in the `finally` below would not be,
-      // which is why the closing byte is not where a mark belongs.
+      // The mark must pass through the same hash and framing path.
       let marking = unmarked();
       if (tail !== null) {
         const mark = markingFrame(declared.id, stamp());
-        for (const piece of tail.finishing(mark.frame)) {
-          await write(piece);
-        }
+        await tail.finishing(mark.frame, write);
         marking = mark.marking;
       }
-      // Signed before the closing byte, so a client that reads to the end and
-      // immediately fetches its receipt cannot lose the race.
+      if (res.destroyed) return;
+      // Sign the whole prepared sequence before its completion signal is observable.
       await issue({
         id,
         identity,
         responseHash: new Uint8Array(hasher.digest()),
-        // Read after the last frame was written, mark frame included, and before the digest is taken,
-        // so the list states the frames the bytes a client holds contain and none that arrived after.
+        // Read after every outgoing frame is prepared, including the mark and terminal tail.
         framing: items.answer(),
         modelId: declared.id,
         weights: declared.wts,
@@ -1308,11 +1287,21 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         usage,
         marking,
       });
+      await flush(request, reply);
+      await completion.finishing(send);
     } catch (error) {
       res.destroy(error instanceof Error ? error : new Error(errorMessage(error)));
     } finally {
+      await disposeCompletion();
       if (!res.writableEnded && !res.destroyed) {
         res.end();
+      }
+      if (!upstreamDone) {
+        try {
+          await iterator.return?.();
+        } catch {
+          // Upstream cleanup must not replace the response failure.
+        }
       }
     }
   });

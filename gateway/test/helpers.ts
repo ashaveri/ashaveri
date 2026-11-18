@@ -18,7 +18,7 @@ import {
   type CredentialRecord,
   type Scope,
 } from '../src/access.js';
-import { openMemoryAccessLog, type MemoryAccessLog } from '../src/aclog.js';
+import { openMemoryAccessLog, type AccessLog, type MemoryAccessLog } from '../src/aclog.js';
 import { type TimeSource } from '../src/store.js';
 import { sha256 } from '../src/digest.js';
 
@@ -115,6 +115,8 @@ export interface Harness {
 }
 
 export interface HarnessInput {
+  /** A delayed or failing writer for response-ordering tests; the default log remains readable. */
+  accessLog?: AccessLog;
   /** PoP credentials: the harness holds both halves, so `signFor` can sign for them. */
   credentials?: Generated[];
   /** Records with no key behind them: bearer credentials, and revoked ones. */
@@ -198,7 +200,7 @@ export async function harness(input: HarnessInput = {}): Promise<Harness> {
   // exactly as `gateway/src/cli.ts` opens one: a log left on the host clock would prune a record
   // dated by a fixture instant years from now before the suite got a chance to read it back.
   const log = openMemoryAccessLog({ time: input.gateway?.time });
-  const app = buildGateway({ ...input.gateway, access: store, accessLog: log });
+  const app = buildGateway({ ...input.gateway, access: store, accessLog: input.accessLog ?? log });
   // The replay key is a credential id and a nonce, so one nonce used twice by the same credential
   // is a 409 whatever the two requests were for. Counting here rather than at every call site keeps
   // "sign me a header for this request" a question about one request instead of a bookkeeping task.

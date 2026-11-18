@@ -129,7 +129,7 @@ export function markingFrame(
 }
 
 /** Where the sentinel starts in these bytes, if they end with it and with nothing but line ends after. */
-function sentinelStart(bytes: Uint8Array): number {
+export function sentinelStart(bytes: Uint8Array): number {
   let end = bytes.length;
   while (end > 0 && (bytes[end - 1] === LF || bytes[end - 1] === CR)) end -= 1;
   const tokenAt = end - SENTINEL_TOKEN.length;
@@ -157,7 +157,7 @@ function equalsAt(bytes: Uint8Array, at: number, token: Uint8Array): boolean {
  * ends mid-word is a truncated stream, and holding its bytes says nothing about it that its digest
  * does not already say.
  */
-function unsettledSuffix(bytes: Uint8Array): number {
+export function unsettledSuffix(bytes: Uint8Array): number {
   for (let length = Math.min(bytes.length, SENTINEL_FRAME.length - 1); length > 0; length -= 1) {
     if (equalsAt(bytes, bytes.length - length, SENTINEL_FRAME.subarray(0, length))) return length;
   }
@@ -211,7 +211,7 @@ function lineEndingBefore(bytes: Uint8Array, at: number): number {
  * upstream's chunk nor this gateway's chunk. Measured against such a client, only the blank line makes the
  * mark a chunk of its own.
  */
-function closesFrame(bytes: Uint8Array): boolean {
+export function closesFrame(bytes: Uint8Array): boolean {
   if (bytes.length === 0) return true;
   const first = lineEndingBefore(bytes, bytes.length);
   return first > 0 && lineEndingBefore(bytes, bytes.length - first) > 0;
