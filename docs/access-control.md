@@ -539,12 +539,39 @@ One JSON object per line, one append attempt per request this process routes, wh
 admitted or refused; a request the HTTP parser refuses before a route is looked up leaves no line.
 
 `onSend` is the last hook a buffered reply passes through with its status final. The reply waits for its
-access-log append before it is handed to the socket. A hijacked streaming reply bypasses that hook, so its
-success path waits for receipt issuance and then the append before releasing the terminal SSE signal
+access-log write before it is handed to the socket. A hijacked streaming reply bypasses that hook, so its
+success path waits for receipt issuance and then the write before releasing the terminal SSE signal
 (`data: [DONE]`, also accepted without the framing space). Earlier chunks still stream; a response with
 no sentinel waits before EOF instead. The terminal line and any bytes behind it retain their original
-order. A caller observing successful completion therefore observes an append attempt that has settled,
-not one still in flight behind the answer.
+order. A caller observing successful completion therefore observes a write that has settled, not one
+still in flight behind the answer.
+
+The write that settles is a commit to the journal, and the log keeps two families of files. A record's
+first and only awaited write appends its rendered line to a part named `journal-NNN.jsonl`, whose number
+is a sequence and not a date. A background drain copies lines from the journal into the dated parts in
+the order they were written, with no line passing another, and retires a journal part once every line it
+holds has been copied; the part the process is still writing to keeps its bytes until a start clears it.
+A record the drain has copied therefore sits in both families while the process lives, and that is the
+design rather than a defect: the journal is what this process committed, the dated parts are what a
+reader of days sees, and no step inside a run reconciles them; a start is what does.
+
+A start puts the two back into one before it serves. It reads every journal part in sequence order,
+feeds the lines the drain has not yet copied through the same sink a live record uses, skips the lines
+whose record ids the dated parts already hold, and deletes the journal parts once it has settled. A
+record therefore reaches a dated part exactly once no matter where the last process died. A journal
+part that ends in a partial line while a later part exists, or holds a line that is not an access
+record, refuses the start with that part named, before any request is served into the state it
+contradicts. The final part's torn tail is neither replayed nor preserved: an interrupted write
+survives no start, and the file it sits in is cleared with the rest.
+
+Within a run the drain is best-effort. A line the dated-part sink refuses stops it with the fixed
+warning `ASHAVERI_ACCESS_JOURNAL_DRAIN_FAILED`, and it tries again a second later with the lines still
+waiting in their journal part. A journal part whose bytes shrink under the drain, which no writer here
+does, suspends that part with the fixed warning `ASHAVERI_ACCESS_JOURNAL_DRAIN_STALLED` for the rest
+of the run: redraining it from zero would put lines the parts already hold into them a second time, so
+the part waits for the next start's replay, which deduplicates by record id and can take it safely. A
+process that closes cleanly leaves a stalled part behind rather than taking the only copy of its
+records with it.
 
 Append rejection is fail-open: it does not change the decided response into a request failure. A fixed
 process warning, `ASHAVERI_ACCESS_LOG_WRITE_FAILED`, reports that the record was refused without including
@@ -552,11 +579,14 @@ the error, payload, path or credential. There is no retry: an append may have wr
 and another attempt could duplicate the line. Completion and close listeners share the same attempt,
 including while it is pending and after it rejects.
 
-A client can abort before issuance or before any append. Close is a best-effort recording backstop,
-not a guarantee that an aborted stream completed or earned a receipt. Killing the process before that
-backstop finishes can lose its line. When an append succeeds, waiting for its completion protects against
-a process killed immediately after the buffered answer or stream terminal signal; it is not `fsync`,
-and does not establish power-loss durability for the operating system's or volume's caches.
+A client can abort before issuance or before any write. Close is a best-effort recording backstop,
+not a guarantee that an aborted stream completed or earned a receipt, and killing the process before
+that backstop finishes can lose its line. An answer's own record is the opposite case: the write
+whose settlement the answer waited for is the journal commit, so a process killed immediately after
+the buffered answer or the stream terminal signal leaves the line on the volume, and the next start
+moves it into a dated part. That commit is not `fsync`, and does not establish power-loss durability
+for the operating system's or volume's caches; what it settles is the visibility of a killed process,
+not the survival of a powered-off one.
 
 The field names are the entire allowlist: the writer reads exactly these keys out of an object, so an
 object a future hook learns to assemble cannot widen the record. There is no field for a body, a
@@ -609,17 +639,29 @@ rather than stopping it. Section 8.2 says where 184 comes from and what a longer
 on.
 
 `window()` reports what the process actually holds: the earliest and latest timestamp on the volume
-and a count of the records it can read back. A line that fails to parse is skipped, so the number is
+and a count of the records it can read back, read after the drain has settled, so the count spans the
+journal and the dated parts without a reader of the window knowing the families exist. A line that
+fails to parse is skipped, so the number is
 of readable records rather than of lines. It is a count of what survives, not of what was written, so
 an operator who pruned early sees a shorter window rather than a number that implies the missing days
 exist somewhere. `--access-log-days` is the request; the window is the result.
 
+The journal family sits beside those files in the same directory, and its names carry a sequence and
+no date on purpose. The retention sweep collects dated names: an `access` part whose day has run out,
+and a scrub marker on its own day's schedule. It never matches a journal part, because a journal
+part's age is not the age of its records: a part the sweep collected while the drain had not reached
+it would take acknowledged records with it. The parts a run leaves behind are cleared by the next
+start's replay instead.
+
 ### Erasure
 
 `ashaveri accesslog scrub --credential <id>` is the erasure route. It filters one credential's
-records out of every part, publishes its counts and rewrites each affected part at the permission
+records out of every dated part and out of the journal parts a start would replay, publishes its
+counts and rewrites each affected part at the permission
 bits read back from that part, since a publish replaces the part whole and the mode is the only
-setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The filter is the
+setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The journal is
+included because a journal that kept a scrubbed record would put it back into the log on the next
+start. The filter is the
 `cred` field, so a line this gateway refused without ever acknowledging the name it was given is
 erased with the rest: a collapsed refusal still records which credential the request named, and that
 record is about the subject even when the response said nothing about it. The marker is the proof
@@ -900,7 +942,7 @@ what a deployer has for the log, and it is not offered as settling that duty for
 
 | Field | Purpose | Retention | Where it lives | How it is erased | Whose lawful basis |
 |---|---|---|---|---|---|
-| `t`, `rid`, `m`, `p`, `st`, `dur` | one request's shape and outcome | `--access-log-days`, default 184, and a shorter value starts with a start-up note | one JSONL file per day | deleted with its file on a name read from the file name | the deployer's |
+| `t`, `rid`, `m`, `p`, `st`, `dur` | one request's shape and outcome | `--access-log-days`, default 184, and a shorter value starts with a start-up note | one JSONL file per day, and the journal part holding the record until the next start clears it | deleted with its file on a name read from the file name | the deployer's |
 | `cred`, `auth`, `scope` | which credential made the request, in which mode | same | same | `ashaveri accesslog scrub --credential <id>` | the deployer's |
 | `nce` | the request's nonce, so a record can be tied to a receipt | same | same | scrub | the deployer's |
 | `rcp` | which receipt a read route was asked for | same | same | scrub | the deployer's |

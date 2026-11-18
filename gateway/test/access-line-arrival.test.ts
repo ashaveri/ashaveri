@@ -15,9 +15,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { newPopCredential, serializeCredentialFile } from '../src/access.js';
 import { ACCESS_PART_NAME, parseAccessLine } from '../src/aclog.js';
+import { JOURNAL_PART_NAME } from '../src/journal.js';
 import { bootBudget, bootServing, complete, signedGet } from './support/served-gateway.js';
 
-// Killing the server after an answer makes the volume the only witness to its access append.
+// Killing the server after an answer makes the volume the only witness to its access append. The
+// write whose settlement the answer waits for lands in a journal part that holds every record the
+// process committed, and the drain copies each into a dated part while the process lives, so a
+// record the drain reached sits in both families and a start's replay is what reconciles them.
 
 const TARGET = '/v1/chat/completions';
 const BODY = '{"model":"mock-model-1","messages":[{"role":"user","content":"ordering"}]}';
@@ -988,8 +992,8 @@ let accessDir = '';
 let volumeDir = '';
 let credentialsPath = '';
 
-async function logLines(): Promise<string[]> {
-  const names = (await readdir(accessDir)).filter((each) => ACCESS_PART_NAME.test(each)).sort();
+async function linesIn(matching: (name: string) => boolean): Promise<string[]> {
+  const names = (await readdir(accessDir)).filter(matching).sort();
   const all: string[] = [];
   for (const name of names) {
     for (const line of (await readFile(join(accessDir, name), 'utf8')).split('\n')) {
@@ -998,6 +1002,32 @@ async function logLines(): Promise<string[]> {
   }
   return all;
 }
+
+/** The answers a start recovers from this volume, counted as distinct records across both families.
+ * The journal holds every record the process committed, and the drain copies each into a dated part
+ * while the process lives, so a record the drain reached sits in both until a start deletes the
+ * journal. A torn tail names no record and survives no start, so it counts nothing. */
+async function volumeLines(): Promise<string[]> {
+  const all = await linesIn((name) => ACCESS_PART_NAME.test(name) || JOURNAL_PART_NAME.test(name));
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const line of all) {
+    let rid: string;
+    try {
+      rid = String((JSON.parse(line) as { rid?: unknown }).rid);
+    } catch {
+      continue;
+    }
+    if (!seen.has(rid)) {
+      seen.add(rid);
+      unique.push(line);
+    }
+  }
+  return unique;
+}
+
+/** The lines a dated-part reader sees once a start has replayed the journal into them. */
+const partLines = (): Promise<string[]> => linesIn((name) => ACCESS_PART_NAME.test(name));
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'ashaveri-flush-witness-'));
@@ -1015,7 +1045,7 @@ afterAll(async () => {
 describe('an answered request whose line outlives the process', () => {
   it(
     'leaves one access line on the volume for each answer a killed process handed out',
-    { timeout: bootBudget(BOOTS) + 20_000 },
+    { timeout: bootBudget(BOOTS + 1) + 20_000 },
     async () => {
       for (let round = 0; round < BOOTS; round += 1) {
         const served = await bootServing([
@@ -1028,20 +1058,29 @@ describe('an answered request whose line outlives the process', () => {
         const read = await signedGet(served, pop, `/v1/receipts/${String(answered.receiptId)}`);
         expect(read.status, read.body).toBe(200);
         await served.kill();
-        const lines = await logLines();
+        const lines = await volumeLines();
         expect(
           lines.length,
           `round ${String(round)}: the caller held both answers, so the volume owes ${String((round + 1) * LINES_PER_BOOT)} lines and holds ${String(lines.length)}`,
         ).toBe((round + 1) * LINES_PER_BOOT);
       }
-      const paths = (await logLines()).map((line) => parseAccessLine(line).p);
+      // Wherever the kills landed, the answers were in journal parts a start has not drained. A
+      // restart replays them into dated parts, so the parts a reader of those reads now hold the
+      // whole run without the journal.
+      const restarted = await bootServing([
+        '--receipts-dir', volumeDir,
+        '--credentials-path', credentialsPath,
+        '--access-log-path', accessDir,
+      ]);
+      await restarted.kill();
+      const paths = (await partLines()).map((line) => parseAccessLine(line).p);
       expect(paths.filter((each) => each === '/v1/chat/completions')).toHaveLength(BOOTS);
       expect(paths.filter((each) => each.startsWith('/v1/receipts/'))).toHaveLength(BOOTS);
     },
   );
 
   it.each(['none', 'provenance-v1'] as const)('keeps the line when killed at the %s terminal signal, without waiting for EOF', async (marking) => {
-    const before = (await logLines()).length;
+    const before = (await volumeLines()).length;
     const served = await bootServing([
       '--receipts-dir', volumeDir, '--credentials-path', credentialsPath,
       '--access-log-path', accessDir, '--marking', marking,
@@ -1070,14 +1109,14 @@ describe('an answered request whose line outlives the process', () => {
         }
       }
       await reader.cancel().catch(() => undefined);
-      expect((await logLines()).length).toBe(before + 1);
+      expect((await volumeLines()).length).toBe(before + 1);
     } finally {
       await served.kill();
     }
   }, bootBudget(1) + 20_000);
 
   it('keeps the line when killed immediately after a buffered completion body', async () => {
-    const before = (await logLines()).length;
+    const before = (await volumeLines()).length;
     const served = await bootServing([
       '--receipts-dir', volumeDir, '--credentials-path', credentialsPath, '--access-log-path', accessDir,
     ]);
@@ -1085,7 +1124,7 @@ describe('an answered request whose line outlives the process', () => {
       const answer = await complete(served, pop);
       await served.kill();
       expect(answer.status).toBe(200);
-      expect((await logLines()).length).toBe(before + 1);
+      expect((await volumeLines()).length).toBe(before + 1);
     } finally {
       await served.kill();
     }
@@ -1100,7 +1139,7 @@ describe('an answered request whose line outlives the process', () => {
     const refused = await signedGet(served, pop, '/v1/receipts/rcpt_never_filed');
     expect(refused.status).toBe(404);
     await served.kill();
-    const lines = (await logLines()).map((line) => parseAccessLine(line));
+    const lines = (await volumeLines()).map((line) => parseAccessLine(line));
     const mine = lines.filter((each) => each.p === '/v1/receipts/rcpt_never_filed');
     expect(mine.map((each) => each.st)).toEqual([404]);
   }, bootBudget(1) + 20_000);

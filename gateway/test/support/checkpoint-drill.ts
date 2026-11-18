@@ -26,6 +26,7 @@ import {
   type HeadPinRefusalCode,
 } from './checkpoint-pin.js';
 import { parseAccessLine, RETENTION_SWEEP_NAME } from '../../src/aclog.js';
+import { JOURNAL_PART_NAME } from '../../src/journal.js';
 import { daysToSeconds } from '../../src/duty-window.js';
 import {
   readReceiptStoreCheckpoint,
@@ -424,14 +425,27 @@ function reportAssessment(report: (line: string) => void, table: string[], answe
   for (const each of answer.findings) report(`      ${each.kind}: ${each.detail}`);
 }
 
+/**
+ * The answers the volume holds, counted as distinct records across the dated parts and the journal
+ * parts. A record the drain copied sits in both families until a start deletes the journal, and a
+ * record the drain never reached before the kill sits only in the journal, so neither family alone
+ * names the whole run. Every line must still parse as an access record: a torn tail names no record
+ * and survives no start, and this run kills no request mid-write.
+ */
 async function readAccessLog(dir: string): Promise<{ files: string[]; lines: number }> {
   const names = (await readdir(dir)).sort();
+  const seen = new Set<string>();
   let lines = 0;
-  for (const name of names.filter((each) => RETENTION_SWEEP_NAME.test(each) && !each.startsWith('scrub-'))) {
+  const own = names.filter(
+    (each) => (RETENTION_SWEEP_NAME.test(each) && !each.startsWith('scrub-')) || JOURNAL_PART_NAME.test(each),
+  );
+  for (const name of own) {
     for (const line of (await readFile(join(dir, name), 'utf8')).split('\n')) {
       if (line.trim().length === 0) continue;
+      const parsed = parseAccessLine(line);
+      if (seen.has(parsed.rid)) continue;
+      seen.add(parsed.rid);
       lines += 1;
-      parseAccessLine(line);
     }
   }
   return { files: names, lines };
