@@ -136,7 +136,7 @@ export async function openAccessJournal(options: AccessJournalOptions): Promise<
   let failed = false;
   let stopped = false;
   const stalledParts = new Set<string>();
-  const drainedLines = new Map<string, number>();
+  const drainedBytes = new Map<string, number>();
   const seenBytes = new Map<string, number>();
   let idleWaiters: (() => void)[] = [];
 
@@ -201,26 +201,31 @@ export async function openAccessJournal(options: AccessJournalOptions): Promise<
         continue;
       }
       seenBytes.set(part.name, size);
-      const { complete, tornTail } = splitCompleteLines(bytes.toString('utf8'));
-      const done = drainedLines.get(part.name) ?? 0;
+      // The drain reads only the bytes past its position. A full re-read of a growing part would
+      // make every tick pay for the whole run again, and the position always sits just after a
+      // newline byte, so an incremental read never splits a UTF-8 character; a torn tail that
+      // ends mid-character is held back here and re-read whole once its bytes complete.
+      const drained = drainedBytes.get(part.name) ?? 0;
+      const { complete, tornTail } = splitCompleteLines(
+        drained < size ? bytes.subarray(drained).toString('utf8') : '',
+      );
       if (tornTail !== null && part.seq !== writeSeq) {
         throw new Error(`access journal part ${part.name} ends in a partial line while a later part exists`);
       }
-      const pending = complete.slice(done);
-      for (let index = 0; index < pending.length; index += 1) {
-        const line = pending[index];
-        if (line === undefined) break;
+      let advanced = drained;
+      for (const line of complete) {
         await sink(line);
         // The position advances per sunk line, not per tick: a sink that threw after earlier
         // lines landed must not put those lines into the part a second time when the retry
         // drains the part again.
-        drainedLines.set(part.name, done + index + 1);
+        advanced += Buffer.byteLength(line);
+        drainedBytes.set(part.name, advanced);
       }
       if (tornTail !== null) sawPending = true;
       const isCurrent = part.seq === writeSeq;
       if (!isCurrent && tornTail === null) {
         await unlink(join(dir, part.name)).catch(whenNotFound(undefined));
-        drainedLines.delete(part.name);
+        drainedBytes.delete(part.name);
         seenBytes.delete(part.name);
       }
     }
