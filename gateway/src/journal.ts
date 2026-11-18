@@ -73,8 +73,10 @@ export async function scanJournalPartNames(dir: string): Promise<JournalPartRef[
 
 export interface AccessJournal {
   /**
-   * Writes the line into the current journal part and resolves once the bytes are on disk. The
-   * line carries its own newline: the journal stores rendered lines verbatim.
+   * Writes the line into the current journal part and resolves once the bytes are in the file, in
+   * the kernel's page cache: a killed process leaves them behind, a power cut can still take
+   * them, and a start replays whatever a crash left. The line carries its own newline: the
+   * journal stores rendered lines verbatim.
    */
   append(line: string): Promise<void>;
   /**
