@@ -34,7 +34,7 @@ import {
   walkToAddressablePort,
   type ServedGateway,
 } from './support/served-gateway.js';
-import { firstRecordOf, receiptFrame } from './support/receipt-volume.js';
+import { DEFAULT_RECEIPT_DURABILITY_COUNT, DEFAULT_RECEIPT_SERVING_COUNT, firstRecordOf, receiptFrame } from './support/receipt-volume.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const ENTRYPOINT_PATH = fileURLToPath(new URL('../../enclave/docker-entrypoint.sh', import.meta.url));
@@ -259,11 +259,6 @@ function liveArgs(...args: string[]): string[] {
   ];
 }
 
-
-/** The durability bound and the serving bound `gateway/src/cli.ts` opens a volume store with. Both are
- * shipped at ten thousand receipts, which is a capacity decision and not a figure either count owes
- * the other. */
-const SHIPPED_RECEIPT_BOUND = 10_000;
 
 
 /**
@@ -1143,7 +1138,7 @@ describe('the bound a declared flag is weighed against the roster for', () => {
       const pop = newPopCredential({ id: 'roster-wide', scopes: ['read', 'complete'] });
       const record = { ...pop.record, rate: { perMinute: 600, burst: 120 } };
       const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [record] }));
-      const banner = await readBanner('--mock', '--credentials-path', path, '--completion-rate', 'perMinute=500,burst=10');
+      const banner = await readBanner('--mock', '--port', '0', '--credentials-path', path, '--completion-rate', 'perMinute=500,burst=10');
       expect(banner.join('\n')).toContain('500 completions a minute across this process and 10 at once');
     },
     20_000,
@@ -1157,7 +1152,7 @@ describe('the bound a declared flag is weighed against the roster for', () => {
       // measured and a number an operator typed.
       const pop = newPopCredential({ id: 'roster-default', scopes: ['read', 'complete'] });
       const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
-      const banner = await readBanner('--mock', '--credentials-path', path);
+      const banner = await readBanner('--mock', '--port', '0', '--credentials-path', path);
       expect(banner.join('\n')).toContain('70080 completions a minute across this process and 1168 at once');
     },
     20_000,
@@ -1506,7 +1501,7 @@ describe('a volume whose receipts have to outlive the start', () => {
       mkdirSync(dir);
       // Ten thousand receipts, the durability bound this CLI ships, over the hundred seconds the
       // fixture spreads them across, against a period configured in the same file as 184 days.
-      const bytes = writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+      const bytes = writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
 
       const result = run('--mock', '--port', '0', '--receipts-dir', dir);
       expect(result.status, result.stderr).toBe(1);
@@ -1515,14 +1510,14 @@ describe('a volume whose receipts have to outlive the start', () => {
       // Both quantities that disagree, named in the sentence an operator reads, and the count that the
       // store's own traffic says the window takes. The first two come from this CLI's configuration and
       // the third from the file, so no one of them is the other's restatement.
-      expect(refused).toContain(`durability bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts`);
+      expect(refused).toContain(`durability bound of ${String(DEFAULT_RECEIPT_DURABILITY_COUNT)} receipts`);
       expect(refused).toContain(`${String(MINIMUM_RETENTION_SECONDS)} seconds`);
       expect(refused).toContain('receipts at the rate this store has been carrying');
       // How far short the bound is, so the number to set is read off the line rather than worked out,
       // and the other count this CLI ships named as the one that is not the problem: a process started
       // with both counts says which of them it is objecting to.
-      expect(refused).toContain(`short by ${String(PERIOD_RECEIPTS - SHIPPED_RECEIPT_BOUND)} receipts`);
-      expect(refused).toContain(`the serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts is not`);
+      expect(refused).toContain(`short by ${String(PERIOD_RECEIPTS - DEFAULT_RECEIPT_DURABILITY_COUNT)} receipts`);
+      expect(refused).toContain(`the serving bound of ${String(DEFAULT_RECEIPT_SERVING_COUNT)} receipts is not`);
       expect(refused, 'a process that refused to boot printed a banner').not.toContain('listening on');
 
       // The receipts are the evidence the refusal is read from, and this is the one moment an operator
@@ -1531,17 +1526,17 @@ describe('a volume whose receipts have to outlive the start', () => {
       expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(bytes);
     },
     // The volume is written in one go and read back by a start that refuses it, and framing
-    // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 3.1s, about a third of a
+    // DEFAULT_RECEIPT_DURABILITY_COUNT receipts is the whole of the work: measured here at 3.1s, about a third of a
     // millisecond a receipt, so the ceiling is three times that, a millisecond a receipt, with a five
     // second floor for the spawn rather than a figure carried over from another case.
-    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
+    bootBudget(1) + DEFAULT_RECEIPT_DURABILITY_COUNT,
   );
 
   it(
     'starts the same volume once its durability bound can hold the period', async () => {
       const dir = join(tempDir, 'window-raised');
       mkdirSync(dir);
-      writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+      writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
 
       const banner = await readBanner(
         '--mock',
@@ -1558,13 +1553,13 @@ describe('a volume whose receipts have to outlive the start', () => {
       expect(line, printed).toContain(`a durability bound of ${String(PERIOD_RECEIPTS)} receipts`);
       // The serving bound is reported as installed, which is the point: the volume now keeps a period
       // that takes a sixth of a billion receipts and a query still holds ten thousand of them.
-      expect(line, printed).toContain(`a serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts to a query`);
+      expect(line, printed).toContain(`a serving bound of ${String(DEFAULT_RECEIPT_SERVING_COUNT)} receipts to a query`);
     },
     // The same ten thousand receipts on disk, framed and written in one go, read back by a start that
     // was told a durability bound big enough to hold 184 days of them with a serving bound nobody
     // raised: measured here at 0.6s against the 3.1s the refusing start takes on the same volume, so the
     // ceiling is read off the receipt count the case writes, one millisecond a receipt.
-    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
+    bootBudget(1) + DEFAULT_RECEIPT_DURABILITY_COUNT,
   );
 
   // Two hundred receipts and one boot that prints its banner, measured here at 0.44s: the runner's
@@ -1626,7 +1621,7 @@ describe('a volume whose receipts have to outlive the start', () => {
       // bound this CLI ships after a hundred seconds of the rate `docs/access-control.md` states for
       // one address, and the period an operator asking for five years types in the only unit the flag
       // takes: whole days.
-      writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+      writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
 
       const result = run('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-days', '1826');
       expect(result.status, result.stderr).toBe(1);
@@ -1642,13 +1637,13 @@ describe('a volume whose receipts have to outlive the start', () => {
       // thousand times the volume this CLI ships.
       expect(refused).toContain('15934406401 receipts');
       expect(refused).toContain('short by 15934396401 receipts');
-      expect(refused).toContain(`the serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts is not`);
+      expect(refused).toContain(`the serving bound of ${String(DEFAULT_RECEIPT_SERVING_COUNT)} receipts is not`);
       expect(refused, 'a start that refused its volume printed no banner').not.toContain('listening on');
     },
     // The same ten thousand receipts framed in one go and read back by a start that refuses them, so
     // the ceiling is the one the case above derives for that volume: a millisecond a receipt over the
     // spawn the case runs.
-    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
+    bootBudget(1) + DEFAULT_RECEIPT_DURABILITY_COUNT,
   );
 
   it('refuses the count its own unholdable window tells an operator to configure', () => {
@@ -1787,7 +1782,7 @@ describe('the durability guard read while serving', () => {
   } {
     const dir = join(tempDir, name);
     mkdirSync(dir);
-    writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+    writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
     const pop = newPopCredential({ id: 'guard-pop', scopes: ['read', 'complete'] });
     const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
     return {
@@ -1799,7 +1794,7 @@ describe('the durability guard read while serving', () => {
         '--credentials-path',
         path,
         '--receipts-keep',
-        String(SHIPPED_RECEIPT_BOUND * 2),
+        String(DEFAULT_RECEIPT_DURABILITY_COUNT * 2),
         '--receipts-guard-at',
         '50',
       ],

@@ -1,18 +1,10 @@
 import { createHash } from 'node:crypto';
 
-/**
- * The receipt volume read and written as bytes rather than through the store that owns it.
- *
- * A drill that asks the store to plant a missing record would be checking the store's claim against the
- * store, and one that reads its ids through `openFileReceiptStore` could not tell a lost record apart from
- * a pruned one. So the framing is spelled out here a second time, the way `gateway/test/store.test.ts` and
- * `gateway/test/cli.test.ts` each already carry their own copy: a reader that agrees with the writer about
- * every byte is a reader that cannot see a byte that moved.
- *
- * `Record = len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32`, with the
- * digest taken over kind through payload and `prev` the digest of the record before it, zeros at the head
- * of the file.
- */
+// These shipped defaults coincide, but configure independent product limits.
+export const DEFAULT_RECEIPT_DURABILITY_COUNT = 10_000;
+export const DEFAULT_RECEIPT_SERVING_COUNT = 10_000;
+
+// Direct framing permits loss mutations without the store pruning or repairing the input.
 export function receiptFrame(prev: Uint8Array, iat: number, id: string, payload: Buffer): Buffer {
   const idBytes = Buffer.from(id, 'utf8');
   const body = Buffer.alloc(1 + 32 + 8 + 2 + idBytes.length + payload.length);
@@ -28,10 +20,7 @@ export function receiptFrame(prev: Uint8Array, iat: number, id: string, payload:
   return Buffer.concat([prefix, body, digest]);
 }
 
-/**
- * The first record of a store file, read out of the framing rather than through the store that wrote it,
- * so a case can name the kind byte and the payload a run actually put on the volume.
- */
+// Read framing directly so the assertion is independent of the store reader.
 export function firstRecordOf(file: Buffer): { kind: number; id: string; payload: Buffer } {
   const idLength = file.readUInt16BE(45);
   const payloadAt = 47 + idLength;
@@ -44,7 +33,7 @@ export function firstRecordOf(file: Buffer): { kind: number; id: string; payload
 
 /** One receipt as the volume states it, with the two digests a reader weighs: its own and the one it chains from. */
 export interface VolumeRecord {
-  /** The chain position: receipts count, in file order, and trim records do not. */
+  /** Frame position in the receipt-only fixture volumes this helper consumes. */
   readonly seq: number;
   readonly at: number;
   readonly id: string;
@@ -80,8 +69,7 @@ export function readVolume(file: Buffer): VolumeReading {
     const seq = records.length;
     const prev = body.subarray(1, 33).toString('hex');
     if (stored !== digest) {
-      // A record whose own bytes do not hash to the digest it carries is not a link to weigh; it is the
-      // end of what this volume can be read as, and the store refuses the same file at its opening.
+      // A bad digest ends the trustworthy prefix.
       brokenAtSeq = brokenAtSeq ?? seq;
       return { records, endAt: at, brokenAtSeq };
     }
@@ -108,13 +96,7 @@ export function volumeHead(volume: VolumeReading): { sequence: number; sha256: s
   return last === undefined ? null : { sequence: last.seq, sha256: last.digest };
 }
 
-/**
- * Rebuilds a volume from the receipts a caller names, chaining each from the digest of the one before it.
- *
- * This is what a loss that leaves a *valid* file looks like: a reader holding only the bytes cannot tell a
- * rebuilt volume from one that never held the dropped record, so the only witness left is the head someone
- * pinned while the records were still all there. Re-chaining is the arm the drill needs the pin for.
- */
+// Re-chaining hides loss from local chain checks, leaving the independent pin as the witness.
 export function buildVolume(receipts: readonly { at: number; id: string; payload: Buffer }[]): Buffer {
   let prev: Uint8Array = new Uint8Array(32);
   const frames: Buffer[] = [];
