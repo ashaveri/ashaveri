@@ -12,6 +12,17 @@ import { escapeInvisible, escapeInvisibleJson, printedToken, UsageError, writeJs
  */
 export const ACCESS_FILE = /^access-(\d{4}-\d{2}-\d{2})-(\d{3})\.jsonl$/u;
 
+/**
+ * The journal family's name, copied for the same reason as the part name above. The gateway holds
+ * records whose `record()` has settled in these until its consumer drains them into the dated parts,
+ * so an erasure that opened only the dated parts could leave the subject's records on the volume
+ * behind a name nothing else would have reached, and a later start would replay them back into the
+ * log. Journal parts hold the same rendered lines the parts do, so the rewrite below treats them
+ * identically; a torn tail a crash left survives a line filter that cannot read it, and the replay
+ * that drops it keeps that decision with the writer.
+ */
+export const JOURNAL_FILE = /^journal-(\d+)\.jsonl$/u;
+
 /** A day's whole allotment of marker names, and the mode one is published at. */
 const MARKER_SLOTS = 1_000;
 const MARKER_MODE = 0o600;
@@ -178,10 +189,10 @@ export async function accesslogScrub(
   refuseErasureUnderHold(options.holds ?? [], credential, Math.floor(at / 1000));
   const day = markerDay(at);
   const names = await readdirOrThrow(dir);
-  const targets = names.filter((each) => ACCESS_FILE.test(each)).sort();
+  const targets = names.filter((each) => ACCESS_FILE.test(each) || JOURNAL_FILE.test(each)).sort();
   if (targets.length === 0) {
     throw new UsageError(
-      '--access-log holds no file named access-YYYY-MM-DD-NNN.jsonl; point it at the directory the gateway writes its access log into',
+      '--access-log holds no file named access-YYYY-MM-DD-NNN.jsonl or journal-NNN.jsonl; point it at the directory the gateway writes its access log into',
     );
   }
   const request = options.request ?? null;

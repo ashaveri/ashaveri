@@ -296,7 +296,7 @@ describe('openFileAccessLog', () => {
       void log.record(entry({ rid: `req-${String(i)}`, p: 'x'.repeat(8_192) }));
     }
     await log.drain();
-    const names = await readdir(dir);
+    const names = (await readdir(dir)).filter((name) => name.startsWith('access-'));
     const lines = (
       await Promise.all(names.map(async (name) => (await readFile(join(dir, name), 'utf8')).trimEnd().split('\n')))
     ).flat();
@@ -309,16 +309,18 @@ describe('openFileAccessLog', () => {
     const dir = await tempDir();
     const day = new Date(T0).toISOString().slice(0, 10);
     const target = join(dir, `access-${day}-000.jsonl`);
-    await mkdir(target);
     const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
+    // The write a record settles against is the journal's, so a poisoned journal part fails the
+    // record, and the chain behind it keeps writing once the poison is gone.
+    await mkdir(join(dir, 'journal-000.jsonl'));
     await expect(log.record(entry({ rid: 'poisoned' }))).rejects.toThrow(/EISDIR/u);
-    await rm(target, { recursive: true, force: true });
+    await rm(join(dir, 'journal-000.jsonl'), { recursive: true, force: true });
     await log.record(entry({ rid: 'after' }));
     await log.drain();
     expect((await log.files()).map((path) => path.split(/[\\/]/u).pop())).toEqual([`access-${day}-000.jsonl`]);
     expect(parseAccessLine((await readFile(target, 'utf8')).trimEnd()).rid).toBe('after');
     expect((await log.window()).count).toBe(1);
-    // A day named outside the Date range poisons the queue too, from inside the queued task.
+    // A day named outside the Date range is refused at the caller, before any byte is written.
     await expect(log.record(entry({ rid: 'far-future', t: 8_640_000_000_000_001 }))).rejects.toThrow(RangeError);
     await log.record(entry({ rid: 'after-that', t: T0 + 60_000 }));
     await log.drain();
@@ -410,9 +412,10 @@ describe('openFileAccessLog', () => {
     // with one it can still see: nothing. Its `t` is the moment a scrub ran, not a request.
     await writeFile(join(dir, 'scrub-2026-03-01-000.jsonl'), `{"t":${at},"credential":"a","removed":0,"files":0}\n`, 'utf8');
     const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at });
-    // Opening does not sweep and drain() only waits for the queue, so one record carries the day
-    // roll that does, exactly as it does behind a live gateway.
+    // Opening does not sweep; the sweep runs inside the drain's sink, so a record plus the drain
+    // that settles it carries the day roll, exactly as a live gateway's ticks do.
     await log.record(entry({ rid: 'after-sweep', t: at }));
+    await log.drain();
     const names = await readdir(dir);
     expect(names).not.toContain('scrub-2026-01-01-000.jsonl');
     expect(names).not.toContain('access-2026-01-01-000.jsonl');
@@ -432,18 +435,35 @@ describe('openFileAccessLog', () => {
     const poison = join(dir, 'access-2026-01-01-000.jsonl');
     await mkdir(poison);
     await writeFile(join(dir, 'access-2026-01-02-000.jsonl'), renderAccessLine(entry({ t: Date.parse('2026-01-02T00:00:00Z') })), 'utf8');
-    const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at });
-    await expect(log.record(entry({ rid: 'first', t: at }))).rejects.toThrow(/access-2026-01-01-000\.jsonl/u);
-    // The sweep stopped at the name it could not delete, so the younger aged part is still there.
-    expect(await readdir(dir)).toContain('access-2026-01-02-000.jsonl');
-    await rm(poison, { recursive: true, force: true });
-    await log.record(entry({ rid: 'second', t: at + 60_000 }));
-    // A sweep that failed is not a sweep that ran: the same day retries it, and both records the
-    // two requests wrote are on disk, because the append happens before the sweep.
-    expect(await readdir(dir)).not.toContain('access-2026-01-02-000.jsonl');
-    expect((await log.window()).count).toBe(2);
-    await log.close();
-    await rm(dir, { recursive: true, force: true });
+    const warnings: string[] = [];
+    const onWarning = (warning: Error & { code?: string }): void => {
+      if (warning.code === 'ASHAVERI_ACCESS_SWEEP_FAILED') warnings.push(warning.message);
+    };
+    process.on('warning', onWarning);
+    try {
+      const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at });
+      // The record settles in the journal before the sink runs, so a sweep the volume refuses is
+      // a warning naming the part it stopped at, not a failed request.
+      await log.record(entry({ rid: 'first', t: at }));
+      await log.drain();
+      for (let round = 0; round < 100 && warnings.length === 0; round += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      expect(warnings.some((message) => message.includes('access-2026-01-01-000.jsonl'))).toBe(true);
+      // The sweep stopped at the name it could not delete, so the younger aged part is still there.
+      expect(await readdir(dir)).toContain('access-2026-01-02-000.jsonl');
+      await rm(poison, { recursive: true, force: true });
+      await log.record(entry({ rid: 'second', t: at + 60_000 }));
+      await log.drain();
+      expect(await readdir(dir)).not.toContain('access-2026-01-02-000.jsonl');
+      // A sweep that failed is not a sweep that ran: the same day retries it, and both records the
+      // two requests wrote are on disk, because the append happens before the sweep.
+      expect((await log.window()).count).toBe(2);
+      await log.close();
+      await rm(dir, { recursive: true, force: true });
+    } finally {
+      process.off('warning', onWarning);
+    }
   });
 });
 
@@ -479,7 +499,9 @@ describe('a sweep a hold suspends', () => {
     await writeFile(join(dir, `scrub-${HELD}-000.jsonl`), '{"t":1,"credential":"a","removed":0,"files":0}\n', 'utf8');
     await writeFile(join(dir, 'scrub-2026-01-01-000.jsonl'), '{"t":1,"credential":"b","removed":1,"files":0}\n', 'utf8');
     const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at, hold: holdingDays([HELD], asked) });
+    // The sweep runs inside the drain's sink: settle the record before reading the directory.
     await log.record(entry({ rid: 'sweep', t: at }));
+    await log.drain();
     const names = await readdir(dir);
     expect(names).toContain(`access-${HELD}-000.jsonl`);
     expect(names).toContain(`scrub-${HELD}-000.jsonl`);
@@ -501,6 +523,7 @@ describe('a sweep a hold suspends', () => {
     await writeFile(join(dir, 'access-2026-01-02-000.jsonl'), '', 'utf8');
     const log = await openFileAccessLog({ dir, days: 30, nowMillis: () => at, hold: holdingDays([], []) });
     await log.record(entry({ rid: 'sweep', t: at }));
+    await log.drain();
     const names = await readdir(dir);
     expect(names).not.toContain('access-2026-01-01-000.jsonl');
     expect(names).not.toContain('access-2026-01-02-000.jsonl');

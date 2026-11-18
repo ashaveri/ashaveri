@@ -93,10 +93,10 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-/** Every byte the log wrote, read back off the volume rather than out of a test double. */
+/** Every byte the access parts wrote, read back off the volume rather than out of a test double. */
 async function written(): Promise<string> {
   await log.drain();
-  const names = await readdir(dir);
+  const names = (await readdir(dir)).filter((name) => name.startsWith('access-'));
   const parts: string[] = [];
   for (const name of names.sort()) {
     parts.push(await readFile(join(dir, name), 'utf8'));

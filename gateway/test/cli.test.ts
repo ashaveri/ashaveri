@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { noteSpawn } from './support/spawn-budget.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +18,23 @@ import {
 import { newBearerCredential, newPopCredential, serializeCredentialFile } from '../src/access.js';
 import { daysToSeconds } from '../src/duty-window.js';
 import { MINIMUM_RETENTION_SECONDS, openFileReceiptStore, RECEIPT_OWNER_FILE, RECEIPT_STORE_FILE } from '../src/store.js';
+import {
+  ask,
+  askClientAboutPort,
+  BOOT_DEADLINE_MS,
+  bootBudget,
+  bootServing,
+  complete,
+  listeningLine,
+  LISTENING_PORT,
+  LISTENING_PREFIX,
+  pickBudget,
+  SPAWN_DEADLINE_MS,
+  spawnBudget,
+  walkToAddressablePort,
+  type ServedGateway,
+} from './support/served-gateway.js';
+import { DEFAULT_RECEIPT_DURABILITY_COUNT, DEFAULT_RECEIPT_SERVING_COUNT, firstRecordOf, receiptFrame } from './support/receipt-volume.js';
 
 const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const ENTRYPOINT_PATH = fileURLToPath(new URL('../../enclave/docker-entrypoint.sh', import.meta.url));
@@ -243,83 +259,7 @@ function liveArgs(...args: string[]): string[] {
   ];
 }
 
-/**
- * The two waits a case can spend, named once because a case's ceiling has to be read off them.
- *
- * `SPAWN_DEADLINE_MS` bounds one command that is expected to exit by itself; `BOOT_DEADLINE_MS` bounds one
- * gateway that is expected to print its banner. A ceiling below the sum of a case's calls and their own
- * deadlines is a ceiling that fires first, and what it reports is the runner's timeout rather than the named
- * failure the deadline exists to produce. So `budgetFor` states the arithmetic, and every case that spawns
- * or boots passes its count through it: the worst case is what a hang costs, and a hang is a defect worth
- * waiting for once rather than misreading.
- *
- * A boot also picks its port before it starts a child, and `readPortState` below asks its two questions
- * of the port the boot printed, so `bootBudget` carries `PREFLIGHT_BUDGET_MS` beside the boots it is
- * named for: a boot that spends that preflight is a boot the case is still waiting on, and the ceiling
- * has to be read off the arithmetic rather than guessed at.
- */
-const SPAWN_DEADLINE_MS = 8_000;
-const BOOT_DEADLINE_MS = 10_000;
-/**
- * How many candidates `walkToAddressablePort` will look at before it names them as its own failure. The
- * road this bounds is a machine whose HTTP client turns down a run of neighbouring ports; it is not a
- * count of how often the helper asks the same question again, because nothing here does that.
- */
-const PORT_CANDIDATES = 8;
-/** How long either preflight question waits. A loopback answer arrives in milliseconds on any machine, so
- *  this is slack for a machine that is not answering, not an estimate of how long answering takes. */
-const PROBE_DEADLINE_MS = 1_000;
-/** What one boot can spend on its preflight: the walk, two bounded questions per candidate, and the two
- *  questions `readPortState` asks of the port the boot printed. */
-const PREFLIGHT_BUDGET_MS = (PORT_CANDIDATES + 1) * 2 * PROBE_DEADLINE_MS;
-const budgetFor = (calls: number, deadline: number): number => calls * deadline + 2_000;
-const spawnBudget = (calls: number): number => budgetFor(calls, SPAWN_DEADLINE_MS);
-const bootBudget = (boots: number): number => budgetFor(boots, BOOT_DEADLINE_MS) + boots * PREFLIGHT_BUDGET_MS;
-/** The ceiling for a case that runs the walk without booting anything: every candidate with its two
- *  questions, plus `extra` further bounded questions the case asks around the walk. */
-const pickBudget = (extra: number): number => budgetFor(PORT_CANDIDATES * 2 + extra, PROBE_DEADLINE_MS);
 
-/** The durability bound and the serving bound `gateway/src/cli.ts` opens a volume store with. Both are
- * shipped at ten thousand receipts, which is a capacity decision and not a figure either count owes
- * the other. */
-const SHIPPED_RECEIPT_BOUND = 10_000;
-
-/**
- * One receipt record built from the layout the store documents, the way `gateway/test/store.test.ts`
- * builds them: a test that asked the store to write its own fixture would be checking a claim against
- * the source of the claim, and a change to the layout would move both at once.
- *
- * `Record = len:u32 || kind:u8 || prev:32 || iat:u64 || idLen:u16 || id || payload || digest:32`, with
- * the digest taken over kind through payload.
- */
-function receiptFrame(prev: Uint8Array, iat: number, id: string, payload: Buffer): Buffer {
-  const idBytes = Buffer.from(id, 'utf8');
-  const body = Buffer.alloc(1 + 32 + 8 + 2 + idBytes.length + payload.length);
-  body.writeUInt8(0, 0);
-  Buffer.from(prev).copy(body, 1);
-  body.writeBigUInt64BE(BigInt(iat), 33);
-  body.writeUInt16BE(idBytes.length, 41);
-  idBytes.copy(body, 43);
-  payload.copy(body, 43 + idBytes.length);
-  const digest = Buffer.from(createHash('sha256').update(body).digest());
-  const prefix = Buffer.alloc(4);
-  prefix.writeUInt32BE(body.length + digest.length);
-  return Buffer.concat([prefix, body, digest]);
-}
-
-/**
- * The first record of a store file, read out of the framing rather than through the store that wrote it,
- * so a case can name the kind byte and the payload a run actually put on the volume.
- */
-function firstRecordOf(file: Buffer): { kind: number; id: string; payload: Buffer } {
-  const idLength = file.readUInt16BE(45);
-  const payloadAt = 47 + idLength;
-  return {
-    kind: file.readUInt8(4),
-    id: file.subarray(47, payloadAt).toString('utf8'),
-    payload: file.subarray(payloadAt, 4 + file.readUInt32BE(0) - 32),
-  };
-}
 
 /**
  * A `receipts.log` carrying `count` receipts spread back over the last `seconds` at the hundred
@@ -352,432 +292,6 @@ function writeHeldStore(dir: string, count: number, seconds: number): Buffer {
   return bytes;
 }
 
-/** How long a request that got no answer waits for the exit event before it describes the child. */
-const DEPARTURE_SETTLE_MS = 250;
-
-/**
- * A gateway `bootServing` booted and left listening, and the two things a case can do to it.
- *
- * `reached` is for the question a request that got no answer cannot answer for itself: whether the
- * process that printed the listening line still holds that port, and if it does not, how it went away
- * and what it printed on the way out. A `TypeError: fetch failed` carries none of that, and the two
- * readings a case would otherwise have to guess between, a start that went away behind its own banner
- * and a port the client refuses before it opens a socket, look alike without it.
- */
-interface ServedGateway {
-  readonly port: number;
-  readonly kill: () => Promise<void>;
-  readonly reached: () => Promise<string>;
-}
-
-/** What the HTTP client of a process that will not address a port answers with, in its own words. */
-const CLIENT_REFUSAL = /bad port/iu;
-
-/**
- * What a port a listening line named can be, as the two questions that can tell the states apart name
- * them.
- *
- * `usable` is the state every case has always taken: a port this client will address. `gateway gone` is
- * the child that printed the listening line and then left the port it named, which is the reading a case
- * already gets from `ask` and `kill`, so nothing here stops it and nothing here says it first.
- * `client refuses` is the third: the port is bound, still held, and turned down by the HTTP client in
- * this very process before that client opens a socket, so no request the case makes over it can reach
- * anything. That state is somebody's port choice, and it is the only one a boot stops on.
- */
-type PortState =
-  | { readonly state: 'usable' }
-  | { readonly state: 'gateway gone' }
-  | { readonly state: 'client refuses'; readonly answer: string };
-
-/**
- * Whether the HTTP client in this process can address `port` at all, with its own words for the answer.
- *
- * Asked at `127.0.0.2`, which no gateway in this file binds: each one is started on the address its
- * banner names, and that banner line is what the boot matches before it asks anything. A refusal is a
- * decision about the port alone, measured as the same `bad port` at 127.0.0.1, at 127.0.0.2 and at ::1
- * for one refused port, so asking away from the gateway loses nothing. Asking at it would cost something:
- * a request that reaches a running gateway is answered by the same pipeline a case's request goes
- * through, measured here as one line written to the access log the case points at and one token taken
- * off the `--peer-rate` burst that `holds one connection to the bound the flag set it` pins at three.
- */
-async function askClientAboutPort(port: number): Promise<{ readonly refuses: boolean; readonly answer: string }> {
-  try {
-    const response = await fetch(`http://127.0.0.2:${String(port)}/`, { signal: AbortSignal.timeout(PROBE_DEADLINE_MS) });
-    await response.body?.cancel();
-    return { refuses: false, answer: `answered ${String(response.status)}` };
-  } catch (error) {
-    const answer = connectionReason(error);
-    return { refuses: CLIENT_REFUSAL.test(answer), answer };
-  }
-}
-
-/**
- * Whether the address the listening line named still answers a connection, asked of the socket layer and
- * not of the HTTP client. The client is the thing under question above, so it cannot answer whether the
- * gateway is there; a raw connection is answered by a gateway that is standing without handing it a
- * request to parse, which is measured above as writing nothing and spending nothing.
- */
-function askSocketAboutPort(port: number): Promise<string> {
-  return new Promise((resolve) => {
-    const socket = connect({ host: '127.0.0.1', port }, () => {
-      socket.destroy();
-      resolve('connected');
-    });
-    const settle = (answer: string): void => {
-      socket.destroy();
-      resolve(answer);
-    };
-    socket.once('error', (error) => settle(errnoReason(error)));
-    socket.setTimeout(PROBE_DEADLINE_MS, () => settle(`no answer within ${String(PROBE_DEADLINE_MS)}ms`));
-  });
-}
-
-/**
- * The state of a port a boot printed, read by asking each of the two layers the one question it can
- * answer, in the order that costs the gateway nothing.
- */
-async function readPortState(port: number): Promise<PortState> {
-  const asked = await askClientAboutPort(port);
-  if (!asked.refuses) return { state: 'usable' };
-  // A port the client turns down is somebody's port choice only while there is still a gateway standing
-  // on it. Without that second answer the road is a start that left behind its listening line, and
-  // stopping on the refusal would hide it: the case reads that from `ask` and `kill`.
-  return (await askSocketAboutPort(port)) === 'connected'
-    ? { state: 'client refuses', answer: asked.answer }
-    : { state: 'gateway gone' };
-}
-
-/**
- * Whether this process can have `port` on `127.0.0.1` for the length of a moment, asked by binding it
- * with a listener that never accepts a connection and letting go again before this answers.
- *
- * Asked with `0` this is the operating system's own question, and the port the listener reports back is
- * the lowest one the machine allows, which is the number `--port 0` would have printed. Asked with a
- * number it is a check that the walk is not about to hand the gateway a port another process already
- * holds. Nothing ever connects to either listener, so the road out leaves no socket behind, and the port
- * is whoever wants it next as soon as the caller is told.
- */
-function bindPortBriefly(port: number): Promise<{ readonly bound: boolean; readonly port: number; readonly answer: string }> {
-  return new Promise((resolve) => {
-    const listener = createServer();
-    // On one object rather than a bare `const`, so `settle` can clear the deadline whichever road it is
-    // called from without either side reading a binding that is not there yet.
-    const held: { deadline?: NodeJS.Timeout } = {};
-    const settle = (bound: boolean, at: number, answer: string): void => {
-      if (held.deadline !== undefined) clearTimeout(held.deadline);
-      // The close is what hands the port back. A listener that failed to open has no error to be left
-      // sitting on, and `close` on one is answered by this handler rather than by a callback.
-      listener.removeAllListeners('error');
-      listener.close();
-      resolve({ bound, port: at, answer });
-    };
-    held.deadline = setTimeout(() => settle(false, port, `no bind within ${String(PROBE_DEADLINE_MS)}ms`), PROBE_DEADLINE_MS);
-    listener.once('error', (error) => settle(false, port, errnoReason(error)));
-    listener.listen({ host: '127.0.0.1', port }, () => {
-      const address = listener.address();
-      settle(true, typeof address === 'object' && address !== null ? address.port : port, 'bound');
-    });
-  });
-}
-
-/**
- * The walk the port pick runs, from `start`, and the arm the case below puts in front of a port it can
- * measure.
- *
- * Each candidate answers two questions, in the order that costs a gateway no request: whether this
- * process's HTTP client will address the port at all, and whether the socket layer will hand that port
- * to this process for a moment. A client that refuses the number does it as a decision about the number
- * alone, measured as the same `bad port` at every loopback address, so the walk turns a refused
- * candidate down without binding it and never holds a port it means to give back. The bind is asked only
- * of a candidate the client will address, because that is the moment the port is about to be chosen, and
- * a candidate that will not bind is turned down for the same reason: the gateway has to be able to take
- * it after this helper lets go.
- *
- * The step is `start + 1` and not a second ask of the operating system, because a second ask is the same
- * ask: the machine hands out the lowest port it allows, and letting go of that port leaves it the lowest
- * port it allows, so asking again answers with the number that was just turned down. A walk that re-asked
- * would be a retry standing in for the one thing it cannot retry, which is which number the machine
- * allows, and the step is what makes the question answerable at all.
- */
-async function walkToAddressablePort(start: number): Promise<number> {
-  const tried: string[] = [];
-  for (let step = 0; step < PORT_CANDIDATES; step += 1) {
-    const candidate = start + step;
-    const asked = await askClientAboutPort(candidate);
-    if (asked.refuses) {
-      tried.push(`port ${String(candidate)}: the client answered ${asked.answer}`);
-      continue;
-    }
-    const held = await bindPortBriefly(candidate);
-    if (!held.bound) {
-      tried.push(`port ${String(candidate)}: the client answered ${asked.answer}, then the bind answered ${held.answer}`);
-      continue;
-    }
-    return candidate;
-  }
-  throw new Error(
-    `none of the ${String(PORT_CANDIDATES)} ports from ${String(start)} is a port this test process can boot a gateway on, ` +
-      `which is two questions about one number: its HTTP client has to address the port and its socket layer has to hand it over. ` +
-      `This tried ${tried.join('; ')}`,
-  );
-}
-
-/**
- * The port the next boot binds, chosen and proved addressable before any child starts.
- *
- * Every case in this file speaks HTTP to the port the gateway's banner names, so a boot on a port this
- * process's own HTTP client refuses is a boot no case can read: the request dies with the client's
- * refusal before it opens a socket while the gateway stands there serving it. Choosing before starting
- * is what keeps that state out of the suite, and it costs one bound-and-released port and one client
- * question, both of which answer in milliseconds on a machine that is answering at all.
- */
-async function pickAddressablePort(): Promise<number> {
-  const handed = await bindPortBriefly(0);
-  if (!handed.bound) {
-    throw new Error(`the operating system would not hand this process a port to ask about (it answered ${handed.answer})`);
-  }
-  return await walkToAddressablePort(handed.port);
-}
-
-/**
- * Start a gateway that serves, and stop it. `readBanner` above answers with the printed lines once the
- * write that carries them has ended, and stops the child before it returns, so it cannot carry a case
- * about a request: by the time it does return the process is gone. This resolves on the listening line,
- * which names the port the gateway bound, and hands back a `kill` that waits for the exit event, so a
- * case cannot leave a child or its socket behind.
- *
- * The port comes from `pickAddressablePort` rather than from leaving the choice to the child, and it is
- * the second question's answer that gets it there: a port the client of this process will not address is
- * turned down before a gateway is asked to stand on it. A case that names its own `--port` still wins,
- * because the later of the two flags a boot carries is the one the gateway reads, and what such a case
- * names is its own business: `readPortState` asks its two questions of the port the banner printed, and
- * the one state that is a port choice rather than a child that went away stops the boot.
- *
- * Every other reading keeps what it has, so no exit and no timeout is turned into anything else.
- *
- * Resolving on that line leaves one window a boot does not police: a child that printed it can still go
- * away before the case asks it for anything, and the case then reads a fetch error about a port nobody
- * holds. So the child's state is kept in `bootToListeningLine` instead of inferred downstream. `kill`
- * fails a case whose child left of its own accord after it said it was listening, `reached` says where
- * that child got to, and `ask` below puts both into the request that got no answer. The stderr a boot
- * produces is kept rather than drained and thrown away, because it is where a gateway that is about to
- * stop says why.
- */
-async function bootServing(args: string[]): Promise<ServedGateway> {
-  const picked = await pickAddressablePort();
-  const served = await bootToListeningLine(picked, args);
-  const state = await readPortState(served.port);
-  if (state.state !== 'client refuses') return served;
-  const refusal =
-    `the gateway listened on port ${String(served.port)} and this test process's HTTP client refuses that port before it opens a socket ` +
-    `(${state.answer}); ${served.port === picked ? 'this helper picked that port' : 'the case named that port after this helper picked one'}, ` +
-    `and this helper refuses to boot on a port its own client will not address, because no request this suite makes over such a port ` +
-    `ever opens a socket. The boot carried [--mock --port ${String(picked)} ${args.join(' ')}]`;
-  try {
-    await served.kill();
-  } catch (departure) {
-    // A child that left while this was being read is a second fact about the same boot, and the refusal
-    // is the one the case is about, so the refusal is named and the departure rides as its cause.
-    throw new Error(refusal, { cause: departure });
-  }
-  throw new Error(refusal);
-}
-
-/** The prefix the gateway's own banner gives its listening line, spelled as `gateway/src/cli.ts` writes it. */
-const LISTENING_PREFIX = 'signerd (mock) listening on ';
-
-/** The whole of what a boot reads off that line: the port the child says it bound. */
-const LISTENING_PORT = /^signerd \(mock\) listening on http:\/\/127\.0\.0\.1:([1-9]\d*)\s*$/u;
-
-/**
- * The listening line in the stdout a boot has read so far, or `undefined` where that buffer carries no
- * terminated one.
- *
- * The segment behind the last newline is a line still being written, so it is no candidate: `LISTENING_PORT`
- * answers a prefix of a port's digits as a port, and a boot that resolved on one would aim its case at a
- * number nothing holds and report a connection refused where the fault was in the reading.
- */
-function listeningLine(out: string): string | undefined {
-  const lines = out.split('\n');
-  if (!out.endsWith('\n')) lines.pop();
-  return lines.find((each) => each.startsWith(LISTENING_PREFIX));
-}
-
-/**
- * One boot: start the gateway on `port`, read the listening line that names the port it bound, and hand
- * back that child with the two things a case can do to it. The port the banner named is what the case
- * aims at, and a banner naming a port this boot never asked for is a banner this helper cannot aim
- * anything at, so it is refused rather than read. Every road out of here that does not hand a child back
- * stops it first, so a start that never printed, printed a line naming no port, or named a port it was
- * not asked for leaves no process and no socket behind.
- */
-async function bootToListeningLine(port: number, args: string[]): Promise<ServedGateway> {
-  noteSpawn(BOOT_DEADLINE_MS);
-  // The port this boot asked for, which is the later of two `--port` flags where a case names its own,
-  // because the later of the two is the one the gateway reads.
-  const askedFlag = args.lastIndexOf('--port');
-  const asked = askedFlag === -1 ? port : Number(args[askedFlag + 1]);
-  const env = { ...process.env };
-  delete env['DSTACK_SIMULATOR_ENDPOINT'];
-  const child = spawn(process.execPath, [CLI, '--mock', '--port', String(port), ...args], {
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let out = '';
-  let err = '';
-  // The two facts a departure is made of: how the child went, and whether this helper was the one that
-  // asked. `undefined` while it is listening.
-  let departed: { readonly exit: string; readonly asked: boolean } | undefined;
-  let asking = false;
-  // The port the listening line named. It stands for whether the child ever said it was listening, which
-  // is the difference between an exit to name as a start that never served and an exit to name as a
-  // gateway that left after it promised a port, and it is the number a request was aimed at.
-  let bound: number | undefined;
-  const stopped = new Promise<void>((resolve) => {
-    child.once('exit', (code, signal) => {
-      departed = { exit: signal === null ? `exit code ${String(code)}` : `signal ${signal}`, asked: asking };
-      resolve();
-    });
-  });
-
-  /** The child, as far as this helper can tell it: whether it is there, and what it printed. */
-  async function reached(): Promise<string> {
-    // A refused connection and the exit event are in flight together at the moment a child goes away, so
-    // this waits for whichever of the two arrives first, up to a short settle. The sentence then says the
-    // child had gone, rather than that this helper had not yet been told of it.
-    await Promise.race([stopped, new Promise((resolve) => setTimeout(resolve, DEPARTURE_SETTLE_MS))]);
-    const where =
-      departed === undefined
-        ? 'was still running when this was read'
-        : `had gone with ${departed.exit}${departed.asked ? ', after this helper asked for the kill' : ', of its own accord'}`;
-    return (
-      `the gateway this helper started as pid ${String(child.pid)} with [--mock --port ${String(port)} ${args.join(' ')}] ` +
-      `${where}. The port its listening line named, and the one this request was aimed at, is ${String(bound)}. ` +
-      `Its stderr held ${JSON.stringify(err)} and the first line of its stdout held ${JSON.stringify(out.split('\n')[0] ?? '')}`
-    );
-  }
-
-  const kill = async (): Promise<void> => {
-    asking = true;
-    child.kill('SIGKILL');
-    await stopped;
-    if (bound !== undefined && departed !== undefined && !departed.asked) {
-      throw new Error(`the gateway exited after it printed its listening line and before this helper stopped it; ${await reached()}`);
-    }
-  };
-  try {
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
-      err += chunk;
-    });
-    const printed = await new Promise<number>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`no listening line within ${String(BOOT_DEADLINE_MS / 1_000)}s; stdout held ${JSON.stringify(out)}`)),
-        BOOT_DEADLINE_MS,
-      );
-      const giveUp = (message: string): void => {
-        clearTimeout(timer);
-        reject(new Error(`${message}; stdout held ${JSON.stringify(out)}`));
-      };
-      child.once('error', (error) => giveUp(`the gateway failed to spawn: ${error.message}`));
-      child.once('exit', (code) => giveUp(`the gateway exited with ${String(code)} before it listened`));
-      child.stdout.on('data', (chunk: string) => {
-        out += chunk;
-        const line = listeningLine(out);
-        if (line === undefined) return;
-        const named = LISTENING_PORT.exec(line);
-        if (named?.[1] === undefined) {
-          giveUp(`the listening line names no bound port: ${line}`);
-          return;
-        }
-        bound = Number(named[1]);
-        if (bound !== asked) {
-          giveUp(
-            `the listening line names port ${String(bound)} and this boot asked the gateway for ${String(asked)} ` +
-              `with [--mock --port ${String(port)} ${args.join(' ')}]: ${line}`,
-          );
-          return;
-        }
-        clearTimeout(timer);
-        resolve(bound);
-      });
-    });
-    return { port: printed, kill, reached };
-  } catch (error) {
-    await kill();
-    throw error;
-  }
-}
-
-/**
- * One request to a gateway `bootServing` booted, and a failure that names the child it aimed at.
- *
- * A connection that reaches nothing arrives as `TypeError: fetch failed`, which says neither the port it
- * was aimed at nor the reason the stack gave, and a case read on a runner cannot go and ask the child. The
- * three facts that tell a start which left after it printed its listening line apart from a port the
- * client refuses before it opens a socket are the port, the reason the connection carried, and whether the
- * process is still there to be carried by, so the failure is rebuilt out of those. The original error
- * stays as the cause, which is what keeps the fetch's own stack in the report.
- */
-async function ask(served: ServedGateway, target: string, init: RequestInit): Promise<Response> {
-  try {
-    return await fetch(`http://127.0.0.1:${String(served.port)}${target}`, init);
-  } catch (error) {
-    throw new Error(`no answer at ${target}: ${connectionReason(error)}; ${await served.reached()}`, { cause: error });
-  }
-}
-
-/** The reason a connection failed, as the layer under `fetch` spelled it, since `fetch failed` never does. */
-function connectionReason(error: unknown): string {
-  const cause = error instanceof Error ? error.cause : undefined;
-  if (!(cause instanceof Error)) return String(error);
-  return errnoReason(cause);
-}
-
-/** An errno's own sentence, then its code, because the sentence alone is spelled differently on every
- *  platform while the code is not. */
-function errnoReason(error: Error): string {
-  const code = (error as NodeJS.ErrnoException).code;
-  return `${error.message}${code === undefined ? '' : ` (${code})`}`;
-}
-
-/**
- * One completion, and the two things a caller can branch on, against a booted process. Two describes
- * below ask what a flag does to a served completion, which is why this sits at module scope rather than
- * beside the first of them.
- */
-const COMPLETION = '{"model":"mock-model-1","messages":[{"role":"user","content":"guard"}]}';
-
-async function complete(
-  served: ServedGateway,
-  pop: { record: { id: string }; privateKey: Uint8Array },
-): Promise<{ status: number; code: string | undefined; receiptId: string | null; text: string }> {
-  const nonce = randomNonce();
-  const fields: PopFields = {
-    ts: Math.floor(Date.now() / 1000),
-    nonce,
-    method: 'POST',
-    target: '/v1/chat/completions',
-    bodyDigestHex: createHash('sha256').update(COMPLETION).digest('hex'),
-  };
-  const response = await ask(served, '/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: signPopAuthorization(fields, pop.record.id, pop.privateKey),
-      'x-ashaveri-nonce': toBase64Url(nonce),
-    },
-    body: COMPLETION,
-  });
-  const text = await response.text();
-  return {
-    status: response.status,
-    code: (JSON.parse(text) as { error?: { code?: string } }).error?.code,
-    receiptId: response.headers.get('x-ashaveri-receipt-id'),
-    text,
-  };
-}
 
 describe('signerd cli', () => {
   it('prints usage with --help', () => {
@@ -1537,12 +1051,12 @@ describe('the bound one process admits completions at', () => {
     expect(help.stdout).toContain('--completion-rate perMinute=<n>,burst=<n>');
     // Read with the folds closed, as the other usage claims in this file are.
     const folded = help.stdout.replace(/\s+/gu, ' ');
-    expect(folded).toContain('Default: perMinute=70080,burst=1168');
+    expect(folded).toContain('Default: perMinute=50220,burst=837');
     expect(folded).toContain(
-      'the rate this build measured on its own completion path: driven over HTTP with a file store behind it and the other two buckets lifted, one process turned over 1,168 completions a second',
+      'the rate this build measured on its own completion path: driven over HTTP with a file store behind it and the other two buckets lifted, one process turned over 837 completions a second',
     );
     // The comparison an operator is meant to be able to make, stated where the number is stated.
-    expect(folded).toContain('11.7 busy addresses');
+    expect(folded).toContain('8.4 busy addresses');
   });
 
   it('prints the bound it was given, and says that it was given', async () => {
@@ -1561,7 +1075,7 @@ describe('the bound one process admits completions at', () => {
     const printed = banner.join('\n');
     const line = banner.find((each) => each.startsWith('  completion bound: '));
     expect(line, `no completion bound line; stdout held ${JSON.stringify(printed)}`).toContain(
-      '70080 completions a minute across this process and 1168 at once',
+      '50220 completions a minute across this process and 837 at once',
     );
     expect(line, printed).toContain('the ceiling this build measures on its own completion path');
     // One counter per process is the fact a reader of a multi-process deployment has to have, or the
@@ -1572,7 +1086,7 @@ describe('the bound one process admits completions at', () => {
   it(
     'refuses a completion past the bound it was started with, over the wire',
     async () => {
-      // The flag, the number, and one request that meets it. A burst of one is far below the 1,168 this
+      // The flag, the number, and one request that meets it. A burst of one is far below the 837 this
       // process would have booted with, so the only way the second signed completion is refused is that the
       // rate reached the gateway the requests are served by, and the minute behind it is sixty because these
       // two requests are milliseconds apart on a wall clock.
@@ -1624,7 +1138,7 @@ describe('the bound a declared flag is weighed against the roster for', () => {
       const pop = newPopCredential({ id: 'roster-wide', scopes: ['read', 'complete'] });
       const record = { ...pop.record, rate: { perMinute: 600, burst: 120 } };
       const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [record] }));
-      const banner = await readBanner('--mock', '--credentials-path', path, '--completion-rate', 'perMinute=500,burst=10');
+      const banner = await readBanner('--mock', '--port', '0', '--credentials-path', path, '--completion-rate', 'perMinute=500,burst=10');
       expect(banner.join('\n')).toContain('500 completions a minute across this process and 10 at once');
     },
     20_000,
@@ -1633,13 +1147,13 @@ describe('the bound a declared flag is weighed against the roster for', () => {
   it(
     'leaves the shipped default unweighed, because it is a measurement and not a declaration',
     async () => {
-      // A roster of one record at 60 a minute sits far under the 70,080 this build ships with, and the run
+      // A roster of one record at 60 a minute sits far under the 50,220 this build ships with, and the run
       // that names no flag still boots: the exemption is the difference between a ceiling this software
       // measured and a number an operator typed.
       const pop = newPopCredential({ id: 'roster-default', scopes: ['read', 'complete'] });
       const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
-      const banner = await readBanner('--mock', '--credentials-path', path);
-      expect(banner.join('\n')).toContain('70080 completions a minute across this process and 1168 at once');
+      const banner = await readBanner('--mock', '--port', '0', '--credentials-path', path);
+      expect(banner.join('\n')).toContain('50220 completions a minute across this process and 837 at once');
     },
     20_000,
   );
@@ -1987,7 +1501,7 @@ describe('a volume whose receipts have to outlive the start', () => {
       mkdirSync(dir);
       // Ten thousand receipts, the durability bound this CLI ships, over the hundred seconds the
       // fixture spreads them across, against a period configured in the same file as 184 days.
-      const bytes = writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+      const bytes = writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
 
       const result = run('--mock', '--port', '0', '--receipts-dir', dir);
       expect(result.status, result.stderr).toBe(1);
@@ -1996,14 +1510,14 @@ describe('a volume whose receipts have to outlive the start', () => {
       // Both quantities that disagree, named in the sentence an operator reads, and the count that the
       // store's own traffic says the window takes. The first two come from this CLI's configuration and
       // the third from the file, so no one of them is the other's restatement.
-      expect(refused).toContain(`durability bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts`);
+      expect(refused).toContain(`durability bound of ${String(DEFAULT_RECEIPT_DURABILITY_COUNT)} receipts`);
       expect(refused).toContain(`${String(MINIMUM_RETENTION_SECONDS)} seconds`);
       expect(refused).toContain('receipts at the rate this store has been carrying');
       // How far short the bound is, so the number to set is read off the line rather than worked out,
       // and the other count this CLI ships named as the one that is not the problem: a process started
       // with both counts says which of them it is objecting to.
-      expect(refused).toContain(`short by ${String(PERIOD_RECEIPTS - SHIPPED_RECEIPT_BOUND)} receipts`);
-      expect(refused).toContain(`the serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts is not`);
+      expect(refused).toContain(`short by ${String(PERIOD_RECEIPTS - DEFAULT_RECEIPT_DURABILITY_COUNT)} receipts`);
+      expect(refused).toContain(`the serving bound of ${String(DEFAULT_RECEIPT_SERVING_COUNT)} receipts is not`);
       expect(refused, 'a process that refused to boot printed a banner').not.toContain('listening on');
 
       // The receipts are the evidence the refusal is read from, and this is the one moment an operator
@@ -2012,17 +1526,17 @@ describe('a volume whose receipts have to outlive the start', () => {
       expect(readFileSync(join(dir, RECEIPT_STORE_FILE))).toEqual(bytes);
     },
     // The volume is written in one go and read back by a start that refuses it, and framing
-    // SHIPPED_RECEIPT_BOUND receipts is the whole of the work: measured here at 3.1s, about a third of a
+    // DEFAULT_RECEIPT_DURABILITY_COUNT receipts is the whole of the work: measured here at 3.1s, about a third of a
     // millisecond a receipt, so the ceiling is three times that, a millisecond a receipt, with a five
     // second floor for the spawn rather than a figure carried over from another case.
-    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
+    bootBudget(1) + DEFAULT_RECEIPT_DURABILITY_COUNT,
   );
 
   it(
     'starts the same volume once its durability bound can hold the period', async () => {
       const dir = join(tempDir, 'window-raised');
       mkdirSync(dir);
-      writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+      writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
 
       const banner = await readBanner(
         '--mock',
@@ -2039,13 +1553,13 @@ describe('a volume whose receipts have to outlive the start', () => {
       expect(line, printed).toContain(`a durability bound of ${String(PERIOD_RECEIPTS)} receipts`);
       // The serving bound is reported as installed, which is the point: the volume now keeps a period
       // that takes a sixth of a billion receipts and a query still holds ten thousand of them.
-      expect(line, printed).toContain(`a serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts to a query`);
+      expect(line, printed).toContain(`a serving bound of ${String(DEFAULT_RECEIPT_SERVING_COUNT)} receipts to a query`);
     },
     // The same ten thousand receipts on disk, framed and written in one go, read back by a start that
     // was told a durability bound big enough to hold 184 days of them with a serving bound nobody
     // raised: measured here at 0.6s against the 3.1s the refusing start takes on the same volume, so the
     // ceiling is read off the receipt count the case writes, one millisecond a receipt.
-    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
+    bootBudget(1) + DEFAULT_RECEIPT_DURABILITY_COUNT,
   );
 
   // Two hundred receipts and one boot that prints its banner, measured here at 0.44s: the runner's
@@ -2107,7 +1621,7 @@ describe('a volume whose receipts have to outlive the start', () => {
       // bound this CLI ships after a hundred seconds of the rate `docs/access-control.md` states for
       // one address, and the period an operator asking for five years types in the only unit the flag
       // takes: whole days.
-      writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+      writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
 
       const result = run('--mock', '--port', '0', '--receipts-dir', dir, '--receipts-days', '1826');
       expect(result.status, result.stderr).toBe(1);
@@ -2123,13 +1637,13 @@ describe('a volume whose receipts have to outlive the start', () => {
       // thousand times the volume this CLI ships.
       expect(refused).toContain('15934406401 receipts');
       expect(refused).toContain('short by 15934396401 receipts');
-      expect(refused).toContain(`the serving bound of ${String(SHIPPED_RECEIPT_BOUND)} receipts is not`);
+      expect(refused).toContain(`the serving bound of ${String(DEFAULT_RECEIPT_SERVING_COUNT)} receipts is not`);
       expect(refused, 'a start that refused its volume printed no banner').not.toContain('listening on');
     },
     // The same ten thousand receipts framed in one go and read back by a start that refuses them, so
     // the ceiling is the one the case above derives for that volume: a millisecond a receipt over the
     // spawn the case runs.
-    bootBudget(1) + SHIPPED_RECEIPT_BOUND,
+    bootBudget(1) + DEFAULT_RECEIPT_DURABILITY_COUNT,
   );
 
   it('refuses the count its own unholdable window tells an operator to configure', () => {
@@ -2268,7 +1782,7 @@ describe('the durability guard read while serving', () => {
   } {
     const dir = join(tempDir, name);
     mkdirSync(dir);
-    writeHeldStore(dir, SHIPPED_RECEIPT_BOUND, 100);
+    writeHeldStore(dir, DEFAULT_RECEIPT_DURABILITY_COUNT, 100);
     const pop = newPopCredential({ id: 'guard-pop', scopes: ['read', 'complete'] });
     const path = credentialFile(serializeCredentialFile({ version: 1, credentials: [pop.record] }));
     return {
@@ -2280,7 +1794,7 @@ describe('the durability guard read while serving', () => {
         '--credentials-path',
         path,
         '--receipts-keep',
-        String(SHIPPED_RECEIPT_BOUND * 2),
+        String(DEFAULT_RECEIPT_DURABILITY_COUNT * 2),
         '--receipts-guard-at',
         '50',
       ],
