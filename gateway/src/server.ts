@@ -488,32 +488,38 @@ function sourcePhrase(figures: IntakeGuardFigures): string {
  * The completion bound, stated in the two fields a credential's own `rate` and `--peer-rate` carry, so an
  * operator can set it against the per-address bound it has to sit under. It is worked from one measured
  * number rather than from two costs added together: this gateway, driven over HTTP with a file store behind
- * it and both other buckets lifted, turned over 1,168 completions a second with 32 callers in flight, and past
- * that point the throughput is flat and only the wait grows. The fastest of those runs is the ceiling, so
- * 1,168 a second becomes 70,080 a minute and the burst is one second of the same figure. Against the 6,000 a
- * minute one connection address is held to, that is 11.7 busy addresses filling one process, which is why the
- * bound is refused rather than documented. No value here removes the bound: a number no deployment reaches is
+ * it and both other buckets lifted, turned over 837 completions a second with 32 callers in flight, sixteen
+ * callers hold the same rate, and past them the throughput is flat and only the wait grows. The fastest of
+ * those runs is the ceiling, so 837 a second becomes 50,220 a minute and the burst is one second of the same
+ * figure. Against the 6,000 a minute one connection address is held to, that is 8.4 busy addresses filling
+ * one process, which is why the bound is refused rather than documented. No value here removes the bound: a
+ * number no deployment reaches is
  * the off switch, and the start-up report prints whichever number the process is holding. A bound an operator
  * declares above what every credential in front of this process could spend is refused at start, because a
  * number that can never fire is not a bound; the rule sits in `cli.ts` beside the flag.
  *
- * The harness is part of the number: one Windows host, one Node 24 process, a mock upstream that answers at
+ * The harness is part of the number: one Windows host, one Node 26 process, a mock upstream that answers at
  * once so the figure is this software's own cost rather than a model's, 2,000 buffered completions at each of
- * one, four, sixteen, thirty-two and sixty-four callers, the store's shipped durability bound, and the
- * per-address and credential rates widened so neither is what the run measures. It is a completion path
- * measured end to end, which is why it sits under the store's own append rate: an append is only one of the
- * costs a request pays, and the largest was the signature check that happens before one.
+ * one, four, sixteen and thirty-two callers, the store's shipped durability bound, and the per-address and
+ * credential rates widened so neither is what the run measures. It is a completion path measured end to end,
+ * which is why it sits under the store's own append rate: an append is only one of the costs a request pays.
  *
  * That check answers from the runtime's own primitive under the refusals `strict-ed25519.ts` states, and the
- * bound moved with it. The same harness on the same host, run back to back against the build where the
- * JavaScript reader answered, measured 432 completions a second at 32 callers at 2.62 ms of process CPU per
- * completion, where this one measures 1,168 at 1.45 ms: four callers used to be the plateau because a
- * synchronous 1.5 ms check serialises the event loop, and 105 microseconds does not. Until that run the
- * default carried 322 a second, so a deployment sized against 19,320 a minute was refusing traffic this process
- * can in fact carry, and `--completion-rate` is still how an operator sizes the bound against the box the
- * deployment runs on rather than against a build that is not theirs.
+ * bound moved with it once: the same harness on the same host, run back to back on Node 24 against the build
+ * where the JavaScript reader answered, measured 432 completions a second at 32 callers at 2.62 ms of process
+ * CPU per completion, where the primitive build measured 1,168 at 1.45 ms. Four callers used to be the plateau
+ * because a synchronous 1.5 ms check serialises the event loop, and 105 microseconds does not. Until that run
+ * the default carried 322 a second, so a deployment sized against 19,320 a minute was refusing traffic the
+ * primitive build could in fact carry.
+ *
+ * The awaited write the answer settles on moved again, and the bound follows it: the completion path now ends
+ * at an access journal commit rather than at the dated part's own append, and the same harness on the same
+ * host and day measures 837 a second at 32 callers at 2.3 ms of process CPU per completion, against 883 for
+ * the build that awaited the dated part's append and 1,023 for the build that awaited nothing. The bound
+ * names what one process serves end to end, and `--completion-rate` is still how an operator sizes the bound
+ * against the box the deployment runs on rather than against a build that is not theirs.
  */
-export const DEFAULT_COMPLETION_RATE: CredentialRate = { perMinute: 70_080, burst: 1_168 };
+export const DEFAULT_COMPLETION_RATE: CredentialRate = { perMinute: 50_220, burst: 837 };
 
 /**
  * The one key the deployment's bucket is held under. A counter with no key would be a counter per caller,
