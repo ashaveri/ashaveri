@@ -530,7 +530,7 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
       } catch (err) {
         // The line is settled: its bytes are in the part. A sweep the volume refuses outlives
         // this line, so it travels as a warning and the day retries, never as a failure of a
-        // write that already landed — a sink rejection here would re-sink the landed line.
+        // write that already landed: a sink rejection here would re-sink the landed line.
         process.emitWarning(
           `the access log sweep stopped: ${err instanceof Error ? err.message : String(err)}`,
           { code: 'ASHAVERI_ACCESS_SWEEP_FAILED' },
