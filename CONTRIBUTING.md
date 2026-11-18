@@ -35,13 +35,18 @@ as passing.
 verification step or a wire byte needs a case that fails without it. Property cases (`fast-check`)
 cover the codec and the attestation parsers where a generator is cheaper than a table.
 
-**One row, and the counted sentence, for a new error code.** Declare the code in the union that owns
-the layer. Which union owns which layer, across the seven, is tabulated at the top of
-`docs/error-codes.md`. Then add exactly one row for the code to that union's table there. The opening
-paragraph of that file counts the declarations, the unions and the distinct strings, and both
-numbers have to still match the source: `packages/fixtures/test/error-codes.test.ts` reads every code
-out of the declarations and every row out of the document, and fails the run when either direction
-disagrees or a count is off. A bare code string has to name the layer that raised it, which is why
+**One row, and the counted sentence, for a new error code.** Declare the code in the named finite
+string family that owns the layer. The families carried by typed instance `Error.code` members
+in shipped sources (`packages/*/src` and `gateway/src`) are tabulated at the top of
+`docs/error-codes.md`. Getters and inherited codes count; code-less errors, test-support refusals and
+log-only fields such as `logCode` do not. Add exactly one row per code to its family's table, and add
+each new family to both the introductory roster and the section roster. Keep the declaration, union
+and distinct-string counts in the authoritative opening sentence of `docs/error-codes.md` aligned
+with the source.
+`packages/fixtures/test/error-codes.test.ts` freshly discovers these families with the TypeScript
+checker, including untracked sources and resolved aliases, and independently checks both document
+rosters, every row and all three counts. Unsupported or unnamed code families fail rather than being
+silently omitted. A bare code string has to name the layer that raised it, which is why
 two unions sharing one string is a deliberate decision rather than a collision to fix; the section
 "Why these strings do not overlap" in `docs/error-codes.md` explains that pair.
 

@@ -1,7 +1,9 @@
 # Error codes
 
-Every error code this workspace raises, what condition raises it, and what a caller should do
-about it. There are 245 declarations across eight unions, resolving to 243 distinct strings;
+The named finite string families carried by typed instance `Error.code` members in shipped sources
+(`packages/*/src` and `gateway/src`), what raises them, and what a caller should do.
+This includes getters and inherited codes, not code-less errors, test-support refusals or log-only
+fields such as `logCode`. There are 245 declarations across 8 unions, resolving to 243 distinct strings;
 `UNSUPPORTED_PLATFORM` and `UNSUPPORTED_VERSION` are the two strings two unions share, and the last
 section says why those pairs are deliberate while every other overlap is not.
 
@@ -17,7 +19,7 @@ site knew, so the detail reads differently for a quote than for a certificate. B
 | **What the caller does** | The action that can change the outcome. "Refuse" means present the failure; the receipt is not proven and must not be treated as one. |
 | **Verdict** | `terminal`: the same bytes will fail the same way forever, so a retry only adds latency. `retryable`: a later attempt can differ without anything being fixed. Startup refusals are terminal for the process. |
 
-The eight unions:
+The shipped instance-code families (one row per defining union, also checked against the sections):
 
 | Union | Package | Owns |
 |---|---|---|
