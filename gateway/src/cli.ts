@@ -338,13 +338,14 @@ Options:
                                    credential and every address spends from this one bucket, so it is the
                                    deployment's own ceiling rather than a per-client one, and it is stated in
                                    the same two fields as --peer-rate so the two can be read against each
-                                   other. Default: perMinute=70080,burst=1168, which is the rate this build
+                                   other. Default: perMinute=50220,burst=837, which is the rate this build
                                    measured on its own completion path: driven over HTTP with a file store
-                                   behind it and the other two buckets lifted, one process turned over 1,168
-                                   completions a second with 32 callers in flight, and past that only the
-                                   wait grows. 1,168 a second is 70,080 a minute, with one second of it taken
-                                   at once. Against 6,000 a minute from one address it says that 11.7 busy
-                                   addresses are what one process can serve for. A declared perMinute, in a
+                                   behind it and the other two buckets lifted, one process turned over 837
+                                   completions a second with 32 callers in flight, sixteen callers hold the
+                                   same rate, and past them only the wait grows. 837 a second is 50,220 a
+                                   minute, with one second of it taken at once. Against 6,000 a minute from
+                                   one address it says that 8.4 busy addresses are what one process can
+                                   serve for. A declared perMinute, in a
                                    run that reads a credential file, above what every credential in that
                                    file could spend together is refused at start, because a bound that can
                                    never fire is not a bound: the fix is the roster or a second process, not

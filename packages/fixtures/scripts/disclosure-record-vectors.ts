@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -9,6 +9,7 @@ import {
   ReceiptError,
   disclosureRecordBytes,
   extractMarkedRegion,
+  fromBase64Url,
   parseDisclosureRecord,
   toBase64Url,
   toHex,
@@ -18,6 +19,59 @@ import {
 import { markedBuffered } from './marking-shapes.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
+const SCRIPTS = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The recorded run of the completion through applications outside this repository, written by
+ * `disclosure-content-path-capture.ts`. It is read rather than re-run here because the applications that
+ * produced it belong to a machine and a version each, while these vectors have to come out of a
+ * regeneration the same way wherever it is run.
+ */
+const OBSERVATION = join(SCRIPTS, 'disclosure-content-path-observation.json');
+
+interface ObservedStage {
+  readonly name: string;
+  readonly application: string;
+  readonly applicationVersion: string;
+  readonly note: string;
+  readonly outputBase64Url?: string;
+}
+
+interface Observation {
+  readonly start: string;
+  readonly startBase64Url: string;
+  readonly stages: readonly ObservedStage[];
+}
+
+function recordedRun(): Observation {
+  if (!existsSync(OBSERVATION)) {
+    throw new Error(
+      'disclosure-content-path-observation.json is not beside this script, and an outcome for a real application step is read off the bytes that step produced rather than stated without them',
+    );
+  }
+  const recorded = JSON.parse(readFileSync(OBSERVATION, 'utf8')) as Observation;
+  if (toHex(sha256(fromBase64Url(recorded.startBase64Url))) !== toHex(sha256(RESPONSE))) {
+    throw new Error('the recorded real content path does not start from the response these vectors publish');
+  }
+  return recorded;
+}
+
+/**
+ * One stage of the recorded run, with the outcome the published rule gives over the bytes the application
+ * wrote. A stage that published no bytes is a step that did not run, and it is published without an
+ * outcome: the rule was never handed anything to locate, so there is nothing here for it to have said.
+ */
+function realStage(one: ObservedStage): Record<string, unknown> {
+  const bytes = one.outputBase64Url === undefined ? undefined : fromBase64Url(one.outputBase64Url);
+  return {
+    name: one.name,
+    application: one.application,
+    applicationVersion: one.applicationVersion,
+    outcome: bytes === undefined ? 'untested' : outcomeThrough(bytes),
+    ...(bytes === undefined ? {} : { outputBase64Url: one.outputBase64Url, outputSha256: toHex(sha256(bytes)) }),
+    note: one.note,
+  };
+}
 
 const encoded = (text: string): Uint8Array => new TextEncoder().encode(text);
 const decoded = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
@@ -28,17 +82,20 @@ const decoded = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
  * rule rather than asserted beside it.
  *
  * The content path is the buffered marked completion this package publishes as
- * `marking-v1.json#buffered-member`, built by the same builder that suite signs its rows from. It is
- * a fixture path, and the family's description says so: detectability through a named application's
- * own transformations is a separate test, and nothing here claims it. What the harness measures is
- * what the rule locates after each transformation: one region is `detectable`, no single region is
- * `not-detectable`, and a transformation the harness does not implement is recorded as `untested`
- * rather than omitted, because a list of only the transformations that worked is a claim about a
- * path nobody tested whole.
+ * `marking-v1.json#buffered-member`, built by the same builder that suite signs its rows from. What the
+ * harness measures is what the rule locates after each transformation: one region is `detectable`, no
+ * single region is `not-detectable`, and a transformation the harness does not implement is recorded as
+ * `untested` rather than omitted, because a list of only the transformations that worked is a claim about
+ * a path nobody tested whole.
  *
- * Detectability here is the region's survival, not the digest's: a re-serialization keeps the member
- * findable while spelling its bytes differently, so the region is still detected and the receipt's
- * `mk.d` no longer matches it. Those are two questions, and the family's note keeps them apart.
+ * The harness can only measure what it implements, which is a reshuffling of these bytes. The other half
+ * of the question, what the mark does in the applications a customer actually copies, renders and exports
+ * the completion through, is recorded beside it: `disclosure-content-path-capture.ts` runs the same
+ * response through them and writes what each produced, and this file states an outcome for a stage of
+ * that path only over the bytes the stage published, so a step that did not run is a step recorded
+ * without a verdict. Both halves keep detectability and digest agreement apart: a re-serialization keeps
+ * the member findable while spelling its bytes differently, so the region is still detected and the
+ * receipt's `mk.d` no longer matches it. The family's note keeps the two questions apart too.
  */
 
 const MARKED = markedBuffered();
@@ -180,6 +237,8 @@ function verdictOf(bytes: Uint8Array): string {
 }
 
 function main(): void {
+  const run = recordedRun();
+
   for (const one of ROWS) {
     const observed = verdictOf(one.bytes);
     if (observed !== one.expected) {
@@ -202,7 +261,7 @@ function main(): void {
       {
         version: 1,
         description:
-          'The disclosure record beside the marking region: who owed the notice, the duty pointer it answers, the text or region served, and the transformation set it was tested through, with unsupported transformations recorded rather than omitted. The content path these records state is the buffered completion this suite publishes, and the outcomes are measured through the published extraction rule; detectability through a named application\'s own copying, rendering and export transformations is a separate test this family does not claim. Each row carries the record bytes the shipped writer made, or one edit of them at the position its fault names, and the verdict the shipped reader owes those bytes.',
+          'The disclosure record beside the marking region: who owed the notice, the duty pointer it answers, the text or region served, and the transformation set it was tested through, with unsupported transformations recorded rather than omitted. The content path these records state is the buffered completion this suite publishes, and the outcomes in them are measured through the published extraction rule over the transformations this harness implements. The block rule.realContentPath records the same completion put through one browser and read back out of the archive it exported, stage by stage with the application and version that ran each, and a step the run could not reach is recorded without an outcome. No row carries a claim about what an application does to the mark that its published bytes do not support. Each row carries the record bytes the shipped writer made, or one edit of them at the position its fault names, and the verdict the shipped reader owes those bytes.',
         rule: {
           registry: 'docs/receipt-spec.md section 3.3',
           reader: 'parseDisclosureRecord in @ashaveri/receipt',
@@ -213,7 +272,14 @@ function main(): void {
           contentPath: {
             response: 'marking-v1.json#buffered-member',
             responseBase64Url: toBase64Url(RESPONSE),
-            note: 'The fixture content path the harness ran over, byte for byte the response the marking suite publishes for the buffered shape. A named application path is a different content path, and no row here stands in for one.',
+            note: 'The fixture content path the harness ran over, byte for byte the response the marking suite publishes for the buffered shape. No row above stands in for an application\'s own path, and the applications that ran one are recorded in rule.realContentPath.',
+          },
+          realContentPath: {
+            start: run.start,
+            startBase64Url: toBase64Url(RESPONSE),
+            recordedBy: 'packages/fixtures/scripts/disclosure-content-path-capture.ts',
+            note: 'The same completion carried through the applications a customer copies, renders and exports it with, in one recorded run of them rather than a harness of this package. Each stage names the application and the version that wrote its bytes and states what the published extraction rule locates in them, so the verdict beside a stage is a reading of the artifact and not a word beside a name. A stage with no bytes is a step the run could not reach: it names the application and records the silence, and states no outcome.',
+            stages: run.stages.map(realStage),
           },
           transformations: [
             ...Object.keys(IMPLEMENTED).map((name) => ({

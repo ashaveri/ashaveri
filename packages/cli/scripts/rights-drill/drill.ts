@@ -177,6 +177,10 @@ async function main(argv: readonly string[]): Promise<number> {
   const cli = resolve(here, '../../dist/cli.js');
   const root = await mkdtemp(join(tmpdir(), 'ashaveri-rights-drill-'));
   const startedAt = new Date();
+  const warnings: { code: string; message: string }[] = [];
+  process.on('warning', (warning) => {
+    warnings.push({ code: 'code' in warning ? String(warning.code) : warning.name, message: warning.message });
+  });
   const run: Run = {
     dir(name: string): string {
       const dir = join(root, name);
@@ -227,6 +231,8 @@ async function main(argv: readonly string[]): Promise<number> {
       argv: [...argv],
       store: options.keep ? root : `${root} (removed at the end of the run)`,
       counts,
+      scope: 'Synthetic observations only. Quiesced erasure does not require coordinated erasure. Missing legs remain NOT BUILT; privacy and operations approval of a custody offer is separate.',
+      warnings,
       legs: settled,
       missing,
     }, null, 2)}\n`,

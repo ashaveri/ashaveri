@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,6 +50,10 @@ interface Leg {
   commands: string[];
   notes: string[];
   missing: string[];
+  readings?: {
+    before: { observedFiles: string[]; syntaxInvalid: number; schemaInvalid: number; schemaInvalidMatches: number; credentialMatches: number };
+    after: { observedFiles: string[]; syntaxInvalid: number; schemaInvalid: number; schemaInvalidMatches: number; credentialMatches: number };
+  };
 }
 
 interface DrillRecord {
@@ -56,6 +61,7 @@ interface DrillRecord {
   store: string;
   legs: Leg[];
   missing: string[];
+  warnings: { code: string; message: string }[];
 }
 
 interface DrillRun {
@@ -76,14 +82,21 @@ function runDrill(name: string, extra: readonly string[] = []): DrillRun {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   expect(result.error, `the drill did not start: ${String(result.error)}`).toBeUndefined();
-  expect(result.stderr, 'the drill wrote to stderr').toBe('');
   expect(existsSync(recordPath), `the drill did not file the record it names: ${recordPath}`).toBe(true);
+  const record = JSON.parse(readFileSync(recordPath, 'utf8')) as DrillRecord;
+  const warnings = result.stderr.split('\n').filter((line) => line.length > 0 && !line.startsWith('(Use `node --trace-warnings'));
+  expect(record.warnings).toHaveLength(warnings.length);
+  for (const [index, line] of warnings.entries()) {
+    expect(line).toMatch(/^\(node:\d+\) \[ASHAVERI_ACCESS_JOURNAL_DRAIN_STALLED\] Warning: /u);
+    expect(record.warnings[index]?.code).toBe('ASHAVERI_ACCESS_JOURNAL_DRAIN_STALLED');
+    expect(line).toContain(record.warnings[index]?.message);
+  }
   return {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
     recordPath,
-    record: JSON.parse(readFileSync(recordPath, 'utf8')) as DrillRecord,
+    record,
   };
 }
 
@@ -155,7 +168,7 @@ describe('the rights exercise drill', () => {
     const removed = named(quiesced, 'records the run says it removed');
     expect(removed?.observed).toBe(removed?.expect);
     expect(Number(removed?.observed)).toBeGreaterThan(0);
-    expect(named(quiesced, 'the subject lines left on the volume')?.observed).toBe('0');
+    expect(named(quiesced, 'credential matches left in observed files')?.observed).toBe('0');
     // The count the door reports is shown against the bytes the volume holds, part by part, in both
     // directions: what it read before, and what it can be proved to have left behind.
     expect(quiesced.checks.filter((one) => one.name.endsWith('before, from the disk'))).toHaveLength(2);
@@ -163,18 +176,91 @@ describe('the rights exercise drill', () => {
     expect(named(quiesced, 'a second run over the same volume')?.observed).toContain('removed 0');
 
     expect(named(coordinated, 'the served path was live across the erasure')?.passed).toBe(true);
-    expect(named(coordinated, 'the subject lines left on the volume')?.observed).toBe('0');
-    const bound = named(coordinated, 'a line on the volume no answered request explains');
+    expect(named(coordinated, 'credential matches left in observed files')?.observed).toBe('0');
+    expect(named(coordinated, 'records the run says it removed')?.observed).toBe('16');
+    const bound = named(coordinated, 'distinct peer request ids in observed files');
     expect(bound?.passed).toBe(true);
-    expect(String(bound?.observed)).toMatch(/^\d+ lines for \d+ answers$/u);
+    expect(String(bound?.observed)).toMatch(/^\d+ ids for 28 answers$/u);
     expect(coordinated.notes.some((one) => one.includes('reconciliation'))).toBe(true);
     expect(named(coordinated, 'no request was shed by the erasure')?.observed).toContain('0 not 200');
 
     expect(named(hold, 'the refusal names the code and its sentence')?.expect).toContain('HOLD_ERASURE_REFUSED');
-    expect(named(hold, 'every byte of the volume')?.observed).toBe('unchanged');
+    expect(named(hold, 'bytes of the seeded access-log directory')?.observed).toBe('unchanged');
     expect(named(hold, 'a marker filed by the refused run')?.observed).toBe('none');
     expect(named(hold, 'the count the store reports as held')?.observed).toBe('5');
     expect(named(hold, 'records a 100s window cannot reach, kept by the hold')?.observed).toBe('6');
+  });
+
+  it('separates malformed JSON from foreign credential matches in the filed readings', { timeout: CEILING }, () => {
+    const { status, stdout, record } = runDrill('classified', ['--only', '2']);
+    const leg = record.legs[0];
+    expect(leg?.readings?.before).toMatchObject({
+      syntaxInvalid: 6, schemaInvalid: 4, schemaInvalidMatches: 3, credentialMatches: 376,
+      observedFiles: [
+        'access-2026-03-01-000.jsonl', 'access-2026-03-01-001.jsonl', 'access-2026-03-01-002.jsonl',
+        'journal-000.jsonl', 'journal-001.jsonl', 'journal-002.jsonl',
+      ],
+    });
+    expect(leg?.readings?.after).toMatchObject({
+      syntaxInvalid: 6, schemaInvalid: 1, schemaInvalidMatches: 0, credentialMatches: 0,
+      observedFiles: ['access-2026-03-01-000.jsonl', 'access-2026-03-01-001.jsonl', 'journal-000.jsonl', 'journal-002.jsonl'],
+    });
+    expect(leg && named(leg, 'records the run says it removed')?.observed).toBe('376');
+    expect(status, stdout).toBe(0);
+  });
+
+  it('retains exact foreign bytes and receipts journal rewrites and deletions', { timeout: CEILING }, () => {
+    const { status, stdout, record } = runDrill('retained', ['--only', '2', '--keep']);
+    try {
+      const dir = join(record.store, 'leg2');
+      const markerName = readdirSync(dir).find((name) => name.startsWith('scrub-'));
+      expect(markerName).toBeDefined();
+      const marker = JSON.parse(readFileSync(join(dir, markerName ?? ''), 'utf8')) as {
+        credential: string; removed: number; files: number;
+        parts: { name: string; beforeBytes: number; beforeSha256: string; afterBytes: number; afterSha256: string }[];
+      };
+      expect(marker.removed).toBe(376);
+      expect(marker.files).toBe(6);
+      expect(marker.parts.map((part) => part.name)).toEqual([
+        'access-2026-03-01-000.jsonl', 'access-2026-03-01-001.jsonl', 'access-2026-03-01-002.jsonl',
+        'journal-000.jsonl', 'journal-001.jsonl', 'journal-002.jsonl',
+      ]);
+      const subject = marker.credential;
+      const peer = '{"t":1772323200000,"rid":"drill-journal-peer","cred":"journal-peer","auth":"bearer","scope":"complete","m":"POST","p":"/v1/chat/completions","rcp":null,"nce":"journal-peer","st":200,"dur":1,"deny":null}\n';
+      const foreign = '{"cred":"journal-other","note":"café"}\n';
+      const malformed = `{"cred":"${subject}","note":"unfinished café\n`;
+      expect(readFileSync(join(dir, 'journal-000.jsonl'))).toEqual(Buffer.from(peer + foreign + malformed));
+      expect(readFileSync(join(dir, 'journal-002.jsonl'))).toEqual(Buffer.from(`{"cred":"${subject}","note":"torn café\n`));
+      expect(existsSync(join(dir, 'journal-001.jsonl'))).toBe(false);
+      expect(existsSync(join(dir, 'access-2026-03-01-002.jsonl'))).toBe(false);
+      expect(readFileSync(join(dir, 'access-not-a-part.jsonl'), 'utf8')).toBe(`{"cred":"${subject}"}\n`);
+      for (const name of ['access-2026-03-01-000.jsonl', 'access-2026-03-01-001.jsonl']) {
+        const lines = readFileSync(join(dir, name), 'utf8').split('\n').filter(Boolean);
+        const invalid: string[] = [];
+        for (const line of lines) {
+          let parsed: { cred?: unknown };
+          try {
+            parsed = JSON.parse(line) as { cred?: unknown };
+          } catch {
+            invalid.push(line);
+            continue;
+          }
+          expect(parsed.cred).not.toBe(subject);
+        }
+        expect(invalid).toEqual(Array<string>(2).fill(`{"cred":"${subject}","note":"coupée en writing \u{1F600}`));
+      }
+      for (const part of marker.parts) {
+        const path = join(dir, part.name);
+        const bytes = existsSync(path) ? readFileSync(path) : Buffer.alloc(0);
+        expect(part.beforeBytes).toBeGreaterThan(bytes.length);
+        expect(part.beforeSha256).toMatch(/^[0-9a-f]{64}$/u);
+        expect(part.afterBytes).toBe(bytes.length);
+        expect(part.afterSha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+      }
+      expect(status, stdout).toBe(0);
+    } finally {
+      rmSync(record.store, { recursive: true, force: true });
+    }
   });
 
   it('never waits for a keypress when it has no terminal, even when asked to step', { timeout: CEILING }, () => {

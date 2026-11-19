@@ -107,67 +107,72 @@ export function holdOverOther(other: string, issuedAt: number): Uint8Array {
 }
 
 export interface VolumeFacts {
-  /** Every file name in the directory, so a claim about what stands at a name is checkable. */
   names: string[];
+  observedFiles: string[];
   lines: number;
-  unreadable: number;
-  /** Of the refused bytes, how many name the credential the run was asked about, and how many name another. */
-  unreadableNaming: number;
-  unreadableElsewhere: number;
-  /** The refused bytes themselves, capped, so a difference between two readings is attributable. */
-  unreadableSamples: string[];
+  syntaxInvalid: number;
+  syntaxInvalidLines: Record<string, string[]>;
+  schemaInvalid: number;
+  schemaInvalidMatches: number;
+  credentialMatches: number;
   byCredential: Record<string, number>;
-  /** The subject's lines, counted by the shipped parser rather than by a name match. */
+  uniqueByCredential: Record<string, number>;
   of(credential: string): number;
 }
 
-/**
- * What stands on the volume, read back through the parser the gateway writes with.
- *
- * A line this parser refuses is counted apart rather than skipped, because a scrub that silently dropped
- * bytes it could not read would otherwise be reported here as a clean volume. Splitting that count by the
- * credential each refused line spells is what lets a difference between two readings be attributed to the
- * run rather than left as a number that moved.
- */
+/** Physical lines in the scrub's two filename families, not all copies or unique requests. */
 export async function readVolume(dir: string, subject?: string): Promise<VolumeFacts> {
   const names = (await readdir(dir)).sort();
+  const observedFiles = names.filter((name) => /^access-\d{4}-\d{2}-\d{2}-\d{3}\.jsonl$/u.test(name) || /^journal-\d+\.jsonl$/u.test(name));
   const byCredential: Record<string, number> = {};
+  const ids = new Map<string, Set<string>>();
   let lines = 0;
-  let unreadable = 0;
-  let unreadableNaming = 0;
-  let unreadableElsewhere = 0;
-  const unreadableSamples: string[] = [];
-  for (const name of names) {
-    if (!name.startsWith('access-') || !name.endsWith('.jsonl')) continue;
+  let syntaxInvalid = 0;
+  let schemaInvalid = 0;
+  let schemaInvalidMatches = 0;
+  let credentialMatches = 0;
+  const syntaxInvalidLines: Record<string, string[]> = {};
+  for (const name of observedFiles) {
     const text = await readFile(join(dir, name), 'utf8');
     for (const line of text.split('\n')) {
       if (line.length === 0) continue;
       lines += 1;
+      let value: unknown;
+      try {
+        value = JSON.parse(line) as unknown;
+      } catch {
+        syntaxInvalid += 1;
+        (syntaxInvalidLines[name] ??= []).push(line);
+        continue;
+      }
+      const matches = subject !== undefined && value !== null && typeof value === 'object' && 'cred' in value && value.cred === subject;
+      if (matches) credentialMatches += 1;
       let parsed: AccessRecord;
       try {
         parsed = parseAccessLine(line);
       } catch {
-        unreadable += 1;
-        if (subject !== undefined && line.includes(`"cred":"${subject}"`)) {
-          unreadableNaming += 1;
-        } else {
-          unreadableElsewhere += 1;
-        }
-        if (unreadableSamples.length < 6) unreadableSamples.push(`${name} ${line.slice(0, 56)}`);
+        schemaInvalid += 1;
+        if (matches) schemaInvalidMatches += 1;
         continue;
       }
       const who = parsed.cred ?? '<no credential named>';
       byCredential[who] = (byCredential[who] ?? 0) + 1;
+      const held = ids.get(who) ?? new Set<string>();
+      held.add(parsed.rid);
+      ids.set(who, held);
     }
   }
   return {
     names,
+    observedFiles,
     lines,
-    unreadable,
-    unreadableNaming,
-    unreadableElsewhere,
-    unreadableSamples,
+    syntaxInvalid,
+    syntaxInvalidLines,
+    schemaInvalid,
+    schemaInvalidMatches,
+    credentialMatches,
     byCredential,
+    uniqueByCredential: Object.fromEntries([...ids].map(([who, held]) => [who, held.size])),
     of(credential: string): number {
       return byCredential[credential] ?? 0;
     },

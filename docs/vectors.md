@@ -32,7 +32,7 @@ each shape.
 | Request digest | `packages/fixtures/data/req-v1.json` | The `req` a receipt claims, over exact request bytes | `version: 1` |
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
-| Disclosure record | `packages/fixtures/data/disclosure-record-v1.json` | The record beside the marking region: the layout its strict reader reads, the duty pointers it enumerates, the limits sentence every record states verbatim, and the transformation outcomes measured over the published buffered completion, with unsupported transformations recorded as untested; the content path is a fixture path, and detectability through a named application's own transformations is not claimed here | `version: 1` |
+| Disclosure record | `packages/fixtures/data/disclosure-record-v1.json` | The record beside the marking region: the layout its strict reader reads, the duty pointers it enumerates, the limits sentence every record states verbatim, and the transformation outcomes measured over the published buffered completion, with unsupported transformations recorded as untested. The rows state the fixture completion the marking suite publishes; `rule.realContentPath` beside them states one recorded run of that same completion through real applications (Google Chrome rendering and PDF export, poppler pdftotext and Artifex Ghostscript text export, Tesseract OCR over a Ghostscript raster, and a curl fetch of the served body) with the bytes each stage produced and the application and version that wrote them, and a stage the run could not reach is recorded without an outcome | `version: 1` |
 | Hold record | `packages/fixtures/data/hold-v1.json` | The hold record beside the receipts it asks to be kept: the layout its strict reader reads, one edit of the writer's own bytes per refusal, the answers the three shipped consultation doors give the calls these rows state, the authored-text bound measured at the unit either side of the ceiling, and the one record two doors answer differently because the erasure arm declines to weigh the window; the record carries no signature, the family publishes no key material, and every row but the one that tests the label vocabulary carries `prov: fixture` | `version: 1` |
 | Incident preservation bundle | `packages/fixtures/data/incident-bundle-v1.json` | The incident preservation bundle beside the hold record it designates and the receipts that attest the material: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the floor arithmetic its layout door recomputes rather than believes, measured at the day and the unit either side of both bounds, the verification cases replayed beside the hold bytes each case designates including the mutation pair that witnesses the split and the two refusals that name which document the reader was handed, and both records riding inline items of the export the export family publishes for its honest anchored run; the designated hold is the row `hold-v1.json#hold-fixture-v1`, every record is labeled fixture, and the floor is a pointer for counsel rather than a conclusion about a provision | `version: 1` |
 | Model inventory | `packages/fixtures/data/model-inventory-v1.json` | The inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the bound cases replayed beside the manifest bytes each record designates including the mutation pair that witnesses the split, the Australia APP 1.7-1.9 automated-decision extract as a fixture row whose scope states the enacted periods transcribed from the corpus cut the appSource block names with its measured digests, and the record riding one inline item of the published export contract; the fixture deployment is the one the published receipt family came from, and the extract is labeled fixture | `version: 1` |
@@ -149,9 +149,17 @@ specific to that case.
   is the response, and each implemented transformation's outcome is what your own reading of the
   extraction rule locates after that transformation, which is the region's survival and not the
   digest's agreement. A transformation the roster marks unimplemented is recorded as `untested` rather
-  than omitted. The content path is the fixture completion `marking-v1.json#buffered-member`; a named
-  application path's own copying, rendering and export transformations are a separate test this family
-  does not stand in for.
+  than omitted. The content path that roster speaks of is the fixture completion
+  `marking-v1.json#buffered-member`, and the applications that carried the same completion are recorded
+  beside it in `rule.realContentPath`: each stage states the bytes its application produced, the
+  application and version that wrote them, and the outcome your own reading of the extraction rule gives
+  those bytes, so a stage's verdict is something you re-derive rather than a word to take on trust. What
+  the recorded run answered is that the fetched copy still carries exactly one region and that the
+  rendered document, the exported PDF, the text taken out of it by either application, and the text read
+  off a raster of the page by an optical engine carry none. A stage publishing no bytes is a step the run
+  could not reach and states no outcome, and the harness that wrote the observation,
+  `packages/fixtures/scripts/disclosure-content-path-capture.ts`, refuses to write one whose applications
+  are absent.
 - **Hold record.** Decode `recordBase64Url` and hand the bytes to `parseHoldRecord` for the layout's
   answer: `verify-ok`, or the code the row names. The accepted rows are the shipped writer's own bytes, so
   `holdRecordBytes` of the record each one parses to reproduces them at the `recordByteLength` the row
@@ -534,11 +542,15 @@ These vectors check bytes. They say nothing about trust:
 - The store chain vectors pin a file format and the retention behaviour those vectors exercise: a
   count cap, an age bound, a compaction, a repair. They do not commit anyone to a retention period,
   and what a deployment promises to keep is stated where retention is stated, not here.
-- The disclosure record vectors pin a layout and a measured fixture path. The transformation outcomes
-  are what the published extraction rule locates after each transformation of the buffered completion
-  this suite publishes, and they say nothing about a named application's own content path, which is a
-  separate test this family does not claim. The duty pointers are pointers for counsel rather than
-  conclusions, and no row here states that a duty applies or was met.
+- The disclosure record vectors pin a layout, a measured fixture path, and one recorded run of the same
+  completion through applications this repository does not own. The roster's outcomes are what the
+  published extraction rule locates after each transformation the harness implements; the block named
+  `rule.realContentPath` states what it locates in the bytes a browser rendering, a browser PDF export, two
+  text extractors and one optical engine produced, every verdict readable off the published stage bytes
+  and every stage naming the application and version that wrote them. Neither half reaches past those
+  bytes: the run is one machine's applications at the versions it recorded, not every renderer a customer
+  might meet, and no row states that a duty applies or was met. The duty pointers are pointers for
+  counsel rather than conclusions.
 - The hold record vectors pin a layout and the three consultation doors. The record carries no signature,
   so nothing here authenticates one: a reader weighs the layout and the reach, and the trust in a hold
   arrives from whoever hands it over beside the receipts it speaks of, the export container being what

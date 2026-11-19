@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
@@ -31,6 +32,7 @@ import {
   syntheticSubject,
   volumeBytes,
   type Subject,
+  type VolumeFacts,
 } from './synth.ts';
 
 /**
@@ -67,6 +69,7 @@ export interface LegOutcome {
   notes: string[];
   /** The mechanisms a `NOT BUILT` row names as missing. */
   missing: string[];
+  readings?: { before: VolumeFacts; after: VolumeFacts };
 }
 
 export interface ChildResult {
@@ -234,7 +237,7 @@ export async function legSubjectAccess(run: Run): Promise<LegOutcome> {
 
   const top = await run.shipped(['subject-access', '--credential', subject.credential]);
   commands.push(top.command);
-  checks.push(check('no top-level read-out command exists', 'refused as an unknown command', `exit ${top.status} ${firstLine(top.stderr)}`, top.status === 2 && top.stderr.includes("unknown command 'subject-access'")));
+  checks.push(check('the subject-access command probe is refused', 'refused as an unknown command', `exit ${top.status} ${firstLine(top.stderr)}`, top.status === 2 && top.stderr.includes("unknown command 'subject-access'")));
 
   const booted = await bootDeployment(root, [subject, other]);
   const asked = await served(booted.port, 'POST', '/v1/chat/completions', subject.token);
@@ -245,7 +248,7 @@ export async function legSubjectAccess(run: Run): Promise<LegOutcome> {
   const foreign = await served(booted.port, 'GET', `/v1/receipts/${asked.receiptId ?? 'absent'}`, other.token);
   checks.push(check('the same id is not answerable to another subject', '404', `${foreign.status} ${foreign.reason.slice(0, 60)}`, foreign.status === 404));
   const list = await served(booted.port, 'GET', '/v1/access-log', subject.token);
-  checks.push(check('no route lists one subject records', 'refused before any record is read', `${list.status} ${list.reason.slice(0, 90)}`, list.status >= 400));
+  checks.push(check('the probed access-log route refuses a subject listing', 'refused before any record is read', `${list.status} ${list.reason.slice(0, 90)}`, list.status >= 400));
   const held = await booted.access.window();
   notes.push(`served on 127.0.0.1:${String(booted.port)} for two synthetic subjects`);
   notes.push(`the access-log reader the gateway itself holds answers ${JSON.stringify(held)}, which counts every subject's lines and names no subject`);
@@ -255,14 +258,14 @@ export async function legSubjectAccess(run: Run): Promise<LegOutcome> {
   return {
     leg: 1,
     name: 'authorized subject access',
-    summary: 'no shipped surface answers what the estate holds for one subject',
+    summary: 'the probed commands and route do not provide a subject-wide read-out',
     built: false,
     verdict: 'NOT BUILT',
     checks,
     commands,
     notes,
     missing: [
-      'a subject access read-out: `accesslog` ships `scrub` alone, and no route enumerates one credential\'s records',
+      'an authorized subject read-out beyond the command and route probes exercised here',
       'the by-id receipt route is scoped to the presenting credential\'s tag, so it answers one known id and is not a read-out',
     ],
   };
@@ -286,50 +289,79 @@ export async function legQuiesced(run: Run): Promise<LegOutcome> {
   const day = Date.parse('2026-03-01T00:00:00.000Z');
   const only = [renderLine(subject, day, 'only-1'), renderLine(subject, day + 1, 'only-2')].join('');
 
+  const journalKept = renderLine('journal-peer', day, 'journal-peer') + '{"cred":"journal-other","note":"café"}\n' + `{"cred":"${subject}","note":"unfinished café\n`;
+  const torn = `{"cred":"${subject}","note":"torn café`;
+  const journals = [
+    { name: 'journal-000.jsonl', before: renderLine(subject, day, 'journal-subject') + `{ "cred" : "${subject}", "written_by" : "foreign" }\n` + journalKept, after: journalKept },
+    { name: 'journal-001.jsonl', before: renderLine(subject, day, 'journal-only'), after: '' },
+    { name: 'journal-002.jsonl', before: renderLine(subject, day, 'journal-torn') + torn, after: `${torn}\n` },
+  ];
   for (const part of parts) await writeFile(join(dir, part.name), part.bytes);
   await writeFile(join(dir, partName(2)), only);
+  for (const part of journals) await writeFile(join(dir, part.name), part.before);
+  const outside = `{"cred":"${subject}"}\n`;
+  await writeFile(join(dir, 'access-not-a-part.jsonl'), outside);
 
-  const removedExpect = parts.reduce((sum, each) => sum + each.subjectLines, 0) + 2;
-  const keptExpect = parts.reduce((sum, each) => sum + each.keptLines, 0);
+  const removedExpect = parts.reduce((sum, each) => sum + each.subjectLines, 0) + 2 + 4;
+  const keptExpect = parts.reduce((sum, each) => sum + each.keptLines, 0) + 4;
   for (const part of parts) {
     notes.push(`${part.name}: ${String(part.lines)} lines, ${String(part.subjectLines)} the subject's, ${String(part.keptLines)} kept, ${String(part.bytes.length)} bytes`);
   }
   notes.push(`${partName(2)}: 2 lines, both the subject's, so the name is deleted rather than rewritten`);
 
+  notes.push('journal-000.jsonl mixes access records, foreign JSON and a syntax-invalid line; journal-001.jsonl holds only the subject; journal-002.jsonl ends in a torn line');
+  notes.push('only access-YYYY-MM-DD-NNN.jsonl and journal-NNN.jsonl in this directory are observed; other names, stores and copies are outside this reading');
+  notes.push('the torn journal line keeps its bytes with an added trailing newline; replay of these deliberately invalid journal records is not exercised');
   const volume = await readVolume(dir, subject);
-  checks.push(lit('the subject lines on the volume before the run', String(removedExpect - 2), String(volume.of(subject)), String(volume.of(subject)) === String(removedExpect - 2)));
-  const before = { total: volume.unreadable, naming: volume.unreadableNaming, elsewhere: volume.unreadableElsewhere };
+  checks.push(lit('credential matches in observed files before the run', String(removedExpect), String(volume.credentialMatches)));
+  checks.push(lit('strict access records naming the subject before the run', String(removedExpect - 3), String(volume.of(subject))));
+  checks.push(lit('syntax-invalid lines before the run', '6', String(volume.syntaxInvalid)));
+  checks.push(lit('schema-invalid JSON before the run', '4, 3 matching the credential', `${String(volume.schemaInvalid)}, ${String(volume.schemaInvalidMatches)} matching the credential`));
 
   const erase = await run.shipped(['accesslog', 'scrub', '--access-log', dir, '--credential', subject, '--request', 'drill:quiesced', '--now', '2026-04-15T00:00:00Z', '--json']);
   commands.push(erase.command);
   checks.push(lit('exit status', '0', String(erase.status), erase.status === 0));
   const reported = parseJson(erase.stdout);
   checks.push(lit('records the run says it removed', String(removedExpect), String(reported['removed']), String(reported['removed']) === String(removedExpect)));
-  checks.push(lit('parts the run says it worked on', '3', String(reported['files']), String(reported['files']) === '3'));
+  checks.push(lit('parts the run says it worked on', '6', String(reported['files'])));
   checks.push(check('nothing was refused', 'an empty stderr', firstLine(erase.stderr), erase.stderr.trim().length === 0));
 
   const markerName = typeof reported['marker'] === 'string' ? (reported['marker'] as string) : '';
   const marker = parseJson(await readFile(join(dir, markerName), 'utf8').catch(() => '{}'));
   const rows = Array.isArray(marker['parts']) ? (marker['parts'] as Record<string, unknown>[]) : [];
-  checks.push(lit('the marker names every part it worked on', '3', String(rows.length), String(rows.length) === '3'));
+  checks.push(lit('the marker names every part it worked on', '6', String(rows.length)));
+  checks.push(lit('the marker accounts for the credential matches', String(removedExpect), String(marker['removed'])));
+  checks.push(lit('the marker file total', '6', String(marker['files'])));
   const byName = new Map(rows.map((row) => [String(row['name']), row]));
   for (const part of parts) {
     const row = byName.get(part.name);
-    checks.push(lit(`${part.name} before, from the disk`, `${String(part.bytes.length)}/${part.sha256.slice(0, 12)}`, row === undefined ? 'absent' : `${String(row['beforeBytes'])}/${String(row['beforeSha256']).slice(0, 12)}`));
+    checks.push(lit(`${part.name} before, from the disk`, `${String(part.bytes.length)}/${part.sha256}`, row === undefined ? 'absent' : `${String(row['beforeBytes'])}/${String(row['beforeSha256'])}`));
     const after = await digestOf(join(dir, part.name));
-    checks.push(lit(`${part.name} after, on the disk`, `${String(part.keptBytes)}/${part.keptSha256.slice(0, 12)}`, `${String(after.bytes)}/${after.sha256.slice(0, 12)}`, after.sha256 === part.keptSha256));
+    checks.push(lit(`${part.name} after, on the disk`, `${String(part.keptBytes)}/${part.keptSha256}`, `${String(after.bytes)}/${after.sha256}`, after.present && after.bytes === part.keptBytes && after.sha256 === part.keptSha256));
+    checks.push(lit(`${part.name} after, in the marker`, `${String(part.keptBytes)}/${part.keptSha256}`, `${String(row?.['afterBytes'])}/${String(row?.['afterSha256'])}`));
+  }
+  for (const part of [...journals, { name: partName(2), before: only, after: '' }]) {
+    const row = byName.get(part.name);
+    const beforeHash = createHash('sha256').update(part.before).digest('hex');
+    const afterHash = createHash('sha256').update(part.after).digest('hex');
+    checks.push(lit(`${part.name} before bytes and digest`, `${String(Buffer.byteLength(part.before))}/${beforeHash}`, `${String(row?.['beforeBytes'])}/${String(row?.['beforeSha256'])}`));
+    checks.push(lit(`${part.name} after bytes and digest`, `${String(Buffer.byteLength(part.after))}/${afterHash}`, `${String(row?.['afterBytes'])}/${String(row?.['afterSha256'])}`));
+    const after = await digestOf(join(dir, part.name));
+    checks.push(check(`${part.name} exact retained bytes`, part.after.length === 0 ? 'name deleted' : 'expected bytes and digest', `${String(after.bytes)}/${after.sha256} present=${String(after.present)}`, after.present === (part.after.length > 0) && after.bytes === Buffer.byteLength(part.after) && after.sha256 === afterHash));
   }
   const markerNames = rows.map((row) => String(row['name'])).sort().join(',');
-  checks.push(lit('the parts the marker names', [partName(0), partName(1), partName(2)].sort().join(','), markerNames, markerNames === [partName(0), partName(1), partName(2)].sort().join(',')));
+  checks.push(lit('the parts the marker names', volume.observedFiles.join(','), markerNames));
   const gone = await digestOf(join(dir, partName(2)));
   checks.push(lit(`${partName(2)} after`, `0/${EMPTY_SHA256.slice(0, 12)} at the name`, `${String(gone.bytes)}/${gone.sha256.slice(0, 12)} present=${String(gone.present)}`, gone.bytes === 0 && gone.sha256 === EMPTY_SHA256 && !gone.present));
   checks.push(lit('the marker carries the reference the operator typed', 'drill:quiesced', String(marker['request']), String(marker['request']) === 'drill:quiesced'));
 
   const swept = await readVolume(dir, subject);
-  checks.push(lit('the subject lines left on the volume', '0', String(swept.of(subject)), swept.of(subject) === 0));
-  checks.push(lit('every line the run was not asked to touch', String(keptExpect), String(swept.lines), swept.lines === keptExpect));
-  notes.push(`refused bytes before: ${String(before.total)} (${String(before.naming)} spelling the subject, ${String(before.elsewhere)} not); after: ${String(swept.unreadable)} (${String(swept.unreadableNaming)} spelling the subject, ${String(swept.unreadableElsewhere)} not)`);
-  checks.push(check('the bytes no reader accepts stay on the volume, as the door promises', `${String(before.total)} before, the same count after`, `${String(swept.unreadable)} after, ${String(swept.unreadableNaming)} spelling the subject, ${String(before.total)} before`, swept.unreadable === before.total && swept.unreadableNaming === before.naming));
+  checks.push(lit('credential matches left in observed files', '0', String(swept.credentialMatches)));
+  checks.push(lit('retained lines in observed files', String(keptExpect), String(swept.lines)));
+  checks.push(lit('syntax-invalid lines retain their exact content per file', JSON.stringify(volume.syntaxInvalidLines), JSON.stringify(swept.syntaxInvalidLines)));
+  checks.push(lit('schema-invalid JSON after the run', '1, 0 matching the credential', `${String(swept.schemaInvalid)}, ${String(swept.schemaInvalidMatches)} matching the credential`));
+  checks.push(lit('observed credential-match decrease equals receipted removals', String(reported['removed']), String(volume.credentialMatches - swept.credentialMatches)));
+  checks.push(lit('the out-of-scope name retains a credential match', outside, await readFile(join(dir, 'access-not-a-part.jsonl'), 'utf8')));
 
   const again = await run.shipped(['accesslog', 'scrub', '--access-log', dir, '--credential', subject, '--now', '2026-04-15T00:00:00Z', '--json']);
   commands.push(again.command);
@@ -339,29 +371,18 @@ export async function legQuiesced(run: Run): Promise<LegOutcome> {
   return {
     leg: 2,
     name: 'quiesced erasure',
-    summary: 'the shipped scrub emptied a still volume and receipted every byte of it',
+    summary: 'credential matches were removed from the observed quiesced parts and journals; retained bytes matched',
     built: true,
     verdict: 'EXERCISED',
     checks,
     commands,
     notes,
     missing: [],
+    readings: { before: volume, after: swept },
   };
 }
 
-/**
- * Leg three: erase while the served path is live, so the volume and what the deployment answered for
- * have to be reconciled rather than assumed.
- *
- * The erasure runs, empties the subject's lines, sheds no request and files its marker, and every one of
- * those is checked here. What is not built is the reconciliation. A peer's request that arrives between
- * the door's last look at a part and the rename that follows it is written through a handle to bytes the
- * rename has just set aside, and the door's own help says so: records that leave that way "appear in no
- * count and under no digest, and no marker discloses them", and the operator is told to run it against a
- * deployment that is not serving. So the agreed numbers are recorded every run rather than promised, and
- * the row is NOT BUILT until something turns the promise into a mechanism. The direction that can never
- * happen, a line on the volume that no answered request explains, is asserted every run.
- */
+/** Live observations do not establish coordination between the scrub, journal and writer. */
 export async function legCoordinated(run: Run): Promise<LegOutcome> {
   const checks: Check[] = [];
   const commands: string[] = [];
@@ -370,13 +391,16 @@ export async function legCoordinated(run: Run): Promise<LegOutcome> {
   const subject = syntheticSubject(3301);
   const peer = syntheticSubject(3302);
   const booted = await bootDeployment(root, [subject, peer]);
-  notes.push(`serving on 127.0.0.1:${String(booted.port)}, receipts filed beside the log under ${join(root, 'receipts')}`);
+  notes.push(`serving on 127.0.0.1:${String(booted.port)}, receipts filed separately from access records`);
 
   const subjectIds: string[] = [];
   for (let at = 0; at < 8; at += 1) subjectIds.push((await served(booted.port, 'POST', '/v1/chat/completions', subject.token)).receiptId ?? 'none');
   const peerBefore: string[] = [];
   for (let at = 0; at < 4; at += 1) peerBefore.push((await served(booted.port, 'POST', '/v1/chat/completions', peer.token)).receiptId ?? 'none');
   await booted.access.drain();
+  const before = await readVolume(booted.logDir, subject.credential);
+  checks.push(lit('subject physical copies before the live scrub', '16', String(before.credentialMatches)));
+  checks.push(lit('distinct subject request ids before the live scrub', '8', String(before.uniqueByCredential[subject.credential])));
 
   const live: Served[] = [];
   const traffic = (async (): Promise<{ firstAt: number; lastAt: number }> => {
@@ -402,19 +426,21 @@ export async function legCoordinated(run: Run): Promise<LegOutcome> {
   checks.push(check('the served path was live across the erasure', 'traffic arrives between the child opening and closing', `child ${String(startedAt)}..${String(finishedAt)}, traffic ${String(window.firstAt)}..${String(window.lastAt)}`, window.firstAt >= startedAt - 100 && window.lastAt > startedAt && window.firstAt < finishedAt));
   checks.push(lit('exit status while serving', '0', String(erase.status), erase.status === 0));
   const reported = parseJson(erase.stdout);
-  checks.push(lit('records the run says it removed', '8', String(reported['removed']), String(reported['removed']) === '8'));
+  checks.push(lit('records the run says it removed', String(before.credentialMatches), String(reported['removed'])));
 
-  const after = await readVolume(booted.logDir);
-  checks.push(lit('the subject lines left on the volume', '0', String(after.of(subject.credential)), after.of(subject.credential) === 0));
+  const after = await readVolume(booted.logDir, subject.credential);
+  checks.push(lit('credential matches left in observed files', '0', String(after.credentialMatches)));
   checks.push(lit('no request was shed by the erasure', '24 answers of status 200', `${String(live.length)} answers, ${String(live.filter((one) => one.status !== 200).length)} not 200`, live.length === 24 && live.every((one) => one.status === 200)));
   const receipts = live.filter((one) => one.receiptId !== null).length;
   checks.push(lit('every live answer carried a receipt id', '24', String(receipts), receipts === 24));
 
   const answered = peerBefore.length + live.filter((one) => one.status === 200).length;
   const onVolume = after.of(peer.credential);
-  checks.push(check('a line on the volume no answered request explains', 'never more than one per answer', `${String(onVolume)} lines for ${String(answered)} answers`, onVolume <= answered));
-  const reconciliation = onVolume === answered ? 'agreed this run' : `${String(answered - onVolume)} answered request(s) hold no line on the volume`;
-  notes.push(`reconciliation of the peer's lines against its answered requests: ${reconciliation}`);
+  const distinct = after.uniqueByCredential[peer.credential] ?? 0;
+  checks.push(check('distinct peer request ids in observed files', 'no more distinct ids than answers', `${String(distinct)} ids for ${String(answered)} answers`, distinct > 0 && distinct <= answered));
+  const reconciliation = distinct === answered ? 'counts agreed this run' : `${String(answered - distinct)} fewer distinct ids than answers`;
+  notes.push(`reconciliation of the peer's distinct ids against its answered requests: ${reconciliation}; ${String(onVolume)} physical copies include journals and dated parts`);
+  notes.push('these are snapshot counts, not an identity-by-identity reconciliation or proof about unobserved copies; a rewritten journal can stall until restart');
   notes.push('a run that agrees does not prove the case: the loss is a window between the door\'s read and its rename, and the door says so in its own help');
 
   const help = await run.shipped(['--help']);
@@ -432,13 +458,13 @@ export async function legCoordinated(run: Run): Promise<LegOutcome> {
     if ((await served(booted.port, 'GET', `/v1/receipts/${id}`, peer.token)).status === 404) refused += 1;
   }
   checks.push(lit('and another subject cannot read them', '3 refused as 404', `${String(refused)} of 3 refused`, refused === 3));
-  notes.push(`the access log after the erasure holds ${String(after.lines)} lines in ${String(after.names.filter((name) => name.startsWith('access-')).length)} part file(s), of which ${String(onVolume)} name the peer and ${String(after.of(subject.credential))} name the erased subject`);
+  notes.push(`the snapshot holds ${String(after.lines)} physical lines across ${after.observedFiles.join(', ')}, of which ${String(onVolume)} strict records name the peer and ${String(after.credentialMatches)} JSON records match the erased credential`);
   await shutdown(booted);
 
   return {
     leg: 3,
     name: 'coordinated erasure',
-    summary: 'the erasure runs against a live log; nothing reconciles it with the writer',
+    summary: 'a live scrub was observed, not a coordinated erasure or a reconciliation of all copies',
     built: false,
     verdict: 'NOT BUILT',
     checks,
@@ -482,7 +508,7 @@ export async function legHoldConflict(run: Run): Promise<LegOutcome> {
   checks.push(check('and names which instruction suspends it', `credential "${subject.credential}" is under the hold issued at 1770000000 by "rights drill"`, firstLine(refused.stderr).slice(0, 240), refused.stderr.includes(`credential ${JSON.stringify(subject.credential)} is under the hold issued at 1770000000`)));
   checks.push(lit('stdout carries nothing', '', refused.stdout.trim(), refused.stdout.trim() === ''));
   const afterRefusal = await volumeBytes(dir);
-  checks.push(check('every byte of the volume', 'unchanged', afterRefusal === before ? 'unchanged' : `moved: ${before.slice(0, 12)} to ${afterRefusal.slice(0, 12)}`, afterRefusal === before));
+  checks.push(check('bytes of the seeded access-log directory', 'unchanged', afterRefusal === before ? 'unchanged' : `moved: ${before.slice(0, 12)} to ${afterRefusal.slice(0, 12)}`, afterRefusal === before));
   const atRefusal = await readVolume(dir);
   checks.push(lit('a marker filed by the refused run', 'none', atRefusal.names.filter((name) => name.startsWith('scrub-')).join(',') || 'none', !atRefusal.names.some((name) => name.startsWith('scrub-'))));
 
@@ -537,7 +563,7 @@ export async function legHoldConflict(run: Run): Promise<LegOutcome> {
   return {
     leg: 4,
     name: 'hold conflicts',
-    summary: 'the door refused by name and moved nothing, and the store reports what a hold keeps',
+    summary: 'the held erasure left the seeded directory unchanged; the store reported held records',
     built: true,
     verdict: 'EXERCISED',
     checks,
@@ -631,7 +657,7 @@ export async function legRestore(run: Run): Promise<LegOutcome> {
   };
 }
 
-/** Every shipped source file, for the one question leg six asks of the tree rather than of a volume. */
+/** A bounded source sample: top-level package sources and four gateway files, not recursive. */
 async function shippedSources(): Promise<string[]> {
   const root = fileURLToPath(new URL('../../../..', import.meta.url));
   const found: string[] = [];
@@ -654,33 +680,27 @@ async function shippedSources(): Promise<string[]> {
   return found;
 }
 
-/**
- * Leg six: the processor-notification arm.
- *
- * Nothing here sends anything. The word travels the shipped sources only inside the two limits sentences
- * that state a notification is somebody else's obligation, so the honest row names what is missing and
- * quotes the sentences that disclaim it, and re-derives that count from the tree on every run rather than
- * remembering it. The day a notification routine ships, this row goes red until it is rewritten to
- * exercise it.
- */
+/** The marker and limits disclose no notification evidence; a lexical sample cannot prove absence. */
 export async function legNotification(run: Run): Promise<LegOutcome> {
   const checks: Check[] = [];
   const commands: string[] = [];
   const notes: string[] = [];
   const files = await shippedSources();
   const declarations: string[] = [];
-  const prose: string[] = [];
+  const otherMentions: string[] = [];
   for (const path of files) {
     const text = await readFile(path, 'utf8').catch(() => '');
     text.split('\n').forEach((line, index) => {
       if (!/notif/iu.test(line)) return;
       const name = (path.split(/[\\/]/u).pop() ?? path) + ':' + String(index + 1);
       if (/^\s*(?:export\s+)?(?:async\s+)?(?:function|const|class|interface|type)\s+\w*notif/iu.test(line)) declarations.push(name);
-      else prose.push(name);
+      else otherMentions.push(name);
     });
   }
-  checks.push(lit('shipped declarations naming a notification', '0', `${String(declarations.length)} ${declarations.join(', ')}`, declarations.length === 0));
-  checks.push(check('every mention of one is prose that disclaims it', 'more than none, and none of them a declaration', `${String(prose.length)} mentions in ${String(files.length)} files`, prose.length > 0));
+  checks.push(lit('notification-named declarations matched in the source sample', '0', `${String(declarations.length)} ${declarations.join(', ')}`, declarations.length === 0));
+  checks.push(check('other notification mentions in the source sample', 'at least one lexical match', `${String(otherMentions.length)} mentions in ${String(files.length)} sampled files`, otherMentions.length > 0));
+  notes.push('source sample: top-level packages/*/src/*.ts and gateway/src/{server,cli,access,aclog}.ts only; nested sources and other gateway files are not scanned');
+  notes.push('the line regex recognizes only certain declaration spellings; other mentions are not classified as prose, and zero matches is not universal evidence of absence');
 
   const dir = run.dir('leg6');
   const subject = syntheticSubject(6601);
@@ -699,7 +719,7 @@ export async function legNotification(run: Run): Promise<LegOutcome> {
   return {
     leg: 6,
     name: 'processor notification',
-    summary: 'nothing ships that notifies anyone, and two formats say it is not their obligation',
+    summary: 'no notification was exercised; the marker and two limits provide no notification evidence',
     built: false,
     verdict: 'NOT BUILT',
     checks,
