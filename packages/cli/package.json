@@ -28,7 +28,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.scripts.json",
-    "measure:erasure-pass": "node scripts/erasure-pass/measure.ts"
+    "measure:erasure-pass": "node scripts/erasure-pass/measure.ts",
+    "drill:rights": "node scripts/rights-drill/drill.ts"
   },
   "dependencies": {
     "@ashaveri/attest-core": "workspace:*",
