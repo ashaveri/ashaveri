@@ -158,13 +158,13 @@ function printTable(legs: readonly LegOutcome[]): void {
  * One leg at a time is selectable, because a leg that has to be read on a screen next to a failing check
  * is a leg somebody has to be able to run alone, and the whole drill otherwise boots a gateway.
  */
-const ORDER: readonly { leg: number; pauseBefore: string; run: (run: Run) => Promise<LegOutcome> }[] = [
-  { leg: 1, pauseBefore: '', run: legSubjectAccess },
-  { leg: 2, pauseBefore: 'the quiesced erasure', run: legQuiesced },
-  { leg: 3, pauseBefore: 'the coordinated erasure', run: legCoordinated },
-  { leg: 4, pauseBefore: 'the hold conflict', run: legHoldConflict },
-  { leg: 5, pauseBefore: 'the restore', run: legRestore },
-  { leg: 6, pauseBefore: 'the notification check', run: legNotification },
+const ORDER: readonly { leg: number; name: string; pauseBefore: string; run: (run: Run) => Promise<LegOutcome> }[] = [
+  { leg: 1, name: 'authorized subject access', pauseBefore: '', run: legSubjectAccess },
+  { leg: 2, name: 'quiesced erasure', pauseBefore: 'the quiesced erasure', run: legQuiesced },
+  { leg: 3, name: 'coordinated erasure', pauseBefore: 'the coordinated erasure', run: legCoordinated },
+  { leg: 4, name: 'hold conflicts', pauseBefore: 'the hold conflict', run: legHoldConflict },
+  { leg: 5, name: 'backup restoration', pauseBefore: 'the restore', run: legRestore },
+  { leg: 6, name: 'processor notification', pauseBefore: 'the notification check', run: legNotification },
 ];
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -200,7 +200,21 @@ async function main(argv: readonly string[]): Promise<number> {
   for (const entry of ORDER) {
     if (options.only !== null && !options.only.includes(entry.leg)) continue;
     if (entry.pauseBefore.length > 0) await pauseIfAsked(options.step, entry.pauseBefore);
-    legs.push(await entry.run(run));
+    try {
+      legs.push(await entry.run(run));
+    } catch (error) {
+      legs.push({
+        leg: entry.leg,
+        name: entry.name,
+        built: LEGS.find((one) => one.leg === entry.leg)!.built,
+        verdict: 'NOT EXERCISED',
+        summary: 'the leg stopped before its observations were complete',
+        checks: [{ name: 'the leg completes', expect: 'no exception', observed: error instanceof Error ? error.message : String(error), passed: false }],
+        commands: [],
+        notes: [],
+        missing: [],
+      });
+    }
   }
 
   const settled = legs.map((leg) => ({ ...leg, verdict: verdictOf(leg, (LEGS.find((one) => one.leg === leg.leg) ?? { built: leg.built }).built) }));

@@ -240,20 +240,23 @@ export async function legSubjectAccess(run: Run): Promise<LegOutcome> {
   checks.push(check('the subject-access command probe is refused', 'refused as an unknown command', `exit ${top.status} ${firstLine(top.stderr)}`, top.status === 2 && top.stderr.includes("unknown command 'subject-access'")));
 
   const booted = await bootDeployment(root, [subject, other]);
-  const asked = await served(booted.port, 'POST', '/v1/chat/completions', subject.token);
-  await booted.access.drain();
-  checks.push(lit('the leg issued the request it needs an id for', '200', String(asked.status), asked.status === 200));
-  const ownId = await served(booted.port, 'GET', `/v1/receipts/${asked.receiptId ?? 'absent'}`, subject.token);
-  checks.push(lit('the shipped read path answers one receipt by id, to its own subject', '200', String(ownId.status), ownId.status === 200));
-  const foreign = await served(booted.port, 'GET', `/v1/receipts/${asked.receiptId ?? 'absent'}`, other.token);
-  checks.push(check('the same id is not answerable to another subject', '404', `${foreign.status} ${foreign.reason.slice(0, 60)}`, foreign.status === 404));
-  const list = await served(booted.port, 'GET', '/v1/access-log', subject.token);
-  checks.push(check('the probed access-log route refuses a subject listing', 'refused before any record is read', `${list.status} ${list.reason.slice(0, 90)}`, list.status >= 400));
-  const held = await booted.access.window();
-  notes.push(`served on 127.0.0.1:${String(booted.port)} for two synthetic subjects`);
-  notes.push(`the access-log reader the gateway itself holds answers ${JSON.stringify(held)}, which counts every subject's lines and names no subject`);
-  notes.push(`a refusal that quotes no id of another tenant: ${foreign.reason.slice(0, 80)}`);
-  await shutdown(booted);
+  try {
+    const asked = await served(booted.port, 'POST', '/v1/chat/completions', subject.token);
+    await booted.access.drain();
+    checks.push(lit('the leg issued the request it needs an id for', '200', String(asked.status), asked.status === 200));
+    const ownId = await served(booted.port, 'GET', `/v1/receipts/${asked.receiptId ?? 'absent'}`, subject.token);
+    checks.push(lit('the shipped read path answers one receipt by id, to its own subject', '200', String(ownId.status), ownId.status === 200));
+    const foreign = await served(booted.port, 'GET', `/v1/receipts/${asked.receiptId ?? 'absent'}`, other.token);
+    checks.push(check('the same id is not answerable to another subject', '404', `${foreign.status} ${foreign.reason.slice(0, 60)}`, foreign.status === 404));
+    const list = await served(booted.port, 'GET', '/v1/access-log', subject.token);
+    checks.push(check('the probed access-log route refuses a subject listing', 'refused before any record is read', `${list.status} ${list.reason.slice(0, 90)}`, list.status >= 400));
+    const held = await booted.access.window();
+    notes.push(`served on 127.0.0.1:${String(booted.port)} for two synthetic subjects`);
+    notes.push(`the access-log reader the gateway itself holds answers ${JSON.stringify(held)}, which counts every subject's lines and names no subject`);
+    notes.push(`a refusal that quotes no id of another tenant: ${foreign.reason.slice(0, 80)}`);
+  } finally {
+    await shutdown(booted);
+  }
 
   return {
     leg: 1,
@@ -391,75 +394,84 @@ export async function legCoordinated(run: Run): Promise<LegOutcome> {
   const subject = syntheticSubject(3301);
   const peer = syntheticSubject(3302);
   const booted = await bootDeployment(root, [subject, peer]);
-  notes.push(`serving on 127.0.0.1:${String(booted.port)}, receipts filed separately from access records`);
+  try {
+    notes.push(`serving on 127.0.0.1:${String(booted.port)}, receipts filed separately from access records`);
 
-  const subjectIds: string[] = [];
-  for (let at = 0; at < 8; at += 1) subjectIds.push((await served(booted.port, 'POST', '/v1/chat/completions', subject.token)).receiptId ?? 'none');
-  const peerBefore: string[] = [];
-  for (let at = 0; at < 4; at += 1) peerBefore.push((await served(booted.port, 'POST', '/v1/chat/completions', peer.token)).receiptId ?? 'none');
-  await booted.access.drain();
-  const before = await readVolume(booted.logDir, subject.credential);
-  checks.push(lit('subject physical copies before the live scrub', '16', String(before.credentialMatches)));
-  checks.push(lit('distinct subject request ids before the live scrub', '8', String(before.uniqueByCredential[subject.credential])));
+    const subjectIds: string[] = [];
+    for (let at = 0; at < 8; at += 1) subjectIds.push((await served(booted.port, 'POST', '/v1/chat/completions', subject.token)).receiptId ?? 'none');
+    const peerBefore: string[] = [];
+    for (let at = 0; at < 4; at += 1) peerBefore.push((await served(booted.port, 'POST', '/v1/chat/completions', peer.token)).receiptId ?? 'none');
+    await booted.access.drain();
+    const before = await readVolume(booted.logDir, subject.credential);
+    checks.push(lit('subject physical copies before the live scrub', '16', String(before.credentialMatches)));
+    checks.push(lit('distinct subject request ids before the live scrub', '8', String(before.uniqueByCredential[subject.credential])));
 
-  const live: Served[] = [];
-  const traffic = (async (): Promise<{ firstAt: number; lastAt: number }> => {
-    let firstAt = 0;
-    let lastAt = 0;
-    for (let at = 0; at < 24; at += 1) {
-      const answer = await served(booted.port, 'POST', '/v1/chat/completions', peer.token);
-      live.push(answer);
-      const now = Date.now();
-      if (firstAt === 0) firstAt = now;
-      lastAt = now;
-      await sleep(25);
+    const live: Served[] = [];
+    const traffic = (async (): Promise<{ firstAt: number; lastAt: number }> => {
+      let firstAt = 0;
+      let lastAt = 0;
+      for (let at = 0; at < 24; at += 1) {
+        const answer = await served(booted.port, 'POST', '/v1/chat/completions', peer.token);
+        live.push(answer);
+        const now = Date.now();
+        if (firstAt === 0) firstAt = now;
+        lastAt = now;
+        await sleep(25);
+      }
+      return { firstAt, lastAt };
+    })();
+    const startedAt = Date.now();
+    let finishedAt = startedAt;
+    const [trafficResult, erasureResult] = await Promise.allSettled([
+      traffic,
+      run.shipped(['accesslog', 'scrub', '--access-log', booted.logDir, '--credential', subject.credential, '--request', 'drill:coordinated', '--json']).finally(() => { finishedAt = Date.now(); }),
+    ]);
+    if (trafficResult.status === 'rejected') throw trafficResult.reason;
+    if (erasureResult.status === 'rejected') throw erasureResult.reason;
+    const window = trafficResult.value;
+    const erase = erasureResult.value;
+    commands.push(erase.command);
+    await booted.access.drain();
+
+    checks.push(check('the served path was live across the erasure', 'traffic arrives between the child opening and closing', `child ${String(startedAt)}..${String(finishedAt)}, traffic ${String(window.firstAt)}..${String(window.lastAt)}`, window.firstAt >= startedAt - 100 && window.lastAt > startedAt && window.firstAt < finishedAt));
+    checks.push(lit('exit status while serving', '0', String(erase.status), erase.status === 0));
+    const reported = parseJson(erase.stdout);
+    checks.push(lit('records the run says it removed', String(before.credentialMatches), String(reported['removed'])));
+
+    const after = await readVolume(booted.logDir, subject.credential);
+    checks.push(lit('credential matches left in observed files', '0', String(after.credentialMatches)));
+    checks.push(lit('no request was shed by the erasure', '24 answers of status 200', `${String(live.length)} answers, ${String(live.filter((one) => one.status !== 200).length)} not 200`, live.length === 24 && live.every((one) => one.status === 200)));
+    const receipts = live.filter((one) => one.receiptId !== null).length;
+    checks.push(lit('every live answer carried a receipt id', '24', String(receipts), receipts === 24));
+
+    const answered = peerBefore.length + live.filter((one) => one.status === 200).length;
+    const onVolume = after.of(peer.credential);
+    const distinct = after.uniqueByCredential[peer.credential] ?? 0;
+    checks.push(check('distinct peer request ids in observed files', 'no more distinct ids than answers', `${String(distinct)} ids for ${String(answered)} answers`, distinct > 0 && distinct <= answered));
+    const reconciliation = distinct === answered ? 'counts agreed this run' : `${String(answered - distinct)} fewer distinct ids than answers`;
+    notes.push(`reconciliation of the peer's distinct ids against its answered requests: ${reconciliation}; ${String(onVolume)} physical copies include journals and dated parts`);
+    notes.push('these are snapshot counts, not an identity-by-identity reconciliation or proof about unobserved copies; a rewritten journal can stall until restart');
+    notes.push('a run that agrees does not prove the case: the loss is a window between the door\'s read and its rename, and the door says so in its own help');
+
+    const help = await run.shipped(['--help']);
+    commands.push(help.command);
+    const states = help.stdout.includes('Run it against a deployment that is not serving.');
+    checks.push(check('what the shipped door says about a serving deployment', 'its help tells the operator not to', `exit ${help.status}, sentence ${states ? 'present' : 'absent'}`, help.status === 0 && states));
+
+    let own = 0;
+    for (const id of subjectIds.slice(0, 3)) {
+      if ((await served(booted.port, 'GET', `/v1/receipts/${id}`, subject.token)).status === 200) own += 1;
     }
-    return { firstAt, lastAt };
-  })();
-  const startedAt = Date.now();
-  const erase = await run.shipped(['accesslog', 'scrub', '--access-log', booted.logDir, '--credential', subject.credential, '--request', 'drill:coordinated', '--json']);
-  const finishedAt = Date.now();
-  commands.push(erase.command);
-  const window = await traffic;
-  await booted.access.drain();
-
-  checks.push(check('the served path was live across the erasure', 'traffic arrives between the child opening and closing', `child ${String(startedAt)}..${String(finishedAt)}, traffic ${String(window.firstAt)}..${String(window.lastAt)}`, window.firstAt >= startedAt - 100 && window.lastAt > startedAt && window.firstAt < finishedAt));
-  checks.push(lit('exit status while serving', '0', String(erase.status), erase.status === 0));
-  const reported = parseJson(erase.stdout);
-  checks.push(lit('records the run says it removed', String(before.credentialMatches), String(reported['removed'])));
-
-  const after = await readVolume(booted.logDir, subject.credential);
-  checks.push(lit('credential matches left in observed files', '0', String(after.credentialMatches)));
-  checks.push(lit('no request was shed by the erasure', '24 answers of status 200', `${String(live.length)} answers, ${String(live.filter((one) => one.status !== 200).length)} not 200`, live.length === 24 && live.every((one) => one.status === 200)));
-  const receipts = live.filter((one) => one.receiptId !== null).length;
-  checks.push(lit('every live answer carried a receipt id', '24', String(receipts), receipts === 24));
-
-  const answered = peerBefore.length + live.filter((one) => one.status === 200).length;
-  const onVolume = after.of(peer.credential);
-  const distinct = after.uniqueByCredential[peer.credential] ?? 0;
-  checks.push(check('distinct peer request ids in observed files', 'no more distinct ids than answers', `${String(distinct)} ids for ${String(answered)} answers`, distinct > 0 && distinct <= answered));
-  const reconciliation = distinct === answered ? 'counts agreed this run' : `${String(answered - distinct)} fewer distinct ids than answers`;
-  notes.push(`reconciliation of the peer's distinct ids against its answered requests: ${reconciliation}; ${String(onVolume)} physical copies include journals and dated parts`);
-  notes.push('these are snapshot counts, not an identity-by-identity reconciliation or proof about unobserved copies; a rewritten journal can stall until restart');
-  notes.push('a run that agrees does not prove the case: the loss is a window between the door\'s read and its rename, and the door says so in its own help');
-
-  const help = await run.shipped(['--help']);
-  commands.push(help.command);
-  const states = help.stdout.includes('Run it against a deployment that is not serving.');
-  checks.push(check('what the shipped door says about a serving deployment', 'its help tells the operator not to', `exit ${help.status}, sentence ${states ? 'present' : 'absent'}`, help.status === 0 && states));
-
-  let own = 0;
-  for (const id of subjectIds.slice(0, 3)) {
-    if ((await served(booted.port, 'GET', `/v1/receipts/${id}`, subject.token)).status === 200) own += 1;
+    checks.push(lit('what the erasure did not reach: the erased subject still holds its own receipts', '3 of 3 fetchable by that subject', `${String(own)} of 3`, own === 3));
+    let refused = 0;
+    for (const id of subjectIds.slice(0, 3)) {
+      if ((await served(booted.port, 'GET', `/v1/receipts/${id}`, peer.token)).status === 404) refused += 1;
+    }
+    checks.push(lit('and another subject cannot read them', '3 refused as 404', `${String(refused)} of 3 refused`, refused === 3));
+    notes.push(`the snapshot holds ${String(after.lines)} physical lines across ${after.observedFiles.join(', ')}, of which ${String(onVolume)} strict records name the peer and ${String(after.credentialMatches)} JSON records match the erased credential`);
+  } finally {
+    await shutdown(booted);
   }
-  checks.push(lit('what the erasure did not reach: the erased subject still holds its own receipts', '3 of 3 fetchable by that subject', `${String(own)} of 3`, own === 3));
-  let refused = 0;
-  for (const id of subjectIds.slice(0, 3)) {
-    if ((await served(booted.port, 'GET', `/v1/receipts/${id}`, peer.token)).status === 404) refused += 1;
-  }
-  checks.push(lit('and another subject cannot read them', '3 refused as 404', `${String(refused)} of 3 refused`, refused === 3));
-  notes.push(`the snapshot holds ${String(after.lines)} physical lines across ${after.observedFiles.join(', ')}, of which ${String(onVolume)} strict records name the peer and ${String(after.credentialMatches)} JSON records match the erased credential`);
-  await shutdown(booted);
 
   return {
     leg: 3,
@@ -589,11 +601,12 @@ export async function legRestore(run: Run): Promise<LegOutcome> {
   const source = join(root, 'source');
   mkdirSync(source, { recursive: true });
   const store = await openFileReceiptStore({ dir: source });
-  const ids: string[] = [];
+  const expected = new Map<string, Uint8Array>();
   for (let at = 0; at < 6; at += 1) {
     const id = `drill-carried-${String(at)}`;
-    ids.push(id);
-    await store.put(id, new TextEncoder().encode(`a synthetic receipt body ${String(at)}`), 1_900_000_000 + at);
+    const body = new TextEncoder().encode(`a synthetic receipt body ${String(at)}`);
+    expected.set(id, body.slice());
+    await store.put(id, body, 1_900_000_000 + at);
   }
   const headHex = Buffer.from(await store.head()).toString('hex');
   const window = await store.window();
@@ -616,14 +629,15 @@ export async function legRestore(run: Run): Promise<LegOutcome> {
   const carriedWindow = await opened.window();
   const rebuilt = await readReceiptStoreCheckpoint(carried);
   let fetched = 0;
-  for (const id of ids) {
-    if ((await opened.get(id)) !== null) fetched += 1;
+  for (const [id, body] of expected) {
+    const restored = await opened.get(id);
+    if (restored !== null && Buffer.from(restored).equals(body)) fetched += 1;
   }
   checks.push(lit('what a backup carries', RECEIPT_STORE_FILE, carriedNames.join(','), carriedNames.length === 1 && carriedNames[0] === RECEIPT_STORE_FILE));
   checks.push(lit('the index witness the copy arrives stating', 'none', `present=${String(indexless.present)}`, indexless.present === false));
   checks.push(lit('the chain head the copy recomputes', headHex.slice(0, 16), carriedHead.slice(0, 16), headHex === carriedHead));
   checks.push(lit('the served set the copy reports', JSON.stringify(window), JSON.stringify(carriedWindow), JSON.stringify(window) === JSON.stringify(carriedWindow)));
-  checks.push(lit('every receipt fetched out of the copy', `${String(ids.length)} of ${String(ids.length)}`, `${String(fetched)} of ${String(ids.length)}`, fetched === ids.length));
+  checks.push(lit('every restored receipt matches its seeded bytes', `${String(expected.size)} of ${String(expected.size)}`, `${String(fetched)} of ${String(expected.size)}`, fetched === expected.size));
   checks.push(check('what an index witness is worth on a copy', 'the first opening rebuilds it from the bytes and states the head it recomputed', `present=${String(rebuilt.present)}, head ${rebuilt.head.slice(0, 16)}`, rebuilt.present === true && rebuilt.head === carriedHead));
   notes.push(`the source directory holds ${sourceNames.join(', ')}; its own window ${JSON.stringify(window)}; head ${headHex.slice(0, 16)}; readReceiptStoreCheckpoint before any further opening answers ${JSON.stringify(sourceCheckpoint)}`);
   notes.push(`a restored copy states a chain recomputed from its own bytes and an anchor it states itself; the directory it was written into holds ${RECEIPT_STORE_FILE} alone, where the source holds the index and the owner claim beside it, so nothing in the copy names the process or the volume that wrote it, and its agreement with a deployment is a figure a reader has to hold apart from the copy`);

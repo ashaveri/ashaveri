@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { noteSpawn, spawnCeilingForCalls } from './support/spawn-budget.js';
 
@@ -98,6 +98,19 @@ function runDrill(name: string, extra: readonly string[] = []): DrillRun {
     recordPath,
     record,
   };
+}
+
+function runInjectedDrill(name: string, leg: number, source: string): DrillRun {
+  const preload = join(tempDir, `${name}.mjs`);
+  const recordPath = join(tempDir, `${name}-record.json`);
+  writeFileSync(preload, source);
+  noteSpawn(15_000);
+  const result = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, DRILL, '--record', recordPath, '--only', `${String(leg)},6`], {
+    encoding: 'utf8', timeout: 15_000, killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  expect(result.error, `the failed drill must terminate: ${String(result.error)}\n${result.stdout}`).toBeUndefined();
+  expect(existsSync(recordPath), result.stdout).toBe(true);
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr, recordPath, record: JSON.parse(readFileSync(recordPath, 'utf8')) as DrillRecord };
 }
 
 /** The table's rows: one per leg, each carrying a verdict and a check count. */
@@ -269,6 +282,139 @@ describe('the rights exercise drill', () => {
     const pauses = stdout.split('\n').filter((line) => line.includes('pause before'));
     expect(pauses).toHaveLength(5);
     for (const line of pauses) expect(line).toContain('skipped');
+  });
+
+  it.each(['empty', 'another-receipt'])('refuses restored %s bytes under the requested receipt id', { timeout: CEILING }, (body) => {
+    const { status, stdout, record } = runInjectedDrill(`restore-${body}`, 5, `
+      import { registerHooks } from 'node:module';
+      registerHooks({ resolve(specifier, context, nextResolve) {
+        const resolved = nextResolve(specifier, context);
+        if (specifier !== '@ashaveri/signerd' || !context.parentURL?.endsWith('/rights-drill/legs.ts')) return resolved;
+        const source = 'export * from ' + JSON.stringify(resolved.url) + ';'
+          + 'import { openFileReceiptStore as open } from ' + JSON.stringify(resolved.url) + ';'
+          + 'export async function openFileReceiptStore(options) {'
+          + 'const store = await open(options);'
+          + 'if (options.dir.endsWith("copy-whole")) store.get = async () => '
+          + ${JSON.stringify(body === 'empty' ? 'new Uint8Array()' : 'new TextEncoder().encode("a synthetic receipt body 0")')}
+          + '; return store; }';
+        return { url: 'data:text/javascript,' + encodeURIComponent(source), shortCircuit: true };
+      }});
+    `);
+    expect(status, stdout).toBe(1);
+    const restored = record.legs[0];
+    expect(restored?.verdict).toBe('NOT EXERCISED');
+    expect(restored && named(restored, 'every restored receipt matches its seeded bytes')?.passed).toBe(false);
+    expect(record.legs[1]?.verdict).toBe('NOT BUILT');
+  });
+
+  it.each([1, 3])('closes a failed live leg %i and files its outcome before continuing', { timeout: CEILING }, (leg) => {
+    const source = leg === 1 ? `
+      import http from 'node:http';
+      import { syncBuiltinESMExports } from 'node:module';
+      const original = http.request;
+      http.request = function (...args) {
+        const request = original.apply(this, args);
+        process.nextTick(() => request.destroy(new Error('synthetic request failure')));
+        return request;
+      };
+      syncBuiltinESMExports();
+    ` : `
+      import fs from 'node:fs/promises';
+      import net from 'node:net';
+      import { syncBuiltinESMExports } from 'node:module';
+      let listening = false;
+      const emit = net.Server.prototype.emit;
+      net.Server.prototype.emit = function (event, ...args) {
+        if (event === 'listening') listening = true;
+        return emit.call(this, event, ...args);
+      };
+      const original = fs.readdir;
+      fs.readdir = async function (path, ...args) {
+        if (listening && String(path).replaceAll(String.fromCharCode(92), '/').endsWith('/leg3/access')) throw new Error('synthetic snapshot failure after startup');
+        return original.call(this, path, ...args);
+      };
+      syncBuiltinESMExports();
+    `;
+    const { status, stdout, record } = runInjectedDrill(`failure-${String(leg)}`, leg, source);
+    expect(status, stdout).toBe(1);
+    expect(record.counts.failed).toBe(1);
+    expect(record.legs.map((entry) => [entry.leg, entry.verdict])).toEqual([[leg, 'NOT EXERCISED'], [6, 'NOT BUILT']]);
+    expect(record.legs[0]?.checks.some((entry) => !entry.passed && entry.observed.includes(leg === 1 ? 'synthetic request failure' : 'synthetic snapshot failure'))).toBe(true);
+    const store = stdout.split('\n').find((line) => line.startsWith('temporary store: '))?.slice('temporary store: '.length);
+    expect(store).toBeDefined();
+    expect(existsSync(store ?? '')).toBe(false);
+  });
+
+  it.each(['traffic', 'scrub'])('settles both concurrent operations before closing after a %s failure', { timeout: CEILING }, (failed) => {
+    const tracePath = join(tempDir, `concurrent-${failed}.json`);
+    const { status, stdout, record } = runInjectedDrill(`concurrent-${failed}`, 3, `
+      import http from 'node:http';
+      import net from 'node:net';
+      import childProcess from 'node:child_process';
+      import { writeFileSync } from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      let activeRequests = 0;
+      let requests = 0;
+      let scrubStarted = false;
+      let scrubSettled = false;
+      const originalRequest = http.request;
+      http.request = function (options, callback) {
+        requests += 1;
+        activeRequests += 1;
+        let done = false;
+        const settled = () => { if (!done) { done = true; activeRequests -= 1; } };
+        const request = originalRequest.call(this, options, (response) => {
+          response.once('end', settled);
+          callback(response);
+        });
+        request.once('error', settled);
+        if (${JSON.stringify(failed)} === 'traffic' && requests === 13) {
+          process.nextTick(() => request.destroy(new Error(scrubStarted ? 'synthetic concurrent traffic failure' : 'traffic failed before scrub started')));
+        }
+        return request;
+      };
+      const originalSpawn = childProcess.spawn;
+      childProcess.spawn = function (command, args, options) {
+        const scrub = args.includes('scrub') && !scrubStarted;
+        if (scrub) scrubStarted = true;
+        const child = originalSpawn.call(this, scrub && ${JSON.stringify(failed)} === 'scrub' ? command + '.missing' : command, args, options);
+        if (scrub) {
+          child.once('error', () => { scrubSettled = true; });
+          child.once('close', () => { scrubSettled = true; });
+        }
+        return child;
+      };
+      const originalClose = net.Server.prototype.close;
+      net.Server.prototype.close = function (...args) {
+        writeFileSync(${JSON.stringify(tracePath)}, JSON.stringify({ activeRequests, requests, scrubStarted, scrubSettled }));
+        return originalClose.apply(this, args);
+      };
+      syncBuiltinESMExports();
+    `);
+    expect(status, stdout).toBe(1);
+    expect(record.legs.map((leg) => [leg.leg, leg.verdict])).toEqual([[3, 'NOT EXERCISED'], [6, 'NOT BUILT']]);
+    const trace = JSON.parse(readFileSync(tracePath, 'utf8')) as Record<string, unknown>;
+    expect(trace).toEqual({ activeRequests: 0, requests: failed === 'traffic' ? 13 : 36, scrubStarted: true, scrubSettled: true });
+    expect(record.legs[0]?.checks[0]?.observed).toContain(failed === 'traffic' ? 'synthetic concurrent traffic failure' : 'ENOENT');
+  });
+
+  it('keeps the default record after removing the temporary store', { timeout: CEILING }, () => {
+    noteSpawn(SPAWN_DEADLINE_MS);
+    const result = spawnSync(process.execPath, [DRILL, '--only', '6'], { encoding: 'utf8', timeout: SPAWN_DEADLINE_MS, killSignal: 'SIGKILL' });
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stdout).toBe(0);
+    const recordPath = result.stdout.split('\n').find((line) => line.startsWith('record: '))?.slice('record: '.length);
+    const store = result.stdout.split('\n').find((line) => line.startsWith('temporary store: '))?.slice('temporary store: '.length);
+    expect(recordPath).toBeDefined();
+    expect(store).toBeDefined();
+    try {
+      expect(existsSync(recordPath ?? '')).toBe(true);
+      expect(existsSync(store ?? '')).toBe(false);
+      const record = JSON.parse(readFileSync(recordPath ?? '', 'utf8')) as DrillRecord;
+      expect(record.legs[0]?.verdict).toBe('NOT BUILT');
+    } finally {
+      if (recordPath !== undefined) rmSync(recordPath, { force: true });
+    }
   });
 
   it('runs one leg at a time and reports only that leg', { timeout: CEILING }, () => {
