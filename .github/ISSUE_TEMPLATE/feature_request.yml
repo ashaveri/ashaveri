@@ -1,0 +1,56 @@
+name: Feature request
+description: Propose an improvement to the public code, formats, tooling, or documentation.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem and the outcome you need. A proposal does not require an implementation.
+        Read the [contribution guide](https://github.com/ashaveri/ashaveri/blob/main/CONTRIBUTING.md)
+        for the repository's scope and follow the
+        [Code of Conduct](https://github.com/ashaveri/ashaveri/blob/main/CODE_OF_CONDUCT.md).
+
+        **Issues are public.** Use synthetic examples rather than private deployment data.
+        Report suspected vulnerabilities through the
+        [private reporting form](https://github.com/ashaveri/ashaveri/security/advisories/new)
+        or the email address in the [security policy](https://github.com/ashaveri/ashaveri/security/policy).
+  - type: checkboxes
+    id: before-submitting
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same request.
+          required: true
+        - label: This is not a vulnerability report and contains no private or sensitive data.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Who needs this, what are they trying to do, and what prevents it today? Name the affected component or document.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Proposed outcome
+      description: Describe the behavior or capability you want. If you have an approach in mind, explain it without assuming it is the only solution.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What observable result would show that the request is satisfied? Include a concrete example where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. Describe existing workarounds or other approaches and why they do not meet the need.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Compatibility and related context
+      description: Optional. Note effects on existing callers, stored receipts, formats, verification results, or deployment behavior. Link related public issues or specifications.
