@@ -401,6 +401,14 @@ function statesAReversedList(row: InventoryRow): boolean {
 const rows = suiteRows();
 
 describe('docs/vectors.md suite inventory', () => {
+  it.each(['docs/vectors.md', 'CONTRIBUTING.md'])('%s lists every fixture regeneration entry point', (path) => {
+    const { scripts } = JSON.parse(readFileSync(join(PKG, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+    const expected = Object.keys(scripts).filter((name) => name === 'generate' || name.startsWith('generate:')).sort();
+    const text = readFileSync(join(ROOT, path), 'utf8');
+    const listed = [...text.matchAll(/^pnpm --filter @ashaveri\/fixtures (generate(?::[a-z-]+)?)(?=\s|$)/gmu)].map((match) => match[1]).sort();
+    expect(listed).toEqual(expected);
+  });
+
   it('names a file for every suite, and every file it names is there', () => {
     for (const row of rows) {
       expect(row.files.length, `${row.suite} names no file`).toBeGreaterThan(0);

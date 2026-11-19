@@ -476,6 +476,7 @@ pnpm --filter @ashaveri/fixtures generate:export
 pnpm --filter @ashaveri/fixtures generate:manifest
 pnpm --filter @ashaveri/fixtures generate:pack
 pnpm --filter @ashaveri/fixtures generate:redaction
+pnpm --filter @ashaveri/fixtures generate:destruction-receipt
 pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 pnpm --filter @ashaveri/fixtures generate:capture
 pnpm --filter @ashaveri/fixtures generate:import
