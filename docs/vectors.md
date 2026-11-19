@@ -41,6 +41,7 @@ each shape.
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | Deployment manifests in both shapes a deployment serves, the signing keys a reader designates beside them, and the verdict the client path owes each; the family states two deployments, and the rows stating the one the published receipts came from are `paired-with-the-published-receipt-family` and `protected-content-type-of-a-receipt` | `version: 1` |
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, the references a pack signs for the material its sealed receipts name and one accepted pack carrying a served body beside the header that arrived with it, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
 | Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
+| Destruction receipt | `packages/fixtures/data/destruction-receipt-v1.json` | 34 cases: 4 acceptances and 30 refusals, including 2 writer-only cases. Each document carries independent verification inputs and structural and verifying verdicts. Refusals include an unstated copy class, overreach, signer equality, malformed CBOR, empty or over-2048-byte UTF-8 states, and a corrupted signature under the correct key | `version: 1` |
 | Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
 | Capture record | `packages/fixtures/data/capture-v1.json` | Whole capture records and the answer the two published capture entry points give each one: one evidence document's exact original bytes held as they arrived beside the context stated with them, a signature re-framed by a second encoder refused as bytes rather than accepted as an equivalent, a context member left unmentioned refused rather than read as an absence, and a digest that is not the digest of the bytes beside it | `version: 1` |
 | Import envelope | `packages/fixtures/data/import-v1.json` | Whole envelopes and the answer the published reader gives each one: one synthetic provider export's exact bytes held as they arrived beside the derived representation the shipped normalization produced from them with its label, its transformation and the basis it rests on, the deterministic report of every position the rules do not read and every position they read that the export states nothing at, a second intake of one export keyed to the same record as the first, and the refusals in between | `version: 1` |
@@ -48,10 +49,10 @@ each shape.
 | Challenge binding | `packages/fixtures/data/challenge-v1.json` | The pre-image each `enc` arm of a version 2 receipt builds and the digest it hashes to, both read out of the two receipts the manifest publishes: the plain arm folding `nce` and `req` into 48 bytes, the session arm folding `enc.pk` and that key's identifier between them into 112, and four refusals beside them: the session document weighed as though its arm named no key, the plain document weighed with the attestation digest put where a key would go, the same four members concatenated request-last, and the session composite with the identifier left out, which is the value this rule shipped before the identifier joined it. The order is published as bytes as well as named, because a second implementation can agree on every member and width and still fold them the other way round. What the family does not pin is the platform's seal over a composite: no captured report data in this repository carries one, because those bytes are fixed by the signature over them, so the second capture is stated as an owed thing in `layout.owedPlatformCapture` rather than left for a reader to infer | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `disclosure-record-v1.json`, `hold-v1.json`, `incident-bundle-v1.json`, `model-inventory-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `destruction-receipt-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
 `import-v1.json`, `retention-assessment-v1.json` and `challenge-v1.json` each carry a
 `description` stating their rule in prose, and the digest, marked-region, disclosure-record, hold, incident-bundle, model-inventory, chain, export,
-sealed-manifest, pack, redaction, inventory, capture, import, retention-assessment and challenge suites carry a `rule`
+sealed-manifest, pack, redaction, destruction-receipt, inventory, capture, import, retention-assessment and challenge suites carry a `rule`
 or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
 array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
@@ -296,6 +297,14 @@ specific to that case.
   the seven above it, are counts of the published rows which
   `packages/fixtures/test/redaction-vectors.test.ts` takes out of them rather than restating them here.
 
+- **Destruction receipt.** Decode `documentBase64Url` and compare the structural reader's answer with
+  `structural`. Verification uses only the required `verification` object: `key` selects a role from
+  `layout.signingKeys`, or is `null` for no key; `objectBase64Url` is the optional designated object, with
+  `null` meaning not handed. Derive test keys from the published labels as `signingKeyFromSeed(sha256(UTF8(label)))`.
+  Compare the verifying answer with `expected`; never use that verdict to choose invocation arguments.
+  The two writer-only rows omit document bytes and set `verification: null`. The signature-corruption row
+  is structurally valid but must answer `INVALID_SIGNATURE` with the correct key. Retained object bytes
+  can coexist with a claimed store destruction; a valid signature proves neither erasure nor chronology.
 - **Epoch inventory.** Decode `documentBase64Url` and hand it to your reader with the designation the row's
   `read` block states: `pinned` is the one key a caller holds, which answers whatever kid the header names,
   `retained` is the set a resolver answers from, one public half per kid, and a row stating neither is the call
@@ -397,8 +406,8 @@ specific to that case.
 
 ## Every suite refuses something
 
-Each of the nineteen suites the table above lists carries at least one case whose stated verdict is a refusal,
-and every code those cases name is one [error-codes.md](error-codes.md) lists. The nineteen are that table's
+Each of the twenty suites the table above lists carries at least one case whose stated verdict is a refusal,
+and every code those cases name is one [error-codes.md](error-codes.md) lists. The twenty are that table's
 rows, which `packages/fixtures/test/vectors-doc.test.ts` counts and compares with this sentence rather than
 trusting it. That is the half a second implementation cannot agree with by accident: an accepted case and
 a refused one, drawn from the same
@@ -467,6 +476,7 @@ pnpm --filter @ashaveri/fixtures generate:export
 pnpm --filter @ashaveri/fixtures generate:manifest
 pnpm --filter @ashaveri/fixtures generate:pack
 pnpm --filter @ashaveri/fixtures generate:redaction
+pnpm --filter @ashaveri/fixtures generate:destruction-receipt
 pnpm --filter @ashaveri/fixtures generate:epoch-inventory
 pnpm --filter @ashaveri/fixtures generate:capture
 pnpm --filter @ashaveri/fixtures generate:import

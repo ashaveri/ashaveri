@@ -30,7 +30,7 @@ const KEY_DIRECTORY = join(DATA, 'keys');
 const SOURCE_DIRECTORY = fileURLToPath(new URL('../src', import.meta.url));
 
 /** The seal sites that sign through the package's own signer, and no other number: a new one has to be proven here first. */
-const SEAL_SITES = 7;
+const SEAL_SITES = 8;
 
 // `node:crypto` takes an Ed25519 key only as DER, so these are the two wrappers that turn the raw bytes
 // the corpus publishes into a key object: PKCS#8 around a seed, and SPKI around a public point.
@@ -360,8 +360,8 @@ describe('the package signer against both backends', () => {
         if (line.includes('ed25519.sign(')) direct.push(`${file}:${index + 1}`);
       }
     }
-    // The seven are `signCoseSign1`, `signEpochInventory`, `signExport`, `sealDeploymentManifest`, `signPack`,
-    // `signPopAuthorization` and `signRedaction`: a site that signs beside the helper would be a backend choice
+    // The eight are `signCoseSign1`, `signEpochInventory`, `signExport`, `sealDeploymentManifest`, `signPack`,
+    // `signPopAuthorization`, `signRedaction` and `signDestructionReceipt`: a site that signs beside the helper is a backend choice
     // no proof above reaches, and a new one has to be named here before it can be added.
     expect(direct, 'src lines that sign through the library rather than the package helper').toEqual([]);
     expect(routed, 'the seal sites this proof covers').toBe(SEAL_SITES);

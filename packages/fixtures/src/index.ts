@@ -1032,6 +1032,66 @@ export function loadRedactionVectors(): RedactionVectorFile {
   return JSON.parse(readFileSync(join(DATA, 'redaction-v1.json'), 'utf8')) as RedactionVectorFile;
 }
 
+/** One position of a published document that the row states as the fault it refuses. */
+export interface DestructionReceiptEditColumn {
+  at: string;
+  states: string;
+}
+
+export type DestructionReceiptKeyRole = 'signer' | 'destroyed' | 'another-callers-key' | 'an-earlier-epoch';
+
+/** Explicit verification arguments, independent of the expected verdict. Null means not handed. */
+export interface DestructionReceiptVerificationInput {
+  key: DestructionReceiptKeyRole | null;
+  objectBase64Url: string | null;
+}
+
+/** One destruction receipt case: the bytes a reader is handed, and the answers both shipped doors owe them. */
+export interface DestructionReceiptVector {
+  name: string;
+  note: string;
+  /** Which arm the row belongs to: an accepted document, or a refusal one of the doors names. */
+  arm: 'accept' | 'refuse';
+  /** What `decodeDestructionReceipt` answered with no key in hand, or `not-a-document` for the writer's rows. */
+  structural: string;
+  /** What `verifyDestructionReceipt` answered against the key the row designates. */
+  expected: string;
+  /** Absent exactly where the row states a refusal the writer gave rather than bytes a reader was handed. */
+  documentBase64Url?: string;
+  documentByteLength?: number;
+  /** Required for every document row; null only for writer-only refusals. */
+  verification: DestructionReceiptVerificationInput | null;
+  edit?: DestructionReceiptEditColumn;
+}
+
+/** The registries and the reach rule the published document states about itself. */
+export interface DestructionReceiptLayout {
+  document: string;
+  versions: number[];
+  manifestMembers: string[];
+  entryMembers: string[];
+  copyClasses: string[];
+  unreachableClasses: string[];
+  objectKinds: string[];
+  reachOutcomes: { reached: number; notReached: number };
+  rule: string;
+  writerRule: string;
+  signingKeys: Array<{ role: DestructionReceiptKeyRole; label: string; kid: string }>;
+  keyNote: string;
+}
+
+export interface DestructionReceiptVectorFile {
+  version: number;
+  description: string;
+  layout: DestructionReceiptLayout;
+  vectors: DestructionReceiptVector[];
+}
+
+/** The destruction receipt: each document, both reader answers, and the object bytes beside the rows that ask. */
+export function loadDestructionReceiptVectors(): DestructionReceiptVectorFile {
+  return JSON.parse(readFileSync(join(DATA, 'destruction-receipt-v1.json'), 'utf8')) as DestructionReceiptVectorFile;
+}
+
 /** How a row designates a key to the inventory reader: one pinned key, a kid-indexed set, or neither. */
 export interface EpochInventoryDesignation {
   pinned?: string;
