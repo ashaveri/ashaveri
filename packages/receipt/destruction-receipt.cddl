@@ -1,0 +1,197 @@
+; ---------------------------------------------------------------------------
+; The destruction receipt: what a deployment signs when it has taken material out of the copies it holds,
+; and can say which copies a destruction reached and which it did not.
+;
+; A pack attests that the responses of one window are all of them. A redaction attests that a named record
+; came out of a closed pack. Neither says that anything is gone: a redaction states an excision from one
+; document and is silent about every other place those bytes sit. Under an erasure instruction the question
+; a controller has to answer is the second one, and it has an answer only per copy: the deployment's own
+; store, the sealed packs and exports it keeps, the media it backs up onto, and the copies that left its
+; hands. The first four are inside a deployment's reach and the fifth is not, and a document that blurred
+; that line would be the one artifact of this estate that overstates itself.
+;
+; So this container states a reach per copy class, and the format closes the list: every class it enumerates
+; carries exactly one statement, and the class it declares out of reach may only ever be stated
+; `not-reached`. An artifact that quietly claimed a complete erasure would be worse than refusing, which is
+; the same reason the redaction refuses to state that a pack's head still holds.
+;
+; `packages/receipt/src/destruction-receipt.ts` reads this layout and writes it, and refuses each shape it
+; will not accept by code. `packages/receipt/schemas/destruction-receipt-v1.schema.json` is its
+; machine-readable twin, and `packages/receipt/test/destruction-receipt.test.ts` holds the members this file
+; declares, that twin, the reader's own list and the shipped error-code union against each other, so no one
+; of them can widen alone.
+; ---------------------------------------------------------------------------
+
+Ashaveri-Destruction-Receipt = #6.18(COSE_Sign1-Destruction-Receipt-COSE)
+
+; The envelope every signed document in this estate uses, unchanged but for the content type: COSE_Sign1 per
+; RFC 9052 section 4.2, encoded per RFC 8949 with Core Deterministic Encoding, so a reader rebuilds the bytes
+; the issuer signed rather than guessing which of several equivalent spellings was used.
+COSE_Sign1-Destruction-Receipt-COSE = [
+    protected: bstr .cbor Ashaveri-Destruction-Receipt-Protected-Header,
+    unprotected: { * any => any }, ; the map that carries no claim; see the note below the manifest
+    payload: bstr .cbor Ashaveri-Destruction-Receipt-Manifest,
+    signature: bstr .size 64
+]
+
+; The same three labels a receipt, a pack, an export, a redaction and an epoch inventory sign with, and a
+; sixth content type. One deployment key seals all six, each passes its own checks, and a reader that took a
+; destruction receipt for a redaction would report an excision from a pack where the bytes state a reach over
+; five copy classes. That mistake is not recoverable afterwards, because both documents verify.
+Ashaveri-Destruction-Receipt-Protected-Header = {
+    1: -8,                                 ; alg: EdDSA (Ed25519)
+    4: bstr .size 32,                      ; kid: sha256(public_key)
+    3: "ashaveri/destruction-receipt",     ; typ
+}
+
+; The signed manifest. `v: 1` is one version, and it says what the fields attest rather than which software
+; wrote them, as it does in `receipt.cddl`, `pack.cddl`, `export.cddl` and `redaction.cddl`. Nothing has ever
+; emitted a destruction receipt, so there is no document in an older shape for a second number to be a rule
+; about, and a reader of `v: 1` refuses any other number before it reads a member.
+Ashaveri-Destruction-Receipt-Manifest = {
+    v: 1,                        ; format version
+    at: int,                     ; unix seconds, the instant the destruction was stated
+    object: bstr .size 32,       ; sha256 of the exact bytes this destruction took
+    kind: tstr,                  ; which document those bytes are, from the registry below
+    key: bstr .size 32,          ; the kid of the destroyed key: sha256 of its public half
+    reach: [ + reach-entry ],    ; exactly one entry per copy class, at least one entry
+    states: tstr .size (1..2048) ; the writer's own sentence stating this destruction
+}
+
+; ---------------------------------------------------------------------------
+; `object` and `kind`, the designation. `object` is sha256 over the exact bytes the destruction took, and
+; `kind` names which document those bytes are. Both are required and neither is decorative.
+;
+; A digest alone names no document. The estate's own ruling on a digest is that it names the document it
+; digests, and a reader handed `object` with no `kind` could not tell a destroyed receipt from a destroyed
+; pack, which are two different findings about two different amounts of material. A `kind` alone is a label
+; nothing checks. Together they are one claim a reviewer can test twice: hash what you hold, compare the
+; digest, then open the bytes and read the content type their own signed header carries and compare that.
+;
+; The receipt carries a digest, not the designated object. Object bytes are optional verification input
+; and may come from a retained handout while a store copy was destroyed. The digest covers those exact
+; bytes, not a canonical re-encoding.
+;
+; The registry is the set of documents this estate signs and can therefore name without inventing a
+; vocabulary for them. A class outside it is refused rather than read as an unnamed thing: widening the
+; registry is a decision about the format and not a value a writer picks.
+;   "ashaveri/receipt", "ashaveri/pack", "ashaveri/export",
+;   "ashaveri/redaction", "ashaveri/epoch-inventory"
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; `key`, the destroyed key's identifier, and the whole of what this layout can say about a key.
+;
+; `key` must be the kid: sha256 of the destroyed key's public key, as in protected header label 4.
+; This is a semantic requirement on the writer. Both digest fields are exactly 32 bytes; that width also
+; admits Ed25519 seeds and public keys. The reader checks width and rejects undeclared map members, but
+; cannot determine whether permitted bytes are a digest or key material. Writers must not supply secrets.
+;
+; The format requires a distinct signer. `key` equal to the header kid is refused as
+; `DESTRUCTION_RECEIPT_KEY_IS_SIGNER`, by both reader and writer. This rule is not proof of signing
+; chronology: `at` is a signed assertion, not independent evidence of when signing occurred.
+; Neither a valid signature nor this rule establishes that the named key is now unusable.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; `reach`, the copy classes, and the reason the list is closed rather than chosen.
+;
+; One entry per class, every class present, no class named twice. The classes are where a copy of a
+; deployment's material can sit:
+;   "store"            the deployment's own receipt store
+;   "pack"             sealed evidence packs the deployment holds
+;   "export"           export containers the deployment holds
+;   "backup"           backup media the deployment holds
+;   "handout"          a copy that left the deployment's hands, given to a customer or another party
+;
+; A missing class is refused as its own code and not as a malformed document, because it is not a typo: a
+; receipt that says nothing about `backup` reads, to anyone holding it, like a receipt that reached
+; everything except what it named. Silence is the fault this list exists to make unproducible, and it is the
+; same fault `receipt.cddl` refuses with the four members it adds so that a mark, a stamp's source, an
+; appraisal's context and an item list are attested rather than passed over.
+;
+; `handout` is out of reach and the format says so structurally. Once bytes are given to another party, no
+; act this deployment takes reaches them, so `outcome: 1` at that class is refused as
+; `DESTRUCTION_RECEIPT_REACH_OVERREACH` by the reader and cannot be produced by the writer. Stating
+; `not-reached` there is not a defect of the receipt; it is the honest half of what it states, and it is the
+; only statement about a third party's copies this container admits. A deployment that genuinely holds a
+; contractual route to a customer's copy still states `not-reached` here, because what this field reports is
+; what this destruction reached, and a route is not a reach.
+;
+; `outcome` is 1 for `reached` and 2 for `not-reached`. Two labels spelled as text were the alternative, and
+; the numbers are chosen because a boolean was the third: a boolean reads as "reached or unknown" and invites
+; a writer to leave the hard class off, which is the silence the completeness rule refuses; two integers
+; named in one place have no default and no falsy value to fall into.
+reach-entry = {
+    class: tstr,     ; one label from the closed registry above
+    outcome: 1 / 2   ; 1 reached, 2 not-reached
+}
+
+; ---------------------------------------------------------------------------
+; `at`, the only clock here, and the one relation it is bounded by inside these bytes.
+;
+; `at` asserts the instant the destruction was stated, in unix seconds no earlier than the epoch.
+; It is not independently timed. Object bytes are optional and may survive in another copy; the reader
+; performs no cross-document timestamp ordering check.
+;
+; Freshness is not this container's question either. A receipt stamped in 2026 states a destruction stated in
+; 2026 and says nothing about whether the copies still match today; a reader that cares about that owns the
+; question and says so out loud, as `docs/receipt-spec.md` states beside the verification algorithm.
+;
+; `states` is the writer's own sentence, bounded so it cannot be empty and free as to what it says, inside the
+; signature and outside every recomputation. It carries no control character and no character of the
+; printed-line class, because a sentence that can end or reorder the row it is printed on is not a sentence
+; about a destruction but a way of forging one. No reason vocabulary is defined here: no article, no duty, no
+; ground and no period appears as a member, a label or an enumeration in this file, for the reason
+; `redaction.cddl` gives, that a format enumerating answers would itself be an answer.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; Closure is one rule across this file and not a rule about one map, as `receipt.cddl`, `pack.cddl`,
+; `export.cddl` and `redaction.cddl` state it. No block above carries a `...`, and the absence means here what
+; it means there: a member the version named by `v` does not define makes the document invalid rather than a
+; document read with the unexpected member dropped. That reaches the manifest, each entry of `reach` and the
+; signed header alike. The header closes under the stronger reason: its bytes are hashed into the
+; `Sig_structure`, so a label this block does not name is an authenticated parameter, and a reader that took
+; its three labels out of a header carrying a fourth would hand on a document other than the one the issuer
+; signed.
+;
+; One map a signer fills at will, and that is a decision rather than a gap: the `unprotected` map of
+; `COSE_Sign1-Destruction-Receipt-COSE` sits outside the signature, so nothing written in it can travel as a
+; claim about a destruction, and enforcing that it is empty would buy strictness with no content behind it.
+;
+; Every number above written `int` is a CBOR integer, major type 0 or 1, and no other major type carries one,
+; including `outcome`, which is the one number a reader is most likely to compare loosely. A floating-point
+; number whose value happens to be a whole number is a different type, and only a reader reading the bytes can
+; tell them apart, because a decoder that hands both over as one number leaves a check placed afterwards
+; nothing to distinguish. So a reader decodes every map this file names member by member, in a value and in a
+; key alike, where no floating-point number may appear. Sign is that rule's other half: every instant this
+; file names is a unix time no earlier than the epoch, so a negative stamp is a malformed document rather than
+; an unusual way of writing a quantity.
+; ---------------------------------------------------------------------------
+
+; ---------------------------------------------------------------------------
+; What a verified destruction receipt does not establish, stated here because a reimplementer is most likely
+; to over-read exactly this, and because the sentence is the artifact's honest half.
+;
+; It is not a claim that the material is unreachable anywhere. It states a reach per copy class the format
+; enumerates, which is a claim about the copies a deployment holds and about nothing else. A reviewer who
+; wants completeness has to ask which copy classes exist for a given deployment, and this document answers
+; that question by naming its own list and refusing to leave a member of it unstated, not by asserting that
+; the list is everything.
+;
+; It is not a proof that the destroyed key is unusable. It proves that a key other than the one it names
+; sealed the statement. Those are different findings and the second one is all the bytes carry.
+;
+; It is not a digest of what was destroyed in the sense of a content hash a reviewer can compare against
+; plaintext it holds. `object` hashes the whole signed document the destruction took, exactly as it was
+; handed to the deployment, so a reviewer holding that file compares a file hash and learns nothing about
+; what was inside it. Reading the bytes a designation names is the reviewer's own choice and this format
+; requires no reader to make it.
+;
+; It is not a verdict about a duty, a lawful basis, a request or a period. Nothing in this layout states that
+; an erasure was owed, that it was owed to anyone, or that completing it satisfied anything. A reader holding
+; these bytes and an accepted verification key can authenticate a statement asserting an instant, a reach
+; over five copy classes and the destruction of one object and one key. Whether that statement settles anything is settled
+; outside this format by whoever holds the mapping and the law.
+; ---------------------------------------------------------------------------

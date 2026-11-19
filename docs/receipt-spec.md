@@ -1029,6 +1029,108 @@ The published vectors of the record, its refusals, the verification cases beside
 designate, and the export ride are `packages/fixtures/data/incident-bundle-v1.json`, indexed in
 [vectors.md](vectors.md).
 
+### 4.12 Destruction receipt
+
+A pack attests that the responses of one window are all of them. A redaction attests that a named record came
+out of a closed pack. Neither says that anything is gone: a redaction states an excision from one document and
+is silent about every other place those bytes sit. The question a destruction leaves behind is the second one,
+and it has an answer only per copy. The destruction receipt states it: one object and one key this destruction
+took, and one reach statement for each copy class the format enumerates. It is a COSE_Sign1 document over
+canonical CBOR, read and written by `decodeDestructionReceipt`, `verifyDestructionReceipt` and
+`signDestructionReceipt` in `@ashaveri/receipt`, sealed by the deployment's own key under content type
+`ashaveri/destruction-receipt`, and defined by [destruction-receipt.cddl](../packages/receipt/destruction-receipt.cddl)
+with the machine-readable twin
+[schemas/destruction-receipt-v1.schema.json](../packages/receipt/schemas/destruction-receipt-v1.schema.json).
+
+A reviewer holding only this document, the published format and the deployment's public key can check the
+format and signature rules: the signature over the `Sig_structure`, the closed member list, the two registries,
+the completeness of the reach list, the format's own reach limit, and the fact that the statement was sealed by
+a key other than the one it names as destroyed. Nothing in that list asks anything of us.
+
+The layout, version 1, every member required, in this order:
+
+| Member | What it states |
+|---|---|
+| `v` | The layout version, `1`. Nothing has ever emitted this artifact in another shape, so a reader refuses every other number before it reads a member |
+| `at` | The asserted instant of the destruction statement, in unix seconds no earlier than the epoch; not independently timed |
+| `object` | sha256 over the exact bytes the destruction took, as they were handed over, tag and signature included |
+| `kind` | Which document those bytes are, from the registry below. A digest names no document on its own |
+| `key` | The destroyed key's kid: sha256 of its public key, as in protected header label 4. A semantic contract on the writer, not secret detection |
+| `reach` | Exactly one entry per copy class, each `{ class, outcome }` with `outcome` `1` for reached and `2` for not-reached. A class named twice, a class outside the registry and an outcome outside the two are all malformed; a class with no entry is its own refusal |
+| `states` | The writer's own sentence, between one and 2048 bytes, carrying no character of the printed-line class. Checked for shape and never for content |
+
+The copy classes, closed at five, are where a copy of a deployment's material can sit:
+
+| `class` | The copy it names | Reachable by this deployment |
+|---|---|---|
+| `store` | the deployment's own receipt store | yes |
+| `pack` | sealed evidence packs the deployment holds | yes |
+| `export` | export containers the deployment holds | yes |
+| `backup` | backup media the deployment holds | yes |
+| `handout` | a copy that left the deployment's hands, given to a customer or another party | no |
+
+Every class carries a statement in every receipt, and `handout` may only ever be stated `not-reached`. Those
+two rules are the artifact's honesty, and both are enforced rather than described: the reader refuses a receipt
+that leaves a class unstated as `DESTRUCTION_RECEIPT_MISSING_COPY_CLASS`, because a receipt silent about
+`backup` reads as a receipt that reached everything it named, and the reader refuses a reach claimed at
+`handout` as `DESTRUCTION_RECEIPT_REACH_OVERREACH` while `signDestructionReceipt` refuses to produce one. A
+deployment that holds a contractual route to a customer's copy still states `not-reached` there: this field
+reports what the destruction reached, and a route is not a reach. An unknown class label is the opposite fault,
+a member outside a closed registry, and answers `DESTRUCTION_RECEIPT_BAD_MANIFEST` with everything else the
+shape refuses.
+
+The document kinds are the content types this estate signs, so a kind is a name a reader can settle against
+bytes rather than a caption a writer picked: `ashaveri/receipt`, `ashaveri/pack`, `ashaveri/export`,
+`ashaveri/redaction` and `ashaveri/epoch-inventory`. A deployment manifest and an anchor provenance ledger are
+absent because this container states the destruction of evidence about a run, and neither is that. Widening
+either registry is a decision about the format and not a value a writer chooses.
+
+The designation and the kind are checked together when a caller holds the bytes. `verifyDestructionReceipt`
+recomputes `object` over exactly the bytes handed and refuses a difference as
+`DESTRUCTION_RECEIPT_OBJECT_MISMATCH`, then reads the content type out of those bytes' own signed header and
+refuses a difference from `kind` as `DESTRUCTION_RECEIPT_KIND_DISAGREES`. The object is optional: a retained
+handout may supply the designated bytes while a store copy was destroyed. Possession does not falsify that
+statement. `outcome.objectSha256` and `outcome.objectKind` are present only when bytes were handed; their
+absence means those comparisons were not performed, not that all copies are gone.
+
+The `object` and `key` fields must carry digests. Their 32-byte width also admits Ed25519 seeds and public
+keys, so validation cannot establish the origin of those bytes. Closed maps reject undeclared members; they
+do not detect secrets in permitted fields or text. Writers must honor the digest semantics and must not
+supply secrets.
+
+The format requires a distinct signer: `key` equal to the protected header's kid is refused as
+`DESTRUCTION_RECEIPT_KEY_IS_SIGNER` by both `decodeDestructionReceipt` and `signDestructionReceipt`.
+This rule is not proof of signing chronology. `at` is a signed assertion, not independent evidence of when
+signing occurred, and the reader performs no cross-document timestamp ordering check. Neither a valid
+signature nor signer separation establishes that the named key is now unusable.
+
+A version no layout reads is `DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION`; the encoding, the header and the
+manifest refusals are `DESTRUCTION_RECEIPT_MALFORMED_CBOR`, `DESTRUCTION_RECEIPT_BAD_HEADER` and
+`DESTRUCTION_RECEIPT_BAD_MANIFEST`; the key designation refusals are `DESTRUCTION_RECEIPT_UNKNOWN_KEY` and
+`DESTRUCTION_RECEIPT_KID_MISMATCH`, and the signature itself answers the shared `INVALID_SIGNATURE`; the two
+honesty refusals are `DESTRUCTION_RECEIPT_MISSING_COPY_CLASS` and `DESTRUCTION_RECEIPT_REACH_OVERREACH`; the
+signer-separation refusal is `DESTRUCTION_RECEIPT_KEY_IS_SIGNER`; and the two answers about handed object bytes are
+`DESTRUCTION_RECEIPT_OBJECT_MISMATCH` and `DESTRUCTION_RECEIPT_KIND_DISAGREES`. The rows are in
+[error-codes.md](error-codes.md).
+
+The published vectors of the receipt, its refusals and the verification cases, some beside the designated bytes
+and some without, are `packages/fixtures/data/destruction-receipt-v1.json`, indexed in
+[vectors.md](vectors.md).
+
+What a verified destruction receipt does not establish is part of the format, and a reviewer is told the
+boundary rather than left to infer it. It is not a claim that the material is unreachable anywhere: it states a
+reach over the copy classes the format enumerates, which is a claim about the copies a deployment holds, and a
+reader who wants completeness has to ask which copy classes exist for a given deployment, a question this
+document answers by naming its own list and refusing to leave a member of it unstated rather than by asserting
+that the list is everything. It is not a proof that the destroyed key is unusable. It is not a content hash a
+reviewer can compare against plaintext: `object` hashes the whole signed document, so a reviewer holding that
+file compares a file hash and learns nothing about what was inside it. And it is not a verdict about a duty, a
+lawful basis, a request or a period: nothing in this layout states that an erasure was owed, that it was owed
+to anyone, or that completing it satisfied anything. A reader with an accepted verification key can authenticate
+a statement asserting an instant, the destruction of one object and one key, and a reach over five copy
+classes, with one of them beyond reach by the format's own rule. Whether that settles anything is settled
+outside this format by whoever holds the mapping and the question.
+
 ## 5. Verification algorithm
 
 The deployment manifest of section 4.4 is read first, in whichever of its two shapes this deployment

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ashaveri.com/schemas/destruction-receipt-v1.json",
+  "title": "Ashaveri Destruction Receipt Manifest (JSON twin of the CBOR/COSE container)",
+  "description": "Display-only projection of the signed COSE_Sign1 destruction receipt manifest. The CBOR bytes are canonical and are what a reader verifies; this JSON form is never signed directly. Byte strings appear as lowercase hex, which is how the receipt's, the pack's, the export's and the redaction's own projections write them, and a length that is a number of bytes in the CBOR is not the same measure as a JSON string length, so only `minLength` carries a bound the format states and nothing here pretends to a ceiling: one character is at least one byte, which is the half of `1..2048` a JSON string can assert, and the byte ceiling belongs to `destruction-receipt.cddl`. Closure is not the manifest's alone: the manifest map names its members in one object, which is where `additionalProperties` applies, and each entry of `reach` is a second map closed the same way, so a member the format does not define is refused at the level it appears at rather than read and dropped on the way to a verifier. The manifest's `object` and `key` fields must contain digests, represented by sixty-four hex characters. Width checks cannot distinguish a digest from a 32-byte Ed25519 seed or public key. Closed maps reject undeclared members; they do not detect secret data. Writers must honor the digest semantics and must not supply secrets. The envelope above is projected more loosely than the format writes it, and that is a decision rather than a gap: this document requires `protectedHeader` and `payload`, names `signature` without demanding it, and leaves its own root unclosed, so a receipt shown before it is signed still shows, while `destruction-receipt.cddl` requires all four elements of the `COSE_Sign1` and sixty-four bytes in the fourth of them. The CBOR tag that wraps the four elements on the wire, tag 18, is stated in `destruction-receipt.cddl` and cannot be stated here at all, because a JSON object has no tag to carry. The rules between members that no keyword reaches are stated there too: that every copy class the format enumerates carries exactly one entry and no class is named twice, that `handout` is never `reached`, that `key` is never the kid in the protected header, that `at` is never before the epoch, and that no instant and no count lies before zero. No legal-category vocabulary is defined in this format: no article, no duty, no ground, no category and no period appears as a member, a label or an enumeration anywhere in this file, and the one place a reason may be given is the free sentence in `states`, which no reader checks and which sits inside the signature for that reason.",
+  "type": "object",
+  "required": ["protectedHeader", "payload"],
+  "properties": {
+    "protectedHeader": {
+      "type": "object",
+      "required": ["alg", "kid", "typ"],
+      "properties": {
+        "alg": { "const": "EdDSA", "description": "COSE algorithm -8, Ed25519" },
+        "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the Ed25519 public key of the key that sealed the statement. It is never the key the receipt names as destroyed." },
+        "typ": { "const": "ashaveri/destruction-receipt", "description": "the content type that tells a destruction receipt apart from the receipt, the pack, the export, the redaction and the epoch inventory, all six of which one deployment key signs" }
+      }
+    },
+    "payload": {
+      "$ref": "#/$defs/manifest",
+      "description": "The signed manifest. Exactly one version is defined, so `v` is a constant rather than a discriminant, and a document naming another version is not this one."
+    },
+    "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$", "description": "Ed25519 signature over the Sig_structure, hex" }
+  },
+  "$defs": {
+    "manifest": {
+      "type": "object",
+      "required": ["v", "at", "object", "kind", "key", "reach", "states"],
+      "properties": {
+        "v": { "const": 1, "description": "format version" },
+        "at": { "type": "integer", "description": "The asserted instant of the destruction statement, in unix seconds no earlier than the epoch. A signed assertion, not independent evidence of signing time. The reader performs no cross-document timestamp ordering or freshness check." },
+        "object": { "$ref": "#/$defs/hex32", "description": "sha256 of the designated object's exact bytes, tag and signature included. Optional verification bytes may come from a retained handout while a store copy was destroyed. The reader compares their digest and type when supplied, and reports those checks absent otherwise." },
+        "kind": { "enum": ["ashaveri/receipt", "ashaveri/pack", "ashaveri/export", "ashaveri/redaction", "ashaveri/epoch-inventory"], "description": "Which document the designated bytes are, spelled as the content type their own signed header carries. A digest names no document on its own, which is why the pair is required: a reader holding the object can hash it and read its type, and both answers are comparisons rather than captions." },
+        "key": { "$ref": "#/$defs/hex32", "description": "The destroyed key's kid: sha256 of its public key, as in protected header label 4. A semantic contract on the writer, not a secret-detection guarantee. The format requires a distinct signer, but that rule establishes neither signing chronology nor that the named key is unusable." },
+        "reach": {
+          "type": "array",
+          "minItems": 5,
+          "items": { "$ref": "#/$defs/reachEntry" },
+          "description": "Exactly one statement per copy class the format enumerates, which is why the floor is the number of classes and not one. A class left unstated is refused by the reader as its own code, because a receipt silent about `backup` reads as a receipt that reached everything it named. No entry repeats a class, and `handout` is never `reached`: a copy that left the deployment's hands is somebody else's bytes."
+        },
+        "states": { "type": "string", "minLength": 1, "description": "The writer's own sentence stating this destruction. A reader checks that the position is filled, that it carries no character that would forge a printed line, and nothing at all about its content, because the block's whole honesty is that it is inside the signature and outside every recomputation. No reason vocabulary is enumerated here: this estate does not interpret the questions a ground or an article would answer." }
+      },
+      "additionalProperties": false,
+      "description": "A destruction receipt manifest and nothing else. The map is closed: a member outside this list is a malformed receipt rather than a member a reader agreed to forget, and the same holds of each reach entry and of the signed header above."
+    },
+    "reachEntry": {
+      "type": "object",
+      "required": ["class", "outcome"],
+      "properties": {
+        "class": { "enum": ["store", "pack", "export", "backup", "handout"], "description": "One copy class the format enumerates: where a copy of this deployment's material can sit. The first four are inside a deployment's reach and `handout` is not." },
+        "outcome": { "enum": [1, 2], "description": "1 reached, 2 not-reached. Two integers rather than a boolean, so that neither value is a default and an unstated class cannot be imitated by a falsy one." }
+      },
+      "additionalProperties": false,
+      "description": "One class and one statement about it. There is no third outcome: the format states what a destruction reached and what it did not, and leaves 'unknown' out, because a receipt that could state 'unknown' about its own store would be an artifact a deployment could sign without looking."
+    },
+    "hex32": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

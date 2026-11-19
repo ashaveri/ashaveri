@@ -167,6 +167,35 @@ export type {
   VerifiedRedaction,
 } from './redaction.js';
 export {
+  DECLARED_DESTRUCTION_RECEIPT_PROTECTED_LABELS,
+  DESTRUCTION_COPY_CLASSES,
+  DESTRUCTION_OBJECT_KINDS,
+  DESTRUCTION_REACH_NOT_REACHED,
+  DESTRUCTION_REACH_REACHED,
+  DESTRUCTION_RECEIPT_CONTENT_TYPE,
+  DESTRUCTION_RECEIPT_ENTRY_MEMBERS,
+  DESTRUCTION_RECEIPT_MANIFEST_MEMBERS,
+  DESTRUCTION_UNREACHABLE_COPY_CLASSES,
+  decodeDestructionReceipt,
+  destructionObjectDigest,
+  destructionReceiptSigStructure,
+  encodeDestructionReceiptManifest,
+  encodeDestructionReceiptProtectedHeader,
+  sealDestructionReceipt,
+  signDestructionReceipt,
+  verifyDestructionReceipt,
+} from './destruction-receipt.js';
+export type {
+  DecodedDestructionReceipt,
+  DestructionCopyClass,
+  DestructionObjectKind,
+  DestructionOutcome,
+  DestructionReachEntry,
+  DestructionReceiptManifest,
+  DestructionReceiptVerifyOptions,
+  VerifiedDestructionReceipt,
+} from './destruction-receipt.js';
+export {
   DECLARED_EPOCH_INVENTORY_PROTECTED_LABELS,
   EPOCH_INVENTORY_CONTENT_TYPE,
   EPOCH_INVENTORY_LABEL_MAX_BYTES,

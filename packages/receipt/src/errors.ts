@@ -138,7 +138,25 @@ export type ReceiptErrorCode =
   | 'INCIDENT_BUNDLE_UNKNOWN_POINTER'
   | 'INCIDENT_BUNDLE_HOLD_MISMATCH'
   | 'INCIDENT_BUNDLE_HOLD_UNREADABLE'
-  | 'INCIDENT_BUNDLE_BOUND_DISAGREES';
+  | 'INCIDENT_BUNDLE_BOUND_DISAGREES'
+  // The destruction receipt family: the sixth document one deployment key seals, so it carries its own four
+  // container refusals for the same reason the redaction and the epoch inventory do, and a log line that said
+  // only "malformed CBOR" would not say which of six artifacts a deployment has to go and look at. Three
+  // further codes answer what this layout alone refuses: a copy class the record says nothing about, a reach
+  // claim past the format's own limit, and a receipt sealed by the key it names as destroyed. The last of
+  // those is answered at the decode rather than at the signature because it is true of the document whoever
+  // signed it.
+  | 'DESTRUCTION_RECEIPT_MALFORMED_CBOR'
+  | 'DESTRUCTION_RECEIPT_BAD_HEADER'
+  | 'DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION'
+  | 'DESTRUCTION_RECEIPT_BAD_MANIFEST'
+  | 'DESTRUCTION_RECEIPT_MISSING_COPY_CLASS'
+  | 'DESTRUCTION_RECEIPT_REACH_OVERREACH'
+  | 'DESTRUCTION_RECEIPT_KEY_IS_SIGNER'
+  | 'DESTRUCTION_RECEIPT_UNKNOWN_KEY'
+  | 'DESTRUCTION_RECEIPT_KID_MISMATCH'
+  | 'DESTRUCTION_RECEIPT_OBJECT_MISMATCH'
+  | 'DESTRUCTION_RECEIPT_KIND_DISAGREES';
 
 const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   MALFORMED_CBOR: 'receipt bytes are not valid canonical CBOR',
@@ -737,6 +755,47 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // the layout keeps apart, and the detail names the position and both values so an operator can see which
   // of the two documents has to move.
   INCIDENT_BUNDLE_BOUND_DISAGREES: 'a bound field of the incident bundle disagrees with the hold it designates',
+  // The four container refusals, for the sixth document one deployment key seals. They are per family rather
+  // than shared for the reason the redaction and the epoch inventory give: a log line carries only the string,
+  // and six artifacts can each be malformed in their own way.
+  DESTRUCTION_RECEIPT_MALFORMED_CBOR: 'destruction receipt bytes are not valid canonical CBOR',
+  DESTRUCTION_RECEIPT_BAD_HEADER: 'destruction receipt protected header does not hold exactly the parameters the format declares',
+  // Nothing has ever emitted a destruction receipt in another shape, so `v: 1` is the only number the format
+  // declares and a reader refuses every other before it reads a member, which is the rule the version moves
+  // under rather than a preference for a low number.
+  DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION: 'destruction receipt declares a version this package cannot parse',
+  // Every structural refusal of this container and of the reach entries inside it: an absent member, a member
+  // the layout does not define in the manifest or in one entry, a copy class or a document kind outside the
+  // two registries the format enumerates, an outcome that is neither of the two it declares, one class named
+  // twice, a bstr of a width other than the thirty-two bytes every bstr position here holds, a stamp before
+  // the epoch, a floating-point number in a position the format types as an integer, and a sentence that is
+  // empty, past its ceiling, or carrying a character that would end, hide or reorder the printed line it
+  // belongs to. What is not this code: a class the record leaves unstated, a reach claimed past the format's
+  // limit, and a receipt sealed by the key it names destroyed, each of which is a well-formed document making
+  // a claim this artifact refuses, and each of which answers its own code below.
+  DESTRUCTION_RECEIPT_BAD_MANIFEST: 'destruction receipt does not match the layout its declared version defines',
+  // The reach list is complete or the document is refused, and this is the refusal that carries the reason: a
+  // class named in no entry is not a missing field a writer mistyped but a silence that reads, to whoever
+  // holds the receipt, as a claim that the destruction reached what the record did not name. The action is a
+  // wider statement from the deployment, not a repaired byte.
+  DESTRUCTION_RECEIPT_MISSING_COPY_CLASS: 'a destruction receipt states no reach for a copy class the format enumerates',
+  // The document is well-formed and it claims more than this format will say. A copy that has left the
+  // deployment's hands is somebody else's bytes, and no act this deployment takes reaches them, so the
+  // reader refuses the claim and the writer refuses to produce it. Not `DESTRUCTION_RECEIPT_BAD_MANIFEST`:
+  // nothing about the shape is wrong, and the finding is that a deployment has stated a reach it does not have.
+  DESTRUCTION_RECEIPT_REACH_OVERREACH: 'a destruction receipt claims reach over a copy class the format declares out of reach',
+  // The format requires a distinct signer. This rule establishes neither signing chronology nor key
+  // unusability; the document's `at` remains a signed assertion.
+  DESTRUCTION_RECEIPT_KEY_IS_SIGNER: 'a destruction receipt is sealed by the kid it names as destroyed',
+  // The two designations of the key the reader is handed, answered the way every other container of this
+  // package answers them, because a caller with too few keys and a caller holding an edited document are two
+  // findings that send an operator to two places.
+  DESTRUCTION_RECEIPT_UNKNOWN_KEY: 'no key found for the kid a destruction receipt names',
+  DESTRUCTION_RECEIPT_KID_MISMATCH: 'the key handed to the reader does not match the kid a destruction receipt names',
+  // Optional object bytes may come from a retained copy. Digest and header-kind comparisons concern those
+  // bytes, not whether a destruction occurred. Without them the reader reports those comparisons absent.
+  DESTRUCTION_RECEIPT_OBJECT_MISMATCH: 'the bytes handed to the reader are not the object the destruction receipt designates',
+  DESTRUCTION_RECEIPT_KIND_DISAGREES: 'the object a destruction receipt designates is not the document kind the receipt names',
 };
 
 /**
