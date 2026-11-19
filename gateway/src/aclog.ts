@@ -1,7 +1,13 @@
-import { mkdir, readdir, readFile, unlink, writeFile, appendFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, unlink, appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AccessRecord } from './access-record.js';
 import { HOST_CLOCK_SOURCE, type TimeSource } from './store.js';
+import {
+  openAccessJournal,
+  scanJournalPartNames,
+  splitCompleteLines,
+  type AccessJournal,
+} from './journal.js';
 
 export type { AccessRecord } from './access-record.js';
 export const ACCESS_RECORD_FIELDS: readonly (keyof AccessRecord)[] = [
@@ -123,6 +129,11 @@ export interface AccessLogOptions {
    * it ages never come from two clocks that have not met.
    */
   time?: TimeSource;
+  /**
+   * Schedules the journal consumer's background ticks, for a caller that must hold the drain back and
+   * pump it by hand. Absent means `setImmediate`, and no production caller passes this.
+   */
+  schedule?: (task: () => void) => void;
 }
 
 function dayOf(millis: number): string {
@@ -291,12 +302,92 @@ function whenNotFound<T>(fallback: T): (err: unknown) => T {
   };
 }
 
+/**
+ * Reads the journal parts a previous run left behind and hands their lines to the part writer
+ * again, minus the lines the part files already hold, then unlinks every journal part. A start
+ * that finds no journal parts pays one directory read and nothing else.
+ *
+ * The deduplication is by record id over the stamps the journal lines carry, because the crash
+ * this recovery answers can sit anywhere between the journal append and the journal unlink: a
+ * line may be in both places, in neither, or torn. A record id is unique per request across
+ * restarts, so a line that survived into a part is recognized by its id and skipped exactly once,
+ * and one that did not reach a part is appended exactly once. Reading only the parts whose
+ * name-days overlap the journal's stamp span keeps the deduplication pass proportional to what
+ * the journal held rather than to the whole log.
+ *
+ * A torn tail is answered only on the last part, where it is the mark of a write the previous
+ * process died inside, and the record it was carrying had not resolved to any caller, so dropping
+ * the fragment keeps the promise the resolution makes. The same fragment on an earlier part is
+ * corruption, because rotation happens in a task that follows the append that filled the part.
+ */
+async function replayJournalIntoParts(
+  dir: string,
+  appendPart: (line: string) => Promise<void>,
+  listAccessParts: () => Promise<ListedFile[]>,
+): Promise<void> {
+  const parts = await scanJournalPartNames(dir);
+  if (parts.length === 0) return;
+  const lines: string[] = [];
+  const rids: string[] = [];
+  let from = Number.POSITIVE_INFINITY;
+  let to = Number.NEGATIVE_INFINITY;
+  for (const [index, part] of parts.entries()) {
+    const bytes = await readFile(join(dir, part.name)).catch(whenNotFound(Buffer.alloc(0)));
+    const { complete, tornTail } = splitCompleteLines(bytes.toString('utf8'));
+    if (tornTail !== null && index !== parts.length - 1) {
+      throw new Error(`access journal part ${part.name} ends in a partial line while a later part exists`);
+    }
+    for (const line of complete) {
+      let parsed: AccessRecord;
+      try {
+        parsed = parseAccessLine(line);
+      } catch (err) {
+        throw new Error(`access journal part ${part.name} holds a line that is not an access record`, {
+          cause: err,
+        });
+      }
+      lines.push(line);
+      rids.push(parsed.rid);
+      if (parsed.t < from) from = parsed.t;
+      if (parsed.t > to) to = parsed.t;
+    }
+  }
+  const seen = new Set<string>();
+  if (lines.length > 0) {
+    const fromDay = dayOf(from);
+    const toDay = dayOf(to);
+    for (const each of await listAccessParts()) {
+      if (each.day < fromDay || each.day > toDay) continue;
+      const text = await readFile(fileOf(dir, each), 'utf8').catch(whenNotFound(''));
+      for (const line of text.split('\n')) {
+        if (line.length === 0) continue;
+        let parsed: AccessRecord;
+        try {
+          parsed = parseAccessLine(line);
+        } catch {
+          continue;
+        }
+        seen.add(parsed.rid);
+      }
+    }
+    for (const [index, line] of lines.entries()) {
+      const rid = rids[index];
+      if (rid !== undefined && seen.has(rid)) continue;
+      await appendPart(line);
+    }
+  }
+  for (const part of parts) {
+    await unlink(join(dir, part.name)).catch(whenNotFound(undefined));
+  }
+}
+
 export async function openFileAccessLog(options: AccessLogOptions & { dir: string }): Promise<AccessLog> {
   const days = options.days ?? MINIMUM_RETENTION_DAYS;
   const hold = options.hold;
   const maxBytes = options.maxBytesPerFile ?? MAX_ACCESS_FILE_BYTES;
   const time = options.time ?? HOST_CLOCK_SOURCE;
   const nowMillis = options.nowMillis ?? ((): number => Math.floor(time.nowSeconds()) * 1000);
+  const schedule = options.schedule;
   const dir = options.dir;
   await mkdir(dir, { recursive: true });
 
@@ -325,8 +416,39 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
     );
   }
 
-  function listOwnFiles(): Promise<DayPart[]> {
+  function listOwnFiles(): Promise<ListedFile[]> {
     return listNamed(ACCESS_PART_NAME);
+  }
+
+  /**
+   * Settles which file the next line belongs to and returns it, so no caller has to
+   * reach for the mutable state or promise that a day has been chosen.
+   */
+  async function rotateIfNeeded(day: string, bytesAboutToAdd: number): Promise<ListedFile> {
+    if (currentDay === null) {
+      const newest = (await listOwnFiles()).at(-1);
+      if (newest !== undefined) {
+        currentDay = newest.day;
+        currentPart = newest.part;
+        sizeOfCurrent = await readFile(fileOf(dir, newest))
+          .then((buffer) => buffer.byteLength)
+          .catch(whenNotFound(0));
+      }
+    }
+    if (currentDay !== day || sizeOfCurrent + bytesAboutToAdd > maxBytes) {
+      if (currentDay !== day) {
+        currentDay = day;
+        currentPart = 0;
+        const names = await readdir(dir).catch(whenNotFound<string[]>([]));
+        while (names.includes(baseName({ day, part: currentPart }))) {
+          currentPart += 1;
+        }
+      } else {
+        currentPart += 1;
+      }
+      sizeOfCurrent = 0;
+    }
+    return { day: currentDay, part: currentPart, name: baseName({ day: currentDay, part: currentPart }) };
   }
 
   /**
@@ -362,45 +484,13 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
    * `sweptDay` moves only after a sweep has finished without throwing, so a sweep that failed on an
    * unreadable or undeletable file is attempted again by the next request rather than waiting for
    * the day to roll. That makes `record()` reject for a reason the caller did not cause, which is
-   * deliberate and safe in this order: the line is on disk before the sweep runs, so the request
-   * that triggers a failing sweep has already had its record written, and `server.ts` turns the
-   * rejection into a warning line rather than a failed response.
+   * deliberate and safe in this order: the line is settled before the sweep runs, and `server.ts`
+   * turns the rejection into a warning line rather than a failed response.
    */
   async function pruneOnNewDay(day: string): Promise<void> {
     if (sweptDay === day) return;
     await pruneLocked();
     sweptDay = day;
-  }
-
-  /**
-   * Settles which file the next line belongs to and returns it, so no caller has to
-   * reach for the mutable state or promise that a day has been chosen.
-   */
-  async function rotateIfNeeded(day: string, bytesAboutToAdd: number): Promise<DayPart> {
-    if (currentDay === null) {
-      const newest = (await listOwnFiles()).at(-1);
-      if (newest !== undefined) {
-        currentDay = newest.day;
-        currentPart = newest.part;
-        sizeOfCurrent = await readFile(fileOf(dir, newest))
-          .then((buffer) => buffer.byteLength)
-          .catch(whenNotFound(0));
-      }
-    }
-    if (currentDay !== day || sizeOfCurrent + bytesAboutToAdd > maxBytes) {
-      if (currentDay !== day) {
-        currentDay = day;
-        currentPart = 0;
-        const names = await readdir(dir).catch(whenNotFound<string[]>([]));
-        while (names.includes(baseName({ day, part: currentPart }))) {
-          currentPart += 1;
-        }
-      } else {
-        currentPart += 1;
-      }
-      sizeOfCurrent = 0;
-    }
-    return { day: currentDay, part: currentPart };
   }
 
   /**
@@ -418,27 +508,64 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
     return settled;
   }
 
+  /**
+   * The one writer of access parts. Every line reaches its part through this function, from a
+   * request's journal append and from a start's replay alike, so the rotation, the per-part size
+   * bound and the day sweep weigh exactly one queue and no line can pass another.
+   */
+  async function appendPartLine(line: string): Promise<void> {
+    const bytes = Buffer.byteLength(line);
+    const parsed = parseAccessLine(line);
+    const day = dayOf(parsed.t);
+    await enqueue(async () => {
+      const path = fileOf(dir, await rotateIfNeeded(day, bytes));
+      await appendFile(path, line, 'utf8').catch(async (err: unknown) => {
+        if (!isNotFound(err)) throw err;
+        await mkdir(dir, { recursive: true });
+        await writeFile(path, line, 'utf8');
+      });
+      sizeOfCurrent += bytes;
+      try {
+        await pruneOnNewDay(day);
+      } catch (err) {
+        // The line is settled: its bytes are in the part. A sweep the volume refuses outlives
+        // this line, so it travels as a warning and the day retries, never as a failure of a
+        // write that already landed: a sink rejection here would re-sink the landed line.
+        process.emitWarning(
+          `the access log sweep stopped: ${err instanceof Error ? err.message : String(err)}`,
+          { code: 'ASHAVERI_ACCESS_SWEEP_FAILED' },
+        );
+      }
+    });
+  }
+
+  /**
+   * Replay runs before the journal opens, so a corrupt part left by a previous run refuses this
+   * start with the file named, before any request is served into the state it contradicts.
+   */
+  await replayJournalIntoParts(dir, appendPartLine, listOwnFiles);
+  const journal: AccessJournal = await openAccessJournal({
+    dir,
+    maxBytesPerFile: maxBytes,
+    schedule,
+    sink: appendPartLine,
+  });
+
   return {
     async record(entry) {
       if (closed) throw new Error('the access log is closed');
       const line = renderAccessLine(entry);
-      const bytes = Buffer.byteLength(line);
-      const day = dayOf(entry.t);
-      await enqueue(async () => {
-        const path = fileOf(dir, await rotateIfNeeded(day, bytes));
-        await appendFile(path, line, 'utf8').catch(async (err: unknown) => {
-          if (!isNotFound(err)) throw err;
-          await mkdir(dir, { recursive: true });
-          await writeFile(path, line, 'utf8');
-        });
-        sizeOfCurrent += bytes;
-        await pruneOnNewDay(day);
-      });
+      // An out-of-band stamp is refused at the caller: a line the sink could never render into a
+      // part would otherwise sit in the journal, warning on every drain and refusing every start.
+      dayOf(entry.t);
+      await journal.append(line);
     },
     async drain() {
+      await journal.drain();
       await queue;
     },
     async window() {
+      await journal.drain();
       await queue;
       const files = await listOwnFiles();
       if (files.length === 0) return { from: null, to: null, count: 0 };
@@ -463,10 +590,12 @@ export async function openFileAccessLog(options: AccessLogOptions & { dir: strin
       return { from, to, count };
     },
     async files() {
+      await journal.drain();
       await queue;
       return (await listOwnFiles()).map((each) => fileOf(dir, each));
     },
     async close() {
+      await journal.close();
       await queue;
       closed = true;
     },

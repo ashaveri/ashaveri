@@ -13,6 +13,33 @@ member and enumeration lines below and compares them, in both directions, agains
 `packages/sdk/src/retention-assessment.ts`, so a page that falls behind the layout fails a suite rather than sitting
 beside it.
 
+## Synthetic checkpoint drill support
+
+`gateway/test/support/checkpoint-pin.ts` is a synthetic test helper, not a product format or public API.
+Its refusal identifiers are test diagnostics, not stable product codes:
+
+| Diagnostic | Meaning in the drill |
+|---|---|
+| `PIN_FORM` | Malformed pin, key identity or algorithm |
+| `PIN_HOLDER_MISMATCH` | The signer is not the holder designated by the verifier |
+| `PIN_EVIDENCE` | Missing, incomplete, duplicate or inconsistent captured evidence |
+| `PIN_SELF_ISSUED` | The signer is a receipt issuer declared by the validated boot evidence |
+| `PIN_SCOPE_MISMATCH` | The pin names another declared scope |
+| `PIN_SIGNATURE_INVALID` | The pin signature does not verify |
+
+Manifest authentication and receipt signature errors retain the shipped readers' codes; an epoch
+refusal retains the SDK's reason inside `PIN_EVIDENCE`. Unknown programming errors are not pin refusals.
+The immutable serving-time ledger binds boot tokens, acknowledged receipt IDs and byte digests to each
+boot's manifest. Candidate captures must cover that ledger exactly. This proves completeness only
+relative to that retained ledger, not that no outside boot existed. Assessment scope mutations do not
+change the original ledger.
+
+The live mock drill uses unsigned manifests with explicit SDK unauthenticated/TOFU results. Authenticated
+fixtures test designated-key and rotation refusals separately. Its distinct local holder key is a
+stand-in, not evidence of another operator's custody. The product declaration's `customer` value models
+that role only. This drill does not establish independent signing or custody. The named descriptors drive
+nine assessment and three recovery scenarios over five modeled hours, not five hours of wall time.
+
 ## The three blocks
 
 `scope` is what the deployment declares. `coverage` is what was observed. `assessment` is the deployment's own

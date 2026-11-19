@@ -6,8 +6,8 @@ import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
 import { HOLD_RECORD_LIMITS, holdRecordBytes, type HoldRecord } from '@ashaveri/receipt';
-import { ACCESS_PART_NAME, openFileAccessLog, parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
-import { ACCESS_FILE, accesslogScrub, chooseScrubName, modeOf, type ScrubMarker, type ScrubPartRecord } from '../src/commands/accesslog.js';
+import { ACCESS_PART_NAME, JOURNAL_PART_NAME, openFileAccessLog, parseAccessLine, renderAccessLine, RETENTION_SWEEP_NAME, type AccessRecord } from '@ashaveri/signerd';
+import { ACCESS_FILE, JOURNAL_FILE, accesslogScrub, chooseScrubName, modeOf, type ScrubMarker, type ScrubPartRecord } from '../src/commands/accesslog.js';
 import { noteSpawn } from './support/spawn-budget.js';
 /** How long one child of the built CLI may live before this file calls it a bug rather than a slow machine. */
 const SPAWN_DEADLINE_MS = 8_000;
@@ -215,6 +215,45 @@ describe('ashaveri accesslog scrub', () => {
       parts: [part],
       request: null,
     });
+  });
+
+  it('reaches the undrained journal a later start would replay back into the log', async () => {
+    // The journal holds records whose write has settled before any dated part carries them, so an
+    // erasure that opened only the dated parts could leave the subject's records on the volume under
+    // a name nothing else reaches, and the replay would put them back. The records here are written
+    // by the gateway's writer and never drained: the scheduler the test passes runs nothing, which is
+    // the state a dead process leaves, and the scrub has to reach the subject's line in it.
+    const dir = mkdtempSync(join(tempDir, 'journal-'));
+    const log = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0, schedule: () => undefined });
+    await log.record(record({ cred: 'svc-a', rid: 'rid-gone' }));
+    await log.record(record({ cred: 'svc-b', rid: 'rid-keep' }));
+    expect(readdirSync(dir).filter((name) => JOURNAL_FILE.test(name))).toEqual(['journal-000.jsonl']);
+    const result = scrub(dir, 'svc-a');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('removed 1 record for svc-a');
+    expect(readFileSync(join(dir, 'journal-000.jsonl'), 'utf8')).not.toContain('rid-gone');
+    expect(readFileSync(join(dir, 'journal-000.jsonl'), 'utf8')).toContain('rid-keep');
+    expect(receiptOf(markerOf(dir))).toEqual({
+      t: Date.parse(SCRUBBED_AT),
+      credential: 'svc-a',
+      removed: 1,
+      files: 1,
+      parts: ['journal-000.jsonl'],
+      request: null,
+    });
+    // The half that makes the rewrite worth having: a start over the scrubbed directory replays the
+    // journal it finds, and the erased record must not come back with it.
+    await log.close();
+    const revived = await openFileAccessLog({ dir, days: 184, nowMillis: () => T0 });
+    try {
+      expect(await revived.window()).toEqual({ from: T0, to: T0, count: 1 });
+      const parts = readdirSync(dir).filter((name) => name.startsWith('access-'));
+      const text = parts.map((each) => readFileSync(join(dir, each), 'utf8')).join('');
+      expect(text).not.toContain('rid-gone');
+      expect(text).toContain('rid-keep');
+    } finally {
+      await revived.close();
+    }
   });
 
   it('reports zero and writes no marker when the credential never appears', () => {
@@ -1059,36 +1098,46 @@ describe('the mode a scrub reads off a part', () => {
 });
 
 /**
- * This program keeps its own copy of the gateway's part pattern, because the published CLI cannot
- * depend on that package at run time, and the copy is the one that decides which files an erasure
+ * This program keeps its own copies of the gateway's part patterns, because the published CLI cannot
+ * depend on that package at run time, and the copies are the ones that decide which files an erasure
  * reaches. A drift is not loud in either direction: widen the gateway's half and the scrub skips real
  * parts while printing a count and naming a marker; widen this half and the scrub opens names the
- * retention sweep will never collect. Both patterns are read from the gateway here, so neither copy is
- * being compared to a transcription of itself.
+ * retention sweep will never collect. All three patterns are read from the gateway here, so no copy
+ * is being compared to a transcription of itself.
  */
 describe('the names a scrub will open', () => {
-  const table: Array<[string, boolean]> = [
-    ['access-2026-02-24-000.jsonl', true],
-    ['access-0000-01-01-000.jsonl', true],
-    ['access-9999-12-31-999.jsonl', true],
-    ['scrub-2026-02-24-000.jsonl', false],
-    ['access-2026-02-24-00.jsonl', false],
-    ['access-2026-02-24-0000.jsonl', false],
-    ['access-2026-2-24-000.jsonl', false],
-    ['access-+275760-09-13-000.jsonl', false],
-    ['access-2026-02-24-000.jsonl.tmp-4242', false],
-    ['access-2026-02-24-000.json', false],
-    ['xaccess-2026-02-24-000.jsonl', false],
-    ['notes.txt', false],
+  const table: Array<[string, 'access' | 'journal' | 'marker' | null]> = [
+    ['access-2026-02-24-000.jsonl', 'access'],
+    ['access-0000-01-01-000.jsonl', 'access'],
+    ['access-9999-12-31-999.jsonl', 'access'],
+    ['journal-000.jsonl', 'journal'],
+    ['journal-1234.jsonl', 'journal'],
+    ['scrub-2026-02-24-000.jsonl', 'marker'],
+    ['access-2026-02-24-00.jsonl', null],
+    ['access-2026-02-24-0000.jsonl', null],
+    ['access-2026-2-24-000.jsonl', null],
+    ['access-+275760-09-13-000.jsonl', null],
+    ['access-2026-02-24-000.jsonl.tmp-4242', null],
+    ['access-2026-02-24-000.json', null],
+    ['xaccess-2026-02-24-000.jsonl', null],
+    ['journal-000.json', null],
+    ['journal-000.jsonl.tmp-4242', null],
+    ['journal-2026-02-24-000.jsonl', null],
+    ['xjournal-000.jsonl', null],
+    ['notes.txt', null],
   ];
 
   it('are the names the gateway writes its parts under, and no others', () => {
-    for (const [name, isPart] of table) {
-      expect(ACCESS_FILE.test(name), name).toBe(isPart);
-      expect(ACCESS_PART_NAME.test(name), name).toBe(isPart);
-      // A name the scrub opens has to be one the sweep collects, or the bytes an erasure left behind
-      // are held on the volume under a name nothing will ever age out.
-      if (isPart) expect(RETENTION_SWEEP_NAME.test(name), name).toBe(true);
+    for (const [name, kind] of table) {
+      expect(ACCESS_FILE.test(name), name).toBe(kind === 'access');
+      expect(ACCESS_PART_NAME.test(name), name).toBe(kind === 'access');
+      expect(JOURNAL_FILE.test(name), name).toBe(kind === 'journal');
+      expect(JOURNAL_PART_NAME.test(name), name).toBe(kind === 'journal');
+      // A dated part the erasure rewrote has to be one the sweep ages out, and so does the marker
+      // naming the erasure itself. The journal family carries the opposite duty: a part the sweep
+      // collected could take acknowledged records the drain has not reached, so the sweep must
+      // refuse every name it holds.
+      expect(RETENTION_SWEEP_NAME.test(name), name).toBe(kind === 'access' || kind === 'marker');
     }
   });
 });

@@ -144,6 +144,9 @@ export {
   type AccessWindow,
   type MemoryAccessLog,
 } from './aclog.js';
+// The journal family's name travels for the same reason: the erasure tool opens the undrained half
+// of the family from its own copy, and one test reads both copies from here.
+export { JOURNAL_PART_NAME } from './journal.js';
 // The one decision about a window and a stated period is part of the entry point because more than one
 // program configures a window, and a comparison written twice is one renamed constant away from answering
 // one pairing two ways. Whoever sets a bound has to be able to read the rule it is weighed against, in the

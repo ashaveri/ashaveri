@@ -784,21 +784,16 @@ const ERROR_MESSAGE: Record<ReceiptErrorCode, string> = {
   // reader refuses the claim and the writer refuses to produce it. Not `DESTRUCTION_RECEIPT_BAD_MANIFEST`:
   // nothing about the shape is wrong, and the finding is that a deployment has stated a reach it does not have.
   DESTRUCTION_RECEIPT_REACH_OVERREACH: 'a destruction receipt claims reach over a copy class the format declares out of reach',
-  // A document sealed by a key is proof that the holder of that key signed it, so a receipt naming its own
-  // signing key as destroyed refutes itself on its face. The attestation of a destruction has to arrive from a
-  // key still in hand, which is the whole of what this refusal secures: it says nothing about whether the
-  // named key can sign again, and nothing here can.
+  // The format requires a distinct signer. This rule establishes neither signing chronology nor key
+  // unusability; the document's `at` remains a signed assertion.
   DESTRUCTION_RECEIPT_KEY_IS_SIGNER: 'a destruction receipt is sealed by the kid it names as destroyed',
   // The two designations of the key the reader is handed, answered the way every other container of this
   // package answers them, because a caller with too few keys and a caller holding an edited document are two
   // findings that send an operator to two places.
   DESTRUCTION_RECEIPT_UNKNOWN_KEY: 'no key found for the kid a destruction receipt names',
   DESTRUCTION_RECEIPT_KID_MISMATCH: 'the key handed to the reader does not match the kid a destruction receipt names',
-  // The optional half, asked only when a caller hands the bytes this receipt says were destroyed. Either answer
-  // is a finding about the pair rather than about the receipt: the designation is recomputed over exactly the
-  // bytes handed, and the kind is read out of those bytes' own signed header, which is what makes a kind a
-  // check rather than a caption. A reader handed no object reports the absence rather than guessing, because
-  // the bytes are gone by the receipt's own statement.
+  // Optional object bytes may come from a retained copy. Digest and header-kind comparisons concern those
+  // bytes, not whether a destruction occurred. Without them the reader reports those comparisons absent.
   DESTRUCTION_RECEIPT_OBJECT_MISMATCH: 'the bytes handed to the reader are not the object the destruction receipt designates',
   DESTRUCTION_RECEIPT_KIND_DISAGREES: 'the object a destruction receipt designates is not the document kind the receipt names',
 };

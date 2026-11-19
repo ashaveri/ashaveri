@@ -40,6 +40,7 @@
     "generate:res": "node scripts/res-vectors.ts",
     "generate:marking": "node scripts/marking-vectors.ts",
     "generate:disclosure-record": "node scripts/disclosure-record-vectors.ts",
+    "capture:disclosure-content-path": "node scripts/disclosure-content-path-capture.ts",
     "generate:hold": "node scripts/hold-vectors.ts",
     "generate:incident-bundle": "node scripts/incident-bundle-vectors.ts",
     "generate:model-inventory": "node scripts/model-inventory-vectors.ts",

@@ -375,7 +375,13 @@ bypass leaves when no mark was inserted, is refused as `MARK_MISMATCH`. The comm
 consults no clock; the nonce, the request digest, the policy pins and the age windows stay the questions
 `verify-receipt` answers. The published vectors of the record, its refusals, and the transformation
 outcomes measured over the fixture content path are `packages/fixtures/data/disclosure-record-v1.json`,
-indexed in [vectors.md](vectors.md).
+indexed in [vectors.md](vectors.md). The same file records, in its `rule.realContentPath` block, one run
+of that completion through applications outside this repository: a client's fetched copy of the served
+body still carries exactly one region, and the browser's rendering of it, the PDF that browser exported,
+the text two applications took out of that archive, and the text an optical engine read off a raster of
+the page carry none. Run against those later stages beside the receipt that attests the served bytes, the
+command refuses at the response digest before any marking question is reached, which is the gate doing
+its work rather than a verdict about the mark.
 
 ### 3.4 Encryption schemes
 
@@ -1037,7 +1043,7 @@ with the machine-readable twin
 [schemas/destruction-receipt-v1.schema.json](../packages/receipt/schemas/destruction-receipt-v1.schema.json).
 
 A reviewer holding only this document, the published format and the deployment's public key can check the
-whole of what it states: the signature over the `Sig_structure`, the closed member list, the two registries,
+format and signature rules: the signature over the `Sig_structure`, the closed member list, the two registries,
 the completeness of the reach list, the format's own reach limit, and the fact that the statement was sealed by
 a key other than the one it names as destroyed. Nothing in that list asks anything of us.
 
@@ -1046,10 +1052,10 @@ The layout, version 1, every member required, in this order:
 | Member | What it states |
 |---|---|
 | `v` | The layout version, `1`. Nothing has ever emitted this artifact in another shape, so a reader refuses every other number before it reads a member |
-| `at` | unix seconds, the instant the destruction was stated, never before the epoch |
+| `at` | The asserted instant of the destruction statement, in unix seconds no earlier than the epoch; not independently timed |
 | `object` | sha256 over the exact bytes the destruction took, as they were handed over, tag and signature included |
 | `kind` | Which document those bytes are, from the registry below. A digest names no document on its own |
-| `key` | The kid of the destroyed key: sha256 over its public half, spelled as label 4 of the protected header spells one. Never any of its material |
+| `key` | The destroyed key's kid: sha256 of its public key, as in protected header label 4. A semantic contract on the writer, not secret detection |
 | `reach` | Exactly one entry per copy class, each `{ class, outcome }` with `outcome` `1` for reached and `2` for not-reached. A class named twice, a class outside the registry and an outcome outside the two are all malformed; a class with no entry is its own refusal |
 | `states` | The writer's own sentence, between one and 2048 bytes, carrying no character of the printed-line class. Checked for shape and never for content |
 
@@ -1082,35 +1088,28 @@ either registry is a decision about the format and not a value a writer chooses.
 The designation and the kind are checked together when a caller holds the bytes. `verifyDestructionReceipt`
 recomputes `object` over exactly the bytes handed and refuses a difference as
 `DESTRUCTION_RECEIPT_OBJECT_MISMATCH`, then reads the content type out of those bytes' own signed header and
-refuses a difference from `kind` as `DESTRUCTION_RECEIPT_KIND_DISAGREES`. Both halves are optional, and
-required by nothing: the bytes a destruction receipt designates are the bytes a destruction took, so a reader
-that had to produce them could only ever verify a receipt whose statement is false. `outcome.objectSha256` and
-`outcome.objectKind` are present exactly where the bytes were handed, and their absence is the reader stating
-which half it could not check rather than a silence a caller reads as a pass.
+refuses a difference from `kind` as `DESTRUCTION_RECEIPT_KIND_DISAGREES`. The object is optional: a retained
+handout may supply the designated bytes while a store copy was destroyed. Possession does not falsify that
+statement. `outcome.objectSha256` and `outcome.objectKind` are present only when bytes were handed; their
+absence means those comparisons were not performed, not that all copies are gone.
 
-A key is named and never carried. Key material is secret material and is not a repository artifact, so the two
-bstr positions this manifest declares, `object` and `key`, are both fixed at 32 bytes, every other member is
-an integer, a text label from a closed registry, a list of those, or the bounded sentence, and the map is
-closed: a writer that wanted to carry a seed, a keypair or an exported key has no position to put it in, and
-adding one is a version change a reader of `v: 1` refuses. A 64-byte Ed25519 public key and a 32-byte secret
-seed both fail at `key` on the rule that every bstr here is a digest width, which is a check rather than a
-naming convention.
+The `object` and `key` fields must carry digests. Their 32-byte width also admits Ed25519 seeds and public
+keys, so validation cannot establish the origin of those bytes. Closed maps reject undeclared members; they
+do not detect secrets in permitted fields or text. Writers must honor the digest semantics and must not
+supply secrets.
 
-What the signature does settle, and what it does not, are stated apart. `key` equal to the kid in the receipt's
-own protected header is refused as `DESTRUCTION_RECEIPT_KEY_IS_SIGNER`, at `decodeDestructionReceipt` rather
-than at the signature check, because it is true of the document whoever signed it: an artifact sealed by a key is
-proof that the holder of that key signed it, so a receipt declaring its own signing key destroyed refutes
-itself. Attestation therefore arrives from a key still in hand, and the destroyed key is spoken of from
-outside. That is the whole of it. These bytes do not show that the named key cannot sign again, and no reading
-of them can; a reviewer who wants that asks a question outside this document, whether the kid produces a valid
-signature over anything stamped after `at`, and this format neither claims the answer nor supplies it.
+The format requires a distinct signer: `key` equal to the protected header's kid is refused as
+`DESTRUCTION_RECEIPT_KEY_IS_SIGNER` by both `decodeDestructionReceipt` and `signDestructionReceipt`.
+This rule is not proof of signing chronology. `at` is a signed assertion, not independent evidence of when
+signing occurred, and the reader performs no cross-document timestamp ordering check. Neither a valid
+signature nor signer separation establishes that the named key is now unusable.
 
 A version no layout reads is `DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION`; the encoding, the header and the
 manifest refusals are `DESTRUCTION_RECEIPT_MALFORMED_CBOR`, `DESTRUCTION_RECEIPT_BAD_HEADER` and
 `DESTRUCTION_RECEIPT_BAD_MANIFEST`; the key designation refusals are `DESTRUCTION_RECEIPT_UNKNOWN_KEY` and
 `DESTRUCTION_RECEIPT_KID_MISMATCH`, and the signature itself answers the shared `INVALID_SIGNATURE`; the two
 honesty refusals are `DESTRUCTION_RECEIPT_MISSING_COPY_CLASS` and `DESTRUCTION_RECEIPT_REACH_OVERREACH`; the
-self-refuting pair is `DESTRUCTION_RECEIPT_KEY_IS_SIGNER`; and the two answers about handed object bytes are
+signer-separation refusal is `DESTRUCTION_RECEIPT_KEY_IS_SIGNER`; and the two answers about handed object bytes are
 `DESTRUCTION_RECEIPT_OBJECT_MISMATCH` and `DESTRUCTION_RECEIPT_KIND_DISAGREES`. The rows are in
 [error-codes.md](error-codes.md).
 
@@ -1127,8 +1126,8 @@ that the list is everything. It is not a proof that the destroyed key is unusabl
 reviewer can compare against plaintext: `object` hashes the whole signed document, so a reviewer holding that
 file compares a file hash and learns nothing about what was inside it. And it is not a verdict about a duty, a
 lawful basis, a request or a period: nothing in this layout states that an erasure was owed, that it was owed
-to anyone, or that completing it satisfied anything. A reader holding only these bytes can say that the holder
-of one key stated, at one instant, the destruction of one object and one key and a reach over five copy
+to anyone, or that completing it satisfied anything. A reader with an accepted verification key can authenticate
+a statement asserting an instant, the destruction of one object and one key, and a reach over five copy
 classes, with one of them beyond reach by the format's own rule. Whether that settles anything is settled
 outside this format by whoever holds the mapping and the question.
 

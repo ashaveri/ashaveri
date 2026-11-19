@@ -40,7 +40,7 @@
       "reached": 1,
       "notReached": 2
     },
-    "rule": "Every copy class the format enumerates carries exactly one statement, and the class whose copies have left the deployment hands may only ever be stated not-reached. The destroyed key is named by its kid and never by its material, and the receipt is sealed by a key other than the one it names.",
+    "rule": "Every copy class the format enumerates carries exactly one statement, and the class whose copies have left the deployment hands may only ever be stated not-reached. The destroyed key is named by its kid by semantic contract; width validation cannot detect key material. The receipt requires a distinct signer, not proof of signing chronology.",
     "writerRule": "signDestructionReceipt encodes the manifest, runs it back through the whole reader, and refuses before it signs a reach the format will not carry or a statement sealed by the key it destroys.",
     "signingKeys": [
       {
@@ -64,7 +64,7 @@
         "kid": "5ccab7ac8a9609c3096d8118e867934499ca7cfadc54cc73ad98200de2ab4897"
       }
     ],
-    "keyNote": "Test-only, and no secret is published: each key is signingKeyFromSeed over sha256 of the label beside it, so a port reproduces every signature here from the label alone. What the suite carries of a key is the kid, which is the public label the format itself names."
+    "keyNote": "Test-only keys, fully reproducible with signingKeyFromSeed over sha256 of each published label. These labels reveal the test seeds by construction and must never be used for production keys."
   },
   "vectors": [
     {
@@ -75,8 +75,10 @@
       "expected": "verify-ok",
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
       "documentByteLength": 480,
-      "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw",
-      "objectByteLength": 290
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw"
+      }
     },
     {
       "name": "reached-nothing-but-the-store",
@@ -85,25 +87,37 @@
       "structural": "verify-ok",
       "expected": "verify-ok",
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUComVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEC8_Z3dQq1KcOmtoXM6e_iGUUyFBZ0heCnJW6COP97Bol3NX00AAtVUjJFIBqInu9M22Nj4xLRXDZXHI-n_GYcB",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "designated-bytes-not-handed",
-      "note": "The first row's document, read by a caller holding nothing but these bytes. The designation is no precondition: the object is what a destruction took, and a reader that had to produce it could only ever verify a receipt whose statement was false.",
+      "note": "The first receipt verified without object bytes. Digest and kind comparisons are absent. A retained handout could supply those bytes even when a store copy was destroyed.",
       "arm": "accept",
       "structural": "verify-ok",
       "expected": "verify-ok",
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "reached-with-a-retired-key-named",
-      "note": "The destroyed key is a kid from an earlier epoch and the signer is the key that followed it. That pair is what the format requires of every receipt: the attestation arrives from a key still in hand.",
+      "note": "The fixture names an earlier-epoch kid and uses a different signer. The format requires distinct keys, not proof of their chronology.",
       "arm": "accept",
       "structural": "verify-ok",
       "expected": "verify-ok",
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCBcyresipYJwwltgRjoZ5NEmcp8-txUzHOtmCAN4qtIl2RraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEA-PBu6GhzPPzPHGhWpjMVUIAV8U9d-76jG8Y8Ysla2sGmywTujjAiZlXHxl7PiBQHD95LOSpT4YQT_z8OCP6ME",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "class-left-unstated",
@@ -115,8 +129,12 @@
         "at": "reach",
         "states": "one of the five copy classes carries no statement"
       },
-      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZATmnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaISiZWNsYXNzZXN0b3JlZ291dGNvbWUComVjbGFzc2RwYWNrZ291dGNvbWUComVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECOIuTtMdeV9iG7ZSSy3avwuXb7x0hOg8W5g3ugIgkF74NYHe8LctzpdWuGL7qafdN671hFuDMilCA3juliyPYA",
-      "documentByteLength": 456
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZATqnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaISiZWNsYXNzZXN0b3JlZ291dGNvbWUComVjbGFzc2RwYWNrZ291dGNvbWUComVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZ2hhbmRvdXRnb3V0Y29tZQJmb2JqZWN0WCDKVfEjfrJGBEplnBcyggEIWI15t6GIWSEtd4Qkndb2Z2ZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hAtNWAFGFTnGlBHCYCkHtcPH2gTEQy0T2JIOjO19VKeWqBYYDdniC6UXnjfydt-RdhJwwNgLwpkj9g8E4QzTz8Bg",
+      "documentByteLength": 457,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "handout-claimed-reached",
@@ -129,11 +147,15 @@
         "states": "reached at a class the format declares out of reach"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUComVjbGFzc2RwYWNrZ291dGNvbWUComVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAWZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEATqIlSu1nHQiLpwBdQoeytF3xZvF7r4R8Aupv6MPtKkJAI1njdAomuN_q3O-S1c-u-uhIsrLYWpMQnlgZIiT8B",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "sealed-by-the-destroyed-key",
-      "note": "The receipt names as destroyed the very kid its own protected header seals it with. A document sealed by a key proves the holder of that key signed it, so the statement refutes itself whoever signed it, and the refusal arrives before any caller key set is consulted.",
+      "note": "The named destroyed key equals the protected header kid. This violates the distinct-signer format rule and is refused structurally, without establishing when signing occurred.",
       "arm": "refuse",
       "structural": "DESTRUCTION_RECEIPT_KEY_IS_SIGNER",
       "expected": "DESTRUCTION_RECEIPT_KEY_IS_SIGNER",
@@ -142,11 +164,15 @@
         "states": "the signer and the destroyed key are one key"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDRV2dSrxN8S5Wq4rv-kQU6Tihv_jyNOWLyCqk7Wz9V0yACICVw30CXLqB1980UPQd88FTtd8Dg1cfzXZCDp1UF",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "destroyed",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "unknown-member-carrying-material",
-      "note": "A member the layout does not define, named for the thing a writer might reach for: sixty-four bytes of key. The closed map is what makes the sentence about key material a check rather than an intention.",
+      "note": "An undeclared member carrying sixty-four zero bytes. Closure rejects the member, not the origin or meaning of its value.",
       "arm": "refuse",
       "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
       "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
@@ -155,7 +181,11 @@
         "states": "a member no version of this layout defines"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAZyoYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzaG1hdGVyaWFsWEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWEDB1PReHrvqfXUZRhssrGs474XoiNIAZCAwv1Ju95yswU2aiWxawA716ZN3jht_VuBlXAouSGvKKl6t9f9qtxgF",
-      "documentByteLength": 555
+      "documentByteLength": 555,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "entry-member-carrying-material",
@@ -168,11 +198,15 @@
         "states": "a member the entry does not define"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAZynYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWjZWNsYXNzZXN0b3JlZ291dGNvbWUBaG1hdGVyaWFsWEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEAIR2arr-x_b1i7gSNIPOvbOjIqI9yIi7wuNgt0KBjAhxBddRrIbeWQ9pHesUgPJn9ed-K-NxeEyZNKxg2fy6QK",
-      "documentByteLength": 555
+      "documentByteLength": 555,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "key-of-another-width",
-      "note": "A sixty-four-byte value where the format writes a digest width. An Ed25519 public key and a secret seed are both this size and neither has a position here: the width rule does the work, not a rule about what a member is called.",
+      "note": "A sixty-four-byte value where the format requires 32 bytes. This is a width refusal, not secret detection: Ed25519 seeds and public keys are 32 bytes and pass the width check.",
       "arm": "refuse",
       "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
       "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
@@ -181,7 +215,11 @@
         "states": "a bstr of a width the format never writes"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAXGnYXYBYmF0GmlDRABja2V5WEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQGvuwt8jY8cwgEW2d0oKKk0tXY7LcBu8qUSDCg1usknu9nCFwM4Eh_B8IOCGwPH9A7Ay7FjLo4WS3tBII4M7lg8",
-      "documentByteLength": 512
+      "documentByteLength": 512,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "designation-of-another-width",
@@ -194,7 +232,11 @@
         "states": "a bstr of a width the format never writes"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAUCnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RQAAAAAAAAAAAAAAAAAAAAAGZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hAJhNmoGY8ABjV0G0TIY4NpjbZkRQ4MpWj-AsnwsJxIHnsnQ5zZnfJGZIehD5F0KODX93rTAFJCySF2gM-NLqWBQ",
-      "documentByteLength": 463
+      "documentByteLength": 463,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "kind-outside-the-registry",
@@ -207,7 +249,11 @@
         "states": "a label outside the closed registry"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVynYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5keBxhc2hhdmVyaS9kZXBsb3ltZW50LW1hbmlmZXN0ZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQF_gD61mEgHYSKi9WuHW_YiFqoDQ8F2RTFybD9XxMfyo1kRgxIGs4e3ywDkjOoQtPT6a0E6JZ_aobRM96COsGAc",
-      "documentByteLength": 491
+      "documentByteLength": 491,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "class-outside-the-registry",
@@ -220,7 +266,11 @@
         "states": "a label outside the closed registry"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZWluYm94Z291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECky19_swi2Ji4esZsyF9mflYHDFK_yExTVwbMtHy5-ddH81g4JEapG2DirEUhntRsPBUtk_3ZxZqxrrxUGuXAF",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "class-named-twice",
@@ -233,7 +283,11 @@
         "states": "a class the list already stated"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVKnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2VzdG9yZWdvdXRjb21lAaJlY2xhc3NmZXhwb3J0Z291dGNvbWUComVjbGFzc2ZiYWNrdXBnb3V0Y29tZQKiZWNsYXNzZ2hhbmRvdXRnb3V0Y29tZQJmb2JqZWN0WCDKVfEjfrJGBEplnBcyggEIWI15t6GIWSEtd4Qkndb2Z2ZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hAvi7-mDaXS95RFrmngXcyBFW9XSleMEPRVNY-mn7d6lcBl3w_xjVAT_q-fAeeq0uZPemlpDeGrXb-_XcvvUooAg",
-      "documentByteLength": 481
+      "documentByteLength": 481,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "outcome-that-is-neither",
@@ -246,7 +300,11 @@
         "states": "a value the format does not declare"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUAomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECb1sipOLg5fQoF30WsMyG-2UiIh8f9WbPhQb_1ZhAurJqcHbBsU7fM5CTS-IoVXSuC6WSvtgK8QLBp5XfC4nEA",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "reach-not-a-list",
@@ -259,7 +317,11 @@
         "states": "a value of another type"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBY56dhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNooWVzdG9yZfVmb2JqZWN0WCDKVfEjfrJGBEplnBcyggEIWI15t6GIWSEtd4Qkndb2Z2ZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hALpmJJVCLYdqekhBzPTp8JbR6VijmK4vwA1eA7g47JaJ45neHhWcRbC7mmAPSgPo4-_wZYwAh5Dq_xSlD8Mr8Cw",
-      "documentByteLength": 373
+      "documentByteLength": 373,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "member-absent",
@@ -272,7 +334,11 @@
         "states": "a required member absent"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBY66ZhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdYQAlN9dmWWRK0SoBIX3rBCqgtU6ewoSXKRhYhBglmmdT0dmHtWz-Us1pwe4jlNTILtnk5BEY91qPF2Pk5mmuJMgo",
-      "documentByteLength": 377
+      "documentByteLength": 377,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "stamp-before-the-epoch",
@@ -285,7 +351,62 @@
         "states": "a stamp earlier than the epoch"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAU2nYXYBYmF0IGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQInmQGjjvjkLZHr9NQJtDhsjgujBHirrN6EHeX2qBrSfDRleP4E3OkRbDR8QO3Oh2n5HkOuieWfNCMGxwpYJ7g8",
-      "documentByteLength": 476
+      "documentByteLength": 476,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
+    },
+    {
+      "name": "malformed-cbor",
+      "note": "The honest receipt truncated inside its protected header, before any manifest can be read.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_MALFORMED_CBOR",
+      "expected": "DESTRUCTION_RECEIPT_MALFORMED_CBOR",
+      "edit": {
+        "at": "CBOR envelope",
+        "states": "truncated byte string"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Q",
+      "documentByteLength": 20,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
+    },
+    {
+      "name": "empty-states",
+      "note": "An empty sentence, below the one-byte floor.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "states",
+        "states": "zero UTF-8 bytes"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBY86dhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzYFhA3oKy_Dlun1gXTYs6LfEPWByQe3YxBe7FBqSQ3O1aTkQdHgMS4djf1nb_X6lfwG0nhYylTyYbk_Orpi655poHBQ",
+      "documentByteLength": 385,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
+    },
+    {
+      "name": "states-over-byte-limit",
+      "note": "683 three-byte characters: 2049 UTF-8 bytes, above the 2048-byte ceiling despite the smaller character count.",
+      "arm": "refuse",
+      "structural": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "expected": "DESTRUCTION_RECEIPT_BAD_MANIFEST",
+      "edit": {
+        "at": "states",
+        "states": "2049 UTF-8 bytes"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZCPanYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3kIAeeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjOeVjFhAEuV8RmtJoU_Y3BQeGzzeavmc5XU4n_oRv2C8JI4wuY6gGxT-_yVqbWYMWSo4vU1RLXlbiqCbZY_n6DV_Xi2aCw",
+      "documentByteLength": 2437,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "sentence-that-forges-a-line",
@@ -298,7 +419,11 @@
         "states": "a character that reorders the line it is printed on"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAQanYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3NlcmFzZWQg4oCuIGVudGlyZWx5WEDOybEduUuNVdWUlCbkYE2BJGpdTbcV98tZ6DBMjKEndmffqAmw0EelM1XOIAvhAPtRZAtBuApWDlgIaSZC2U4I",
-      "documentByteLength": 405
+      "documentByteLength": 405,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "version-two",
@@ -311,7 +436,11 @@
         "states": "a version no layout this package reads defines"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYCYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWECriE3obTxu8WjmfmmnLX2QwhnCWzhIbRuNNsangV9DC0wdJarfgA8t7TPQfeEZ-pXaHI_qhewA0-d9_dDC9uMB",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "another-content-type",
@@ -324,7 +453,11 @@
         "states": "a content type other than this formats own"
       },
       "documentBase64Url": "0oRYNaMBJwNtYXNoYXZlcmkvcGFjawRYIJ0ZnBuz1LhA1pQymz9pZrZwF8K2qt2jdRqs8wz0vOKKoFkBUadhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQMx6AgghlSN2ANOY9e5Q4whQdmL3QDd_3Lhef8MZMfJ_IWtgONOm_9PgkFU2a6SGEDs4SFopP4NR9ry4hxi8Ug4",
-      "documentByteLength": 464
+      "documentByteLength": 464,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "header-carrying-a-fourth-label",
@@ -337,7 +470,11 @@
         "states": "a label the format does not define"
       },
       "documentBase64Url": "0oRYR6QBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziigkBoFkBUadhdgFiYXQaaUNEAGNrZXlYIBzOmvkwNx9d5kxQHBG3o7h5AkGA7W7-ek1fQNM0URimZGtpbmRyYXNoYXZlcmkvcmVkYWN0aW9uZXJlYWNohaJlY2xhc3Nlc3RvcmVnb3V0Y29tZQGiZWNsYXNzZHBhY2tnb3V0Y29tZQGiZWNsYXNzZmV4cG9ydGdvdXRjb21lAqJlY2xhc3NmYmFja3VwZ291dGNvbWUComVjbGFzc2doYW5kb3V0Z291dGNvbWUCZm9iamVjdFggylXxI36yRgRKZZwXMoIBCFiNebehiFkhLXeEJJ3W9mdmc3RhdGVzeF1vbmUgcmVjZWlwdCBhbmQgdGhlIGtleSB0aGF0IGVuY3J5cHRlZCBpdHMgYm9keSwgZXJhc2VkIGZyb20gdGhlIGNvcGllcyB0aGlzIGRlcGxveW1lbnQgaG9sZHNYQGG_GPzn1AykPl5oCqSankVKQVw_TJIEWTrOZih5JmVWNWLp_T9HX1UIp7Oc6SQAYUlzKxcCNG7EnFvlAsELiws",
-      "documentByteLength": 482
+      "documentByteLength": 482,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "a-pack-handed-as-a-receipt",
@@ -350,7 +487,28 @@
         "states": "a redaction manifest read where a destruction receipt was expected"
       },
       "documentBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw",
-      "documentByteLength": 290
+      "documentByteLength": 290,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
+    },
+    {
+      "name": "signature-corrupted",
+      "note": "The honest header and payload with one signature bit flipped. The structure is valid; verification under the correct key refuses the signature.",
+      "arm": "refuse",
+      "structural": "verify-ok",
+      "expected": "INVALID_SIGNATURE",
+      "edit": {
+        "at": "signature",
+        "states": "one bit changed without re-signing"
+      },
+      "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDnEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
+      "documentByteLength": 480,
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "whole-bytes-no-key-handed",
@@ -363,7 +521,11 @@
         "states": "neither a public key nor a resolver handed to the reader"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": null,
+        "objectBase64Url": null
+      }
     },
     {
       "name": "key-of-another-caller",
@@ -376,7 +538,11 @@
         "states": "a public key other than the kid the header carries"
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
-      "documentByteLength": 480
+      "documentByteLength": 480,
+      "verification": {
+        "key": "another-callers-key",
+        "objectBase64Url": null
+      }
     },
     {
       "name": "other-bytes-than-the-designation",
@@ -390,8 +556,10 @@
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYIMpV8SN-skYESmWcFzKCAQhYjXm3oYhZIS13hCSd1vZnZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDmEK5q1rrud9XoaD3ngjc41Oe-NmGNI7hFwAtm2b5sbop3DgdI3UC5rjcGuXKzGbmkOPptK2yu1_FA45FW2MoP",
       "documentByteLength": 480,
-      "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWIimYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzcGEgc2Vjb25kIHJlbW92YWxncmVkdWNlZFggCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlncmVtb3ZlZIFpcmVjZWlwdC0yWEC2_jPZaNR-laHC0F5FecjQLAEmXhPALFDu7o3n4Jq7xdh1_GCg8k3wwmVjDj2pYgpaqrChG4zFQNFaXVSwcvkK",
-      "objectByteLength": 267
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWIimYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzcGEgc2Vjb25kIHJlbW92YWxncmVkdWNlZFggCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlncmVtb3ZlZIFpcmVjZWlwdC0yWEC2_jPZaNR-laHC0F5FecjQLAEmXhPALFDu7o3n4Jq7xdh1_GCg8k3wwmVjDj2pYgpaqrChG4zFQNFaXVSwcvkK"
+      }
     },
     {
       "name": "designated-bytes-of-another-kind",
@@ -405,8 +573,10 @@
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAUynYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kbWFzaGF2ZXJpL3BhY2tlcmVhY2iFomVjbGFzc2VzdG9yZWdvdXRjb21lAaJlY2xhc3NkcGFja2dvdXRjb21lAaJlY2xhc3NmZXhwb3J0Z291dGNvbWUComVjbGFzc2ZiYWNrdXBnb3V0Y29tZQKiZWNsYXNzZ2hhbmRvdXRnb3V0Y29tZQJmb2JqZWN0WCDKVfEjfrJGBEplnBcyggEIWI15t6GIWSEtd4Qkndb2Z2ZzdGF0ZXN4XW9uZSByZWNlaXB0IGFuZCB0aGUga2V5IHRoYXQgZW5jcnlwdGVkIGl0cyBib2R5LCBlcmFzZWQgZnJvbSB0aGUgY29waWVzIHRoaXMgZGVwbG95bWVudCBob2xkc1hAtosNSK1Pgb0H-hFs5IHPIFQAqB4S-VmFDlOunHS-1mfCRHe6dI7MsxBBtva7Qc35NTamYWws8-4ewVRPUXF6Cg",
       "documentByteLength": 475,
-      "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw",
-      "objectByteLength": 290
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": "0oRYOqMBJwNyYXNoYXZlcmkvcmVkYWN0aW9uBFggnRmcG7PUuEDWlDKbP2lmtnAXwraq3aN1GqzzDPS84oqgWJ-mYXYBYmF0GmlDRABkcGFja1ggBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwdmc3RhdGVzeCZvbmUgcmVjb3JkIGxpZnRlZCBvdXQgb2YgYSBjbG9zZWQgcGFja2dyZWR1Y2VkWCAICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICGdyZW1vdmVkgWlyZWNlaXB0LTFYQMVcXdeYMifwg4dXRH2bjooPnjUHkxNvY0pVmdnx5jAk7h_66AZDrUNHFoXGHpwRfNDz828L7_LPPXWUhRwsyAw"
+      }
     },
     {
       "name": "designated-bytes-not-a-signed-document",
@@ -420,8 +590,10 @@
       },
       "documentBase64Url": "0oRYRaMBJwN4HGFzaGF2ZXJpL2Rlc3RydWN0aW9uLXJlY2VpcHQEWCCdGZwbs9S4QNaUMps_aWa2cBfCtqrdo3UarPMM9LziiqBZAVGnYXYBYmF0GmlDRABja2V5WCAczpr5MDcfXeZMUBwRt6O4eQJBgO1u_npNX0DTNFEYpmRraW5kcmFzaGF2ZXJpL3JlZGFjdGlvbmVyZWFjaIWiZWNsYXNzZXN0b3JlZ291dGNvbWUBomVjbGFzc2RwYWNrZ291dGNvbWUBomVjbGFzc2ZleHBvcnRnb3V0Y29tZQKiZWNsYXNzZmJhY2t1cGdvdXRjb21lAqJlY2xhc3NnaGFuZG91dGdvdXRjb21lAmZvYmplY3RYILNPRc1Tfhqm_5E08OHPvkK5II5iIAEnUu0ZWw7CmRiGZnN0YXRlc3hdb25lIHJlY2VpcHQgYW5kIHRoZSBrZXkgdGhhdCBlbmNyeXB0ZWQgaXRzIGJvZHksIGVyYXNlZCBmcm9tIHRoZSBjb3BpZXMgdGhpcyBkZXBsb3ltZW50IGhvbGRzWEDDjw2V1NKUu50Spn6FDjBLwce18f1ygzcV_FB18yhPo0gjm2GaroU3mlAUWijXf5uDJqRCTzBoPB5568Lgjw4D",
       "documentByteLength": 480,
-      "objectBase64Url": "Ynl0ZXMgdGhhdCBhcmUgbm8gc2lnbmVkIGRvY3VtZW50IGF0IGFsbA",
-      "objectByteLength": 40
+      "verification": {
+        "key": "signer",
+        "objectBase64Url": "Ynl0ZXMgdGhhdCBhcmUgbm8gc2lnbmVkIGRvY3VtZW50IGF0IGFsbA"
+      }
     },
     {
       "name": "writer-refuses-to-sign-overreach",
@@ -432,7 +604,8 @@
       "edit": {
         "at": "signDestructionReceipt",
         "states": "the writer refusing the reach the format will not carry"
-      }
+      },
+      "verification": null
     },
     {
       "name": "writer-refuses-its-own-refusal",
@@ -443,7 +616,8 @@
       "edit": {
         "at": "signDestructionReceipt",
         "states": "the writer running its own reader before signing"
-      }
+      },
+      "verification": null
     }
   ]
 }

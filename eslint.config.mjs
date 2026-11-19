@@ -48,6 +48,15 @@ export default tseslint.config(
     },
   },
   {
+    files: ['gateway/src/server.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        { checkThenables: true, ignoreVoid: false, ignoreIIFE: false },
+      ],
+    },
+  },
+  {
     // Tests, generator scripts and this file: hygiene rules that need no type info.
     files: ['**/*.ts', '**/*.mjs'],
     extends: [tseslint.configs.recommended],

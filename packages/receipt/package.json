@@ -18,6 +18,7 @@
     "pack.cddl",
     "export.cddl",
     "redaction.cddl",
+    "destruction-receipt.cddl",
     "manifest.cddl",
     "epoch-inventory.cddl",
     "anchor-provenance.cddl",

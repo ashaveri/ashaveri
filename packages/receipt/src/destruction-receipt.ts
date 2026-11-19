@@ -35,16 +35,11 @@ import { signEd25519 } from './signing.js';
  * can still sign, and nothing about a duty, and it resolves nothing by itself: every key and every extra
  * document arrives as an argument.
  *
- * What the receipt binds, and what it therefore cannot be read as. One object, by the sha256 of its exact
- * bytes as handed over, beside the content type naming which document those bytes are, because a digest names
- * no document on its own. One key, by its kid, which is sha256 over its public half and so a public label
- * rather than key material: the two 32-byte positions this manifest carries are the only positions a bstr
- * goes into, the map is closed, and a value of any other width at `key` is refused, so a seed, a keypair or
- * an exported key has nowhere to be written. A reach per copy class, over the five classes the format
- * enumerates, one statement each and no class left unstated. The deployment's signature, under a key other
- * than the one it names as destroyed. And the boundary: a copy class the format declares out of reach may
- * only ever be stated `not-reached`, so no document this reader accepts claims it took a copy somebody else
- * holds.
+ * The receipt binds an object's exact-byte sha256 and content type, a destroyed key's kid, and one reach
+ * statement per copy class. The digest fields have a semantic contract: width validation cannot distinguish
+ * a digest from a 32-byte Ed25519 seed or public key. Closed maps reject undeclared members, not secret data.
+ * The signer must differ from the named key. That is a format rule, not proof of signing chronology;
+ * `at` is a signed assertion. A class declared out of reach must be stated `not-reached`.
  *
  * Two refusals are about this layout's honesty rather than about its shape and carry codes of their own:
  * `DESTRUCTION_RECEIPT_MISSING_COPY_CLASS` for a class the record says nothing about, which is the silence a
@@ -52,13 +47,10 @@ import { signEd25519 } from './signing.js';
  * format's limit. An unknown class label is not one of those: it is a member outside a closed registry in the
  * same way an unknown manifest member is, so it answers `DESTRUCTION_RECEIPT_BAD_MANIFEST`.
  *
- * The split into two entry points is the one `redaction.ts` and `pack.ts` make. `decodeDestructionReceipt`
- * answers what is true of the document whoever signed it, with no key and no object in hand, because a
- * manifest that contradicts itself does so quietly. `verifyDestructionReceipt` adds the signature and, when
- * the caller happens to hold the bytes this receipt says were destroyed, the recomputation of the designation
- * and of the type claim beside it. Those are the checks that mean something only against a key the reader has
- * accepted, and the object is optional on purpose: the bytes a destruction receipt designates are the bytes a
- * destruction removed, so a reader that was required to produce them could never read the document at all.
+ * `decodeDestructionReceipt` checks structure without a key or object. `verifyDestructionReceipt` adds
+ * signature verification and optional comparisons against designated object bytes. Those bytes may come
+ * from a retained handout while a store copy was destroyed; possession does not falsify that statement.
+ * Without the object, the reader reports no object digest or kind comparison.
  *
  * The writer is `encodeDestructionReceiptManifest`, `encodeDestructionReceiptProtectedHeader`,
  * `sealDestructionReceipt` and `signDestructionReceipt`, and `destructionObjectDigest` is the computation a
@@ -135,13 +127,13 @@ export interface DestructionReachEntry {
 /** A destruction receipt manifest at the one version the format declares. */
 export interface DestructionReceiptManifest {
   readonly v: 1;
-  /** unix seconds, the instant the destruction was stated. */
+  /** Asserted instant of the destruction statement, in unix seconds; not independently timed. */
   readonly at: number;
   /** sha256 of the exact bytes this destruction took. */
   readonly object: Uint8Array;
   /** Which document those bytes are, from the registry above. */
   readonly kind: DestructionObjectKind;
-  /** The kid of the destroyed key: sha256 of its public half. Never any of its material. */
+  /** The destroyed key's kid: callers must supply sha256 of its public key, not key material. */
   readonly key: Uint8Array;
   /** Exactly one statement per copy class, in the order the format enumerates them. */
   readonly reach: readonly DestructionReachEntry[];
@@ -178,10 +170,8 @@ export interface DestructionOutcome {
  *
  * The two key fields are the pack's and the redaction's, answered the same way: a `publicKey` says which
  * single key the caller means and a header naming another is a configuration disagreement, and a `resolveKey`
- * is asked for the kid the header carries. `objectBytes` is what a reviewer holds when the destruction took a
- * copy that reached them: handed, the digest is recomputed and the type claim is read out of the bytes; left
- * out, the receipt still verifies and the two answers are simply absent, because the bytes are gone by the
- * receipt's own statement.
+ * is asked for the kid the header carries. Optional `objectBytes` may be a retained copy. When supplied,
+ * its digest and header content type are compared with the designation; otherwise those results are absent.
  */
 export interface DestructionReceiptVerifyOptions {
   readonly publicKey?: Uint8Array;
@@ -214,8 +204,7 @@ function toHex(bytes: Uint8Array): string {
 
 /**
  * The closedness rule, for the manifest and for one reach entry alike. A member no position of this version
- * defines makes the document malformed rather than a member a reader agreed to forget, and there is no such
- * thing as a spare position here: an undeclared bstr is where key material would arrive.
+ * defines makes the document malformed rather than a member a reader agreed to forget.
  */
 function assertDefined(raw: Map<unknown, unknown>, members: readonly string[], where: string): void {
   for (const key of raw.keys()) {
@@ -269,7 +258,7 @@ export function destructionObjectDigest(objectBytes: Uint8Array): Uint8Array {
   return sha256(objectBytes);
 }
 
-/** One bstr this layout declares: exactly 32 bytes, because the only bstr positions are digests and a kid. */
+/** Checks digest width only; it cannot establish the origin or meaning of the bytes. */
 function requireDigest(value: unknown, position: string): Uint8Array {
   if (!(value instanceof Uint8Array) || value.length !== DIGEST_BYTES) {
     throw badManifest(`${position} must be a ${DIGEST_BYTES}-byte bstr`);
@@ -570,7 +559,7 @@ function envelopeKey(kid: Uint8Array, options: DestructionReceiptVerifyOptions):
 }
 
 /**
- * The optional half: the bytes a caller holds that this receipt says were destroyed. The digest is recomputed
+ * The optional half: designated bytes a caller holds, possibly from a retained copy. The digest is recomputed
  * over exactly these bytes and compared, and the kind claim is read out of the bytes' own signed header,
  * which is what makes `kind` a check rather than a caption. A document the envelope reader refuses is refused
  * as a disagreement with the kind, because the only question these bytes are asked here is whether they are
@@ -608,11 +597,9 @@ function readHandedObject(
  * bytes that are not the designated ones are not the object, and reading a content type out of them would
  * answer a question this receipt never asked.
  *
- * What the reader does not do is fail because the object was not handed. The bytes a destruction receipt
- * designates are the bytes a destruction took, so a reader that required them could only ever verify a receipt
- * whose statement is false. `outcome.objectSha256` and `outcome.objectKind` are present exactly where the
- * bytes were handed, and their absence is the reader saying which half it could not check rather than a
- * silence a caller reads as a pass.
+ * The designated object is optional. A retained handout may supply it even when a store copy was destroyed.
+ * `outcome.objectSha256` and `outcome.objectKind` are present only when bytes were handed; their absence
+ * means those comparisons were not performed, not that every copy is gone.
  */
 export function verifyDestructionReceipt(
   bytes: Uint8Array,
@@ -647,4 +634,3 @@ export function verifyDestructionReceipt(
     },
   };
 }
-

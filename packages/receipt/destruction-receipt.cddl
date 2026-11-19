@@ -68,12 +68,9 @@ Ashaveri-Destruction-Receipt-Manifest = {
 ; nothing checks. Together they are one claim a reviewer can test twice: hash what you hold, compare the
 ; digest, then open the bytes and read the content type their own signed header carries and compare that.
 ;
-; Three readings of the object were available and the other two are worse. An id the writer chose is a
-; string a reader cannot check against anything, which is the fault `redaction.cddl` refuses beside its own
-; designation. The bytes themselves are not carryable: they are what was destroyed, and an artifact
-; proving an erasure by re-publishing the erased material is a contradiction. A digest of a canonical
-; re-encoding of the object would need the reviewer to hold a tool that can produce that re-encoding, while
-; a digest of the bytes as handed over needs only the bytes.
+; The receipt carries a digest, not the designated object. Object bytes are optional verification input
+; and may come from a retained handout while a store copy was destroyed. The digest covers those exact
+; bytes, not a canonical re-encoding.
 ;
 ; The registry is the set of documents this estate signs and can therefore name without inventing a
 ; vocabulary for them. A class outside it is refused rather than read as an unnamed thing: widening the
@@ -85,25 +82,15 @@ Ashaveri-Destruction-Receipt-Manifest = {
 ; ---------------------------------------------------------------------------
 ; `key`, the destroyed key's identifier, and the whole of what this layout can say about a key.
 ;
-; Key material is secret material and is never a repository artifact, so these bytes name a key and carry
-; none of it. The name is the kid: sha256 over the key's public half, spelled exactly as label 4 of the
-; protected header spells one, which is a public label and not a secret. Two 32-byte positions exist in this
-; manifest, `object` and `key`, and the map is closed, so a writer has no position to put a seed, a keypair,
-; a wrapped key or an exported PEM in: adding one is a version change that a reader of `v: 1` refuses, and a
-; value of any other width at either position is refused as a malformed manifest. A 64-byte Ed25519 public
-; key and a 32-byte secret seed both fail on width at `key`, which is the check doing the work rather than a
-; rule about names.
+; `key` must be the kid: sha256 of the destroyed key's public key, as in protected header label 4.
+; This is a semantic requirement on the writer. Both digest fields are exactly 32 bytes; that width also
+; admits Ed25519 seeds and public keys. The reader checks width and rejects undeclared map members, but
+; cannot determine whether permitted bytes are a digest or key material. Writers must not supply secrets.
 ;
-; What the reader can settle is that the statement was not made by the key it names. `key` equal to the kid
-; in the header is refused as `DESTRUCTION_RECEIPT_KEY_IS_SIGNER`: a document sealed by a key is proof that
-; the holder of that key signed it at or after the instant the document stamps, so a receipt that destroyed
-; its own signing key would be signing its own refutation. Attestation therefore arrives from a key that is
-; still in hand, and the destroyed key is spoken of from outside.
-;
-; What no reader can settle from these bytes is stated rather than skipped: that the named key cannot sign
-; again. Nothing here measures that. A reviewer who wants it asks a question outside this document, whether
-; the kid produces a valid signature over anything stamped after `at`, and this format neither claims the
-; answer nor supplies it.
+; The format requires a distinct signer. `key` equal to the header kid is refused as
+; `DESTRUCTION_RECEIPT_KEY_IS_SIGNER`, by both reader and writer. This rule is not proof of signing
+; chronology: `at` is a signed assertion, not independent evidence of when signing occurred.
+; Neither a valid signature nor this rule establishes that the named key is now unusable.
 ; ---------------------------------------------------------------------------
 
 ; ---------------------------------------------------------------------------
@@ -143,12 +130,9 @@ reach-entry = {
 ; ---------------------------------------------------------------------------
 ; `at`, the only clock here, and the one relation it is bounded by inside these bytes.
 ;
-; `at` is the instant the destruction was stated, and it is never before the epoch, as in every other
-; container of this estate. Nothing in this document stamps the object, because the object is gone and the
-; only other signed instant a reader might have weighed it against belongs to a document this receipt does
-; not require: a destruction receipt is handed over by itself far more often than a redaction is, and one
-; that could not be read without its pack would state nothing at all on its own. So there is no cross-document
-; ordering to check, and `at` carries no bound it cannot be checked against alone.
+; `at` asserts the instant the destruction was stated, in unix seconds no earlier than the epoch.
+; It is not independently timed. Object bytes are optional and may survive in another copy; the reader
+; performs no cross-document timestamp ordering check.
 ;
 ; Freshness is not this container's question either. A receipt stamped in 2026 states a destruction stated in
 ; 2026 and says nothing about whether the copies still match today; a reader that cares about that owns the
@@ -207,7 +191,7 @@ reach-entry = {
 ;
 ; It is not a verdict about a duty, a lawful basis, a request or a period. Nothing in this layout states that
 ; an erasure was owed, that it was owed to anyone, or that completing it satisfied anything. A reader holding
-; only these bytes can say that the holder of the signing key stated, at one instant, a reach over five copy
-; classes and the destruction of one object and one key. Whether that statement settles anything is settled
+; these bytes and an accepted verification key can authenticate a statement asserting an instant, a reach
+; over five copy classes and the destruction of one object and one key. Whether that statement settles anything is settled
 ; outside this format by whoever holds the mapping and the law.
 ; ---------------------------------------------------------------------------

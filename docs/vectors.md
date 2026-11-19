@@ -32,7 +32,7 @@ each shape.
 | Request digest | `packages/fixtures/data/req-v1.json` | The `req` a receipt claims, over exact request bytes | `version: 1` |
 | Response digest | `packages/fixtures/data/res-v1.json` | The `res` a receipt claims, over exact response bytes including framing | `version: 1` |
 | Marked region | `packages/fixtures/data/marking-v1.json` | The span inside a response that `mk.d` digests, in both shapes, and what a reader owes a response carrying too few, too many, or not the attested one | `version: 1` |
-| Disclosure record | `packages/fixtures/data/disclosure-record-v1.json` | The record beside the marking region: the layout its strict reader reads, the duty pointers it enumerates, the limits sentence every record states verbatim, and the transformation outcomes measured over the published buffered completion, with unsupported transformations recorded as untested; the content path is a fixture path, and detectability through a named application's own transformations is not claimed here | `version: 1` |
+| Disclosure record | `packages/fixtures/data/disclosure-record-v1.json` | The record beside the marking region: the layout its strict reader reads, the duty pointers it enumerates, the limits sentence every record states verbatim, and the transformation outcomes measured over the published buffered completion, with unsupported transformations recorded as untested. The rows state the fixture completion the marking suite publishes; `rule.realContentPath` beside them states one recorded run of that same completion through real applications (Google Chrome rendering and PDF export, poppler pdftotext and Artifex Ghostscript text export, Tesseract OCR over a Ghostscript raster, and a curl fetch of the served body) with the bytes each stage produced and the application and version that wrote them, and a stage the run could not reach is recorded without an outcome | `version: 1` |
 | Hold record | `packages/fixtures/data/hold-v1.json` | The hold record beside the receipts it asks to be kept: the layout its strict reader reads, one edit of the writer's own bytes per refusal, the answers the three shipped consultation doors give the calls these rows state, the authored-text bound measured at the unit either side of the ceiling, and the one record two doors answer differently because the erasure arm declines to weigh the window; the record carries no signature, the family publishes no key material, and every row but the one that tests the label vocabulary carries `prov: fixture` | `version: 1` |
 | Incident preservation bundle | `packages/fixtures/data/incident-bundle-v1.json` | The incident preservation bundle beside the hold record it designates and the receipts that attest the material: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the floor arithmetic its layout door recomputes rather than believes, measured at the day and the unit either side of both bounds, the verification cases replayed beside the hold bytes each case designates including the mutation pair that witnesses the split and the two refusals that name which document the reader was handed, and both records riding inline items of the export the export family publishes for its honest anchored run; the designated hold is the row `hold-v1.json#hold-fixture-v1`, every record is labeled fixture, and the floor is a pointer for counsel rather than a conclusion about a provision | `version: 1` |
 | Model inventory | `packages/fixtures/data/model-inventory-v1.json` | The inventory record beside the receipts and the signed deployment manifest: the layout its strict reader reads, the bound and asserted fields the layout keeps apart, the pointer registry it enumerates, the limits sentence every record states verbatim, the bound cases replayed beside the manifest bytes each record designates including the mutation pair that witnesses the split, the Australia APP 1.7-1.9 automated-decision extract as a fixture row whose scope states the enacted periods transcribed from the corpus cut the appSource block names with its measured digests, and the record riding one inline item of the published export contract; the fixture deployment is the one the published receipt family came from, and the extract is labeled fixture | `version: 1` |
@@ -41,7 +41,7 @@ each shape.
 | Sealed deployment manifest | `packages/fixtures/data/manifest-v1.json` | Deployment manifests in both shapes a deployment serves, the signing keys a reader designates beside them, and the verdict the client path owes each; the family states two deployments, and the rows stating the one the published receipts came from are `paired-with-the-published-receipt-family` and `protected-content-type-of-a-receipt` | `version: 1` |
 | Evidence pack | `packages/fixtures/data/pack-v1.json` | Whole packs in the shapes a deployment hands them over in, the keys a reader designates beside each one, and the verdict the shipped pack reader owes: run and window reported apart, the references a pack signs for the material its sealed receipts name and one accepted pack carrying a served body beside the header that arrived with it, and an honest pack whose stamps run against its links accepted with a finding | `version: 1` |
 | Redaction manifest | `packages/fixtures/data/redaction-v1.json` | Redaction manifests each beside the pack they are checked against, the verdict the shipped redaction reader owes the pair, and what `ashaveri verify-handover` answers for the same pair on every row: the chain over the survivors published apart from the pack's own head, a redaction pointed at a pack the reader lacks refused, and the three wrong constructions of a survivor chain refused by recomputation | `version: 1` |
-| Destruction receipt | `packages/fixtures/data/destruction-receipt-v1.json` | Destruction receipts each stating one reach per copy class, the verdict the structural door owes the bytes and the verdict the verifying door owes them against the key the header names, and the designated bytes beside the rows that ask the reader to recompute the digest and read the kind claim: an unstated class, a reach claimed past the formats limit, and a receipt sealed by the key it names destroyed all refused by name | `version: 1` |
+| Destruction receipt | `packages/fixtures/data/destruction-receipt-v1.json` | 34 cases: 4 acceptances and 30 refusals, including 2 writer-only cases. Each document carries independent verification inputs and structural and verifying verdicts. Refusals include an unstated copy class, overreach, signer equality, malformed CBOR, empty or over-2048-byte UTF-8 states, and a corrupted signature under the correct key | `version: 1` |
 | Epoch inventory | `packages/fixtures/data/epoch-inventory-v1.json` | Whole sealed inventories and the verdict the two shipped inventory readers owe each one: the envelope, the header, the key, the reading of a JSON payload, the arithmetic a reader recomputes over a run of packs, and the names each row of the two folded lists points at, with a refusal for every claim the reader recomputes over the run and answers from it, which is the windows meeting end to start, including one entry whose own two figures do not run forwards, the window, the two chain endpoints beside the run that begins and ends them, the claim each folded list states beside it, and every guard of both lists, and with the acceptances a reviewer would otherwise read as faults | `version: 1` |
 | Capture record | `packages/fixtures/data/capture-v1.json` | Whole capture records and the answer the two published capture entry points give each one: one evidence document's exact original bytes held as they arrived beside the context stated with them, a signature re-framed by a second encoder refused as bytes rather than accepted as an equivalent, a context member left unmentioned refused rather than read as an absence, and a digest that is not the digest of the bytes beside it | `version: 1` |
 | Import envelope | `packages/fixtures/data/import-v1.json` | Whole envelopes and the answer the published reader gives each one: one synthetic provider export's exact bytes held as they arrived beside the derived representation the shipped normalization produced from them with its label, its transformation and the basis it rests on, the deterministic report of every position the rules do not read and every position they read that the export states nothing at, a second intake of one export keyed to the same record as the first, and the refusals in between | `version: 1` |
@@ -49,10 +49,10 @@ each shape.
 | Challenge binding | `packages/fixtures/data/challenge-v1.json` | The pre-image each `enc` arm of a version 2 receipt builds and the digest it hashes to, both read out of the two receipts the manifest publishes: the plain arm folding `nce` and `req` into 48 bytes, the session arm folding `enc.pk` and that key's identifier between them into 112, and four refusals beside them: the session document weighed as though its arm named no key, the plain document weighed with the attestation digest put where a key would go, the same four members concatenated request-last, and the session composite with the identifier left out, which is the value this rule shipped before the identifier joined it. The order is published as bytes as well as named, because a second implementation can agree on every member and width and still fold them the other way round. What the family does not pin is the platform's seal over a composite: no captured report data in this repository carries one, because those bytes are fixed by the signature over them, so the second capture is stated as an owed thing in `layout.owedPlatformCapture` rather than left for a reader to infer | `version: 1` |
 
 `pop-v1.json`, `req-v1.json`, `res-v1.json`, `marking-v1.json`, `disclosure-record-v1.json`, `hold-v1.json`, `incident-bundle-v1.json`, `model-inventory-v1.json`, `chain-v1.json`, `export-v1.json`,
-`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
+`manifest-v1.json`, `pack-v1.json`, `redaction-v1.json`, `destruction-receipt-v1.json`, `epoch-inventory-v1.json`, `capture-v1.json`,
 `import-v1.json`, `retention-assessment-v1.json` and `challenge-v1.json` each carry a
 `description` stating their rule in prose, and the digest, marked-region, disclosure-record, hold, incident-bundle, model-inventory, chain, export,
-sealed-manifest, pack, redaction, inventory, capture, import, retention-assessment and challenge suites carry a `rule`
+sealed-manifest, pack, redaction, destruction-receipt, inventory, capture, import, retention-assessment and challenge suites carry a `rule`
 or `layout` block naming the fields,
 and the widths and the byte order where a suite pins a byte layout, so a reader never has to guess what an
 array of hex is standing for. The manifest carries no `description`, because it lists the receipt fixtures
@@ -150,9 +150,17 @@ specific to that case.
   is the response, and each implemented transformation's outcome is what your own reading of the
   extraction rule locates after that transformation, which is the region's survival and not the
   digest's agreement. A transformation the roster marks unimplemented is recorded as `untested` rather
-  than omitted. The content path is the fixture completion `marking-v1.json#buffered-member`; a named
-  application path's own copying, rendering and export transformations are a separate test this family
-  does not stand in for.
+  than omitted. The content path that roster speaks of is the fixture completion
+  `marking-v1.json#buffered-member`, and the applications that carried the same completion are recorded
+  beside it in `rule.realContentPath`: each stage states the bytes its application produced, the
+  application and version that wrote them, and the outcome your own reading of the extraction rule gives
+  those bytes, so a stage's verdict is something you re-derive rather than a word to take on trust. What
+  the recorded run answered is that the fetched copy still carries exactly one region and that the
+  rendered document, the exported PDF, the text taken out of it by either application, and the text read
+  off a raster of the page by an optical engine carry none. A stage publishing no bytes is a step the run
+  could not reach and states no outcome, and the harness that wrote the observation,
+  `packages/fixtures/scripts/disclosure-content-path-capture.ts`, refuses to write one whose applications
+  are absent.
 - **Hold record.** Decode `recordBase64Url` and hand the bytes to `parseHoldRecord` for the layout's
   answer: `verify-ok`, or the code the row names. The accepted rows are the shipped writer's own bytes, so
   `holdRecordBytes` of the record each one parses to reproduces them at the `recordByteLength` the row
@@ -289,6 +297,14 @@ specific to that case.
   the seven above it, are counts of the published rows which
   `packages/fixtures/test/redaction-vectors.test.ts` takes out of them rather than restating them here.
 
+- **Destruction receipt.** Decode `documentBase64Url` and compare the structural reader's answer with
+  `structural`. Verification uses only the required `verification` object: `key` selects a role from
+  `layout.signingKeys`, or is `null` for no key; `objectBase64Url` is the optional designated object, with
+  `null` meaning not handed. Derive test keys from the published labels as `signingKeyFromSeed(sha256(UTF8(label)))`.
+  Compare the verifying answer with `expected`; never use that verdict to choose invocation arguments.
+  The two writer-only rows omit document bytes and set `verification: null`. The signature-corruption row
+  is structurally valid but must answer `INVALID_SIGNATURE` with the correct key. Retained object bytes
+  can coexist with a claimed store destruction; a valid signature proves neither erasure nor chronology.
 - **Epoch inventory.** Decode `documentBase64Url` and hand it to your reader with the designation the row's
   `read` block states: `pinned` is the one key a caller holds, which answers whatever kid the header names,
   `retained` is the set a resolver answers from, one public half per kid, and a row stating neither is the call
@@ -535,11 +551,15 @@ These vectors check bytes. They say nothing about trust:
 - The store chain vectors pin a file format and the retention behaviour those vectors exercise: a
   count cap, an age bound, a compaction, a repair. They do not commit anyone to a retention period,
   and what a deployment promises to keep is stated where retention is stated, not here.
-- The disclosure record vectors pin a layout and a measured fixture path. The transformation outcomes
-  are what the published extraction rule locates after each transformation of the buffered completion
-  this suite publishes, and they say nothing about a named application's own content path, which is a
-  separate test this family does not claim. The duty pointers are pointers for counsel rather than
-  conclusions, and no row here states that a duty applies or was met.
+- The disclosure record vectors pin a layout, a measured fixture path, and one recorded run of the same
+  completion through applications this repository does not own. The roster's outcomes are what the
+  published extraction rule locates after each transformation the harness implements; the block named
+  `rule.realContentPath` states what it locates in the bytes a browser rendering, a browser PDF export, two
+  text extractors and one optical engine produced, every verdict readable off the published stage bytes
+  and every stage naming the application and version that wrote them. Neither half reaches past those
+  bytes: the run is one machine's applications at the versions it recorded, not every renderer a customer
+  might meet, and no row states that a duty applies or was met. The duty pointers are pointers for
+  counsel rather than conclusions.
 - The hold record vectors pin a layout and the three consultation doors. The record carries no signature,
   so nothing here authenticates one: a reader weighs the layout and the reach, and the trust in a hold
   arrives from whoever hands it over beside the receipts it speaks of, the export container being what

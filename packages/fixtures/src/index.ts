@@ -408,6 +408,22 @@ export interface DisclosureRecordVectorFile {
     dutyCitations: Record<string, string>;
     limits: string;
     contentPath: { response: string; responseBase64Url: string; note: string };
+    realContentPath: {
+      start: string;
+      startBase64Url: string;
+      recordedBy: string;
+      note: string;
+      /** One step of a recorded run through an application, with the bytes that step produced. */
+      stages: Array<{
+        name: string;
+        application: string;
+        applicationVersion: string;
+        outcome: string;
+        note: string;
+        outputBase64Url?: string;
+        outputSha256?: string;
+      }>;
+    };
     transformations: Array<{ name: string; implemented: boolean; note: string }>;
     encodings: string;
   };
@@ -1022,6 +1038,14 @@ export interface DestructionReceiptEditColumn {
   states: string;
 }
 
+export type DestructionReceiptKeyRole = 'signer' | 'destroyed' | 'another-callers-key' | 'an-earlier-epoch';
+
+/** Explicit verification arguments, independent of the expected verdict. Null means not handed. */
+export interface DestructionReceiptVerificationInput {
+  key: DestructionReceiptKeyRole | null;
+  objectBase64Url: string | null;
+}
+
 /** One destruction receipt case: the bytes a reader is handed, and the answers both shipped doors owe them. */
 export interface DestructionReceiptVector {
   name: string;
@@ -1035,9 +1059,8 @@ export interface DestructionReceiptVector {
   /** Absent exactly where the row states a refusal the writer gave rather than bytes a reader was handed. */
   documentBase64Url?: string;
   documentByteLength?: number;
-  /** The designated object, present on the rows that hand the reader the bytes the receipt names. */
-  objectBase64Url?: string;
-  objectByteLength?: number;
+  /** Required for every document row; null only for writer-only refusals. */
+  verification: DestructionReceiptVerificationInput | null;
   edit?: DestructionReceiptEditColumn;
 }
 
@@ -1053,7 +1076,7 @@ export interface DestructionReceiptLayout {
   reachOutcomes: { reached: number; notReached: number };
   rule: string;
   writerRule: string;
-  signingKeys: Array<{ role: string; label: string; kid: string }>;
+  signingKeys: Array<{ role: DestructionReceiptKeyRole; label: string; kid: string }>;
   keyNote: string;
 }
 

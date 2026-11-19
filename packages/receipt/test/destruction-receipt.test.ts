@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ed25519 } from '@noble/curves/ed25519';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -42,7 +43,7 @@ import {
  *
  * The properties the cases below are grouped around are the ones a reviewer holding only the published format
  * and these bytes is owed. That the document is closed, so no member arrives that the contract does not
- * define, including no member wide enough to carry key material. That every copy class the format enumerates
+ * define. Digest widths are checked without determining the origin of bytes. Every copy class the format enumerates
  * carries exactly one statement, so a silence cannot read as a reach. That the format will not state a reach
  * over a copy that left the deployment's hands. That the statement was sealed by a key other than the one it
  * names destroyed. And that the designation is a comparison rather than a caption: the digest is recomputed
@@ -183,10 +184,30 @@ describe('the honest destruction receipt', () => {
     expect(verified.outcome.destroyed).not.toEqual(verified.outcome.signer);
   });
 
-  it('is verified by a reader that holds the designated bytes, and names both recomputations', () => {
+  it('accepts retained handout bytes beside a claimed store destruction and names both comparisons', () => {
     const verified = verifyDestructionReceipt(HONEST, readWith({ objectBytes: REDACTION_BYTES }));
+    expect(verified.outcome.reach.find((one) => one.class === 'store')?.outcome).toBe(DESTRUCTION_REACH_REACHED);
+    expect(verified.outcome.reach.find((one) => one.class === 'handout')?.outcome).toBe(DESTRUCTION_REACH_NOT_REACHED);
     expect(toHex(verified.outcome.objectSha256 ?? new Uint8Array())).toBe(toHex(destructionObjectDigest(REDACTION_BYTES)));
     expect(verified.outcome.objectKind).toBe(REDACTION_CONTENT_TYPE);
+  });
+
+  it('checks digest representation without detecting 32-byte test seeds or public keys', () => {
+    for (const value of [DESTROYED.privateKey, DESTROYED.publicKey]) {
+      for (const field of ['key', 'object'] as const) {
+        const bytes = signDestructionReceipt(baseManifest({ [field]: value }), KEY);
+        expect(decodeDestructionReceipt(bytes).manifest[field]).toEqual(value);
+        expect(verifyDestructionReceipt(bytes, readWith()).manifest[field]).toEqual(value);
+      }
+    }
+  });
+
+  it('authenticates an asserted at without establishing signing chronology', () => {
+    for (const at of [0, AT]) {
+      const bytes = signDestructionReceipt(baseManifest({ at }), KEY);
+      expect(verifyDestructionReceipt(bytes, readWith()).manifest.at).toBe(at);
+      expect(thrownCode(() => signDestructionReceipt(baseManifest({ at, key: KEY.kid }), KEY))).toBe('DESTRUCTION_RECEIPT_KEY_IS_SIGNER');
+    }
   });
 
   it('resolves the key through a resolver as well as through a pinned public key', () => {
@@ -261,8 +282,7 @@ describe('the strict reader refuses every shape the contract does not define', (
   });
 
   it('refuses a bstr at either digest position that is not the one width the format writes', () => {
-    // The two positions are the only ones a byte string goes into, so this is the check that keeps a key, a
-    // seed or an exported keypair out of the document rather than a rule about what a member is called.
+    // Width validation enforces representation, not digest semantics or secret exclusion.
     for (const width of [31, 33, 64]) {
       expect(thrownCode(() => decodeDestructionReceipt(mutant((root) => root.set('key', new Uint8Array(width))))), `key at ${String(width)}`).toBe('DESTRUCTION_RECEIPT_BAD_MANIFEST');
       expect(thrownCode(() => decodeDestructionReceipt(mutant((root) => root.set('object', new Uint8Array(width))))), `object at ${String(width)}`).toBe('DESTRUCTION_RECEIPT_BAD_MANIFEST');
@@ -354,6 +374,13 @@ describe('the strict reader refuses every shape the contract does not define', (
     expect(thrownCode(() => decodeDestructionReceipt(mutant((root) => root.set('states', 'erased \u202E entirely'))))).toBe('DESTRUCTION_RECEIPT_BAD_MANIFEST');
     expect(thrownCode(() => decodeDestructionReceipt(mutant((root) => root.set('states', new Uint8Array(4)))))).toBe('DESTRUCTION_RECEIPT_BAD_MANIFEST');
     expect(thrownCode(() => decodeDestructionReceipt(mutant((root) => root.set('states', 'x'.repeat(683)))))).toBe('accepted');
+    const boundary = '\u754c'.repeat(682) + 'aa';
+    expect(new TextEncoder().encode(boundary)).toHaveLength(2048);
+    expect(verifyDestructionReceipt(signDestructionReceipt(baseManifest({ states: boundary }), KEY), readWith()).manifest.states).toBe(boundary);
+    for (const states of ['', '\u754c'.repeat(683)]) {
+      expect(thrownCode(() => signDestructionReceipt(baseManifest({ states }), KEY))).toBe('DESTRUCTION_RECEIPT_BAD_MANIFEST');
+      expect(thrownCode(() => decodeDestructionReceipt(mutant((root) => root.set('states', states))))).toBe('DESTRUCTION_RECEIPT_BAD_MANIFEST');
+    }
   });
 
   it('refuses a receipt sealed by the kid it names as destroyed, whoever signed it', () => {
@@ -426,6 +453,17 @@ describe('the verifying door', () => {
 });
 
 describe('the published format and the reader that runs it', () => {
+  it('ships every root CDDL contract in the actual npm package', () => {
+    const cwd = fileURLToPath(new URL('../', import.meta.url));
+    const source = readdirSync(cwd).filter((name) => name.endsWith('.cddl')).sort();
+    const packed = JSON.parse(execSync('npm pack --dry-run --json', { cwd, encoding: 'utf8' })) as Array<{
+      files: Array<{ path: string }>;
+    }>;
+    expect(source).toContain('destruction-receipt.cddl');
+    expect(packed).toHaveLength(1);
+    expect(packed[0]!.files.map((one) => one.path).filter((name) => name.endsWith('.cddl')).sort()).toEqual(source);
+  }, 30_000);
+
   it('closes the manifest, each reach entry and the header against the blocks that declare them', () => {
     const cddl = readFileSync(CDDLPATH, 'utf8');
     expect([...DESTRUCTION_RECEIPT_MANIFEST_MEMBERS]).toEqual(declaredMembers(cddl, 'Ashaveri-Destruction-Receipt-Manifest'));

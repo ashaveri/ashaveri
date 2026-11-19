@@ -144,18 +144,21 @@ Section 6 names the flag that sets it, and `docs/error-codes.md` gives the refus
 The bound is a count of completions per minute, with a burst, in the same two fields `--peer-rate` and a
 credential's own `rate` carry: the two numbers an operator sets are meant to be read against each other
 rather than against two units. Its shipped value is one measured throughput stated as a rate rather than
-as a sentence. Driven over HTTP with a file store behind it, one process turned over 1,168 completions a
+as a sentence. Driven over HTTP with a file store behind it, one process turned over 837 completions a
 second with 32 callers in flight, with the per-address and credential buckets lifted so neither is what
-the run measures, and past that point the throughput is flat while only the wait grows: 1,130 a second at
-64 callers, with the median wait up from 26.7 ms to 57. The ceiling those runs take is 1,168 a second, so
-70,080 a minute, and the burst is one second of the same figure. Against the 6,000 requests a minute one
-connection address is held to, 11.7 addresses running at their own sustained allowance are what one
-process can serve for, which is why this bound is refused rather than only documented. The harness is part
-of the number: an upstream that answers at once, so the figure is the cost this software adds to a
-completion rather than the cost a model of inference takes, 2,000 completions at each caller count, one
-host's CPU and volume, and the signature check answering from the runtime's own Ed25519 primitive: the
-same harness measured 432 a second at 32 callers while that check ran in JavaScript, at 2.62 ms of process
-CPU per completion against 1.45, and a bound is worth re-measuring when the largest cost inside it moves.
+the run measures, and sixteen callers hold the same rate while past that point the throughput is flat and
+only the wait grows. The ceiling those runs take is 837 a second, so 50,220 a minute, and the burst is one
+second of the same figure. Against the 6,000 requests a minute one connection address is held to, 8.4
+addresses running at their own sustained allowance are what one process can serve for, which is why this
+bound is refused rather than only documented. The harness is part of the number: an upstream that answers
+at once, so the figure is the cost this software adds to a completion rather than the cost a model of
+inference takes, 2,000 completions at each caller count, one host's CPU and volume, and the signature
+check answering from the runtime's own Ed25519 primitive: the same harness measured 432 a second at 32
+callers while that check ran in JavaScript, at 2.62 ms of process CPU per completion against 1.45. The
+completion's awaited write has since moved to the access journal section 7 describes, and the
+same harness on the same host and day measures 837 a second where the build that awaited the dated part's
+own append measured 883 and the build that awaited nothing measured 1,023: a bound is worth re-measuring
+when the largest cost inside it moves.
 The flag below is the operator's answer to a deployment bigger than one number.
 
 It sits behind the five checks for the same reason the guard does, and behind the guard for a reason of
@@ -274,7 +277,7 @@ definition.
 | `SCOPE_DENIED` | 403 | The route needs a scope the credential does not hold, or the target has no row | Use a credential that holds it, or ask the operator to scope the route. This answer takes no token from the credential's own bucket, though the connection's bound was charged before it was decided |
 | `RATE_LIMITED` | 429 | Either the credential's bucket is empty or the connection has spent the request bound held ahead of the five checks. The refusal's own sentence says which, and it names no credential on the connection's answer. The two are separated in the access log and nowhere a caller looks: the connection's bound writes `PEER_RATE_LIMITED` to `deny` and the credential's bucket writes `RATE_LIMITED`, so the volume tells the incidents apart while this answer stays the one answer | Wait `retryAfterSeconds`, then send a new request. One answer is fixed by the rate the operator set for the credential; the other by how much this one address is asking at once |
 | `RECEIPT_WINDOW_UNHOLDABLE` | 429 | This deployment cannot issue a receipt it can keep for the period it configured: the store's retained set has reached the configured point of its durability bound, and the rate that set's own stamps measure says the period takes more receipts than the bound holds. Refused ahead of the upstream call and behind the five checks, on the one route that issues a receipt, and it carries no `retry-after` because no refill is known | Wait, and expect a deployment at its bound to still be at it: this is not a bucket refilling, and nothing a caller holds changes it. The condition clears when this deployment's issuance falls below the rate its bound cannot hold, or when its operator raises the bound to the count the message states or shortens the period beside it. A caller that needs the receipt takes it from a deployment able to keep it, and a caller that needs an answer can take this one, which says plainly that no receipt is coming |
-| `DEPLOYMENT_RATE_LIMITED` | 429 | This process has admitted as many completions as it configures itself to take: one counter, held on the deployment rather than on a caller, shared by every credential and every address it serves. Refused ahead of the upstream call and behind the five checks and the durability guard, on the one route that issues a receipt, and it carries the seconds to its next token because this condition is a bucket that refills. The shipped bound is a measured throughput stated as a rate: one process served 1,168 completions a second with 32 callers in flight and the other two buckets lifted, and that ceiling is what the constant takes, so 70,080 completions a minute with 1,168 at once, which is 11.7 addresses running at the allowance `--peer-rate` gives one of them | Wait `retryAfterSeconds`, then send a new request. Nothing else a caller holds changes the outcome: another credential spends from the same counter, and so does another address. The fix is the operator's, and it is a capacity decision: `--completion-rate` raises the bound, up to what the credentials this process holds could collectively spend, or the traffic is served from a process that has room |
+| `DEPLOYMENT_RATE_LIMITED` | 429 | This process has admitted as many completions as it configures itself to take: one counter, held on the deployment rather than on a caller, shared by every credential and every address it serves. Refused ahead of the upstream call and behind the five checks and the durability guard, on the one route that issues a receipt, and it carries the seconds to its next token because this condition is a bucket that refills. The shipped bound is a measured throughput stated as a rate: one process served 837 completions a second with 32 callers in flight and the other two buckets lifted, and that ceiling is what the constant takes, so 50,220 completions a minute with 837 at once, which is 8.4 addresses running at the allowance `--peer-rate` gives one of them | Wait `retryAfterSeconds`, then send a new request. Nothing else a caller holds changes the outcome: another credential spends from the same counter, and so does another address. The fix is the operator's, and it is a capacity decision: `--completion-rate` raises the bound, up to what the credentials this process holds could collectively spend, or the traffic is served from a process that has room |
 | `BAD_CREDENTIAL_FILE`, `BAD_CREDENTIAL_RECORD`, `DUPLICATE_CREDENTIAL_ID` | 500 | The operator's file is unusable. None of the three is a refusal the pipeline gives a request: they answer where records enter the store, at start-up and on reload | Not a client fix. A file that will not parse, or that holds a record with no key its kind can be verified against, stops the boot; a reload that fails keeps the records already loaded answering later requests while the file is repaired |
 
 ## 2. Routes and scopes
@@ -528,15 +531,66 @@ deployer's, and the log is where its use shows.
 | `--access-log-days <n>` | 184 | How long log files are kept, in days. 184 is the default and the floor the code names, and it is not enforced as a ceiling on the operator's choice: a shorter value starts, and the start-up report says out loud that the run is below the floor (section 8.2) |
 | `--pop-tolerance <seconds>` | 120 | Clock slack accepted for a proof-of-possession timestamp, in both directions |
 | `--peer-rate perMinute=<n>,burst=<n>` | `perMinute=6000,burst=2000` | The request bound one connection address is held to ahead of every credential check, which section 1 explains: behind one proxy this is the whole deployment sharing one bucket. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. A declared `perMinute`, in a run that reads a credential file, above what every credential in that file could spend together, each record at its own `rate` or at the 60 a minute a record naming none falls to, is refused at start: such a bound could never fire, and the answer is a wider roster or a second process rather than a bigger number. The shipped default is exempt from that check because it is a measured throughput and not a declaration. No value removes the bound, and a large number within the roster is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag. How often this bound refuses is legible on the access log as lines whose `deny` reads `PEER_RATE_LIMITED`, and the count is the whole of what the volume says about it: a line records no address, and the bucket itself is never written down |
-| `--completion-rate perMinute=<n>,burst=<n>` | `perMinute=70080,burst=1168` | The bound one process admits completions at, ahead of any inference and behind every credential check, held on the process rather than on a caller: every credential and every address it serves spends from this one bucket. It carries the same two fields as `--peer-rate`, in the same unit, so the two are read against each other rather than converted. The default is one measured throughput stated as a rate: this build served 1,168 completions a second over HTTP with a file store behind it at 32 callers in flight, with the per-address and credential buckets lifted, and that ceiling is taken, so 70,080 a minute and 1,168 at once, and 11.7 addresses running at the allowance above. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. A declared `perMinute`, in a run that reads a credential file, above what every credential in that file could spend together, each record at its own `rate` or at the 60 a minute a record naming none falls to, is refused at start: such a bound could never fire, and the answer is a wider roster or a second process rather than a bigger number. The shipped default is exempt from that check because it is a measured throughput and not a declaration. No value removes the bound, and a large number within the roster is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag. How often this bound refuses is legible on the access log as lines whose `deny` reads `DEPLOYMENT_RATE_LIMITED`. One process holds one counter, so a deployment running several admits this much on each of them, and the counter is memory only: it is never written down and does not outlive the process |
+| `--completion-rate perMinute=<n>,burst=<n>` | `perMinute=50220,burst=837` | The bound one process admits completions at, ahead of any inference and behind every credential check, held on the process rather than on a caller: every credential and every address it serves spends from this one bucket. It carries the same two fields as `--peer-rate`, in the same unit, so the two are read against each other rather than converted. The default is one measured throughput stated as a rate: this build served 837 completions a second over HTTP with a file store behind it at 32 callers in flight, with the per-address and credential buckets lifted, and that ceiling is taken, so 50,220 a minute and 837 at once, and 8.4 addresses running at the allowance above. Both fields are required, each is a whole number of at least 1, and a value that is not stops the start rather than falling back to the default. A declared `perMinute`, in a run that reads a credential file, above what every credential in that file could spend together, each record at its own `rate` or at the 60 a minute a record naming none falls to, is refused at start: such a bound could never fire, and the answer is a wider roster or a second process rather than a bigger number. The shipped default is exempt from that check because it is a measured throughput and not a declaration. No value removes the bound, and a large number within the roster is the way to stop being shed; the start-up report prints the number the process is holding and says whether it came from this flag. How often this bound refuses is legible on the access log as lines whose `deny` reads `DEPLOYMENT_RATE_LIMITED`. One process holds one counter, so a deployment running several admits this much on each of them, and the counter is memory only: it is never written down and does not outlive the process |
 | `--receipts-guard-at <percent>` | 100 | The point of the durability bound from which the guard described in section 1 is read while serving rather than only at an opening. Once the store holds this percentage of `--receipts-keep` receipts, a completion is refused `RECEIPT_WINDOW_UNHOLDABLE` ahead of the upstream call if the period configured beside the bound cannot be held at the rate the store's own retained stamps measure. A whole percentage from 1 to 100, and a value that is not one stops the start rather than falling back. 100 is the bound itself, which is the state a store already refuses to open at, so the default changes nothing for a deployment that sets neither flag; a lower number refuses while there is still room, and no number switches the guard off, because nothing sits above the bound for a threshold to reach. The start-up report prints the percentage this process is holding |
 | `--receipts-grow-past-guard` | off | The named decision to keep issuing past the guard instead of refusing, and the only spelling that turns the check off. With it the volume grows and the durability bound keeps retiring the oldest prefix, so the window served is the shorter one that bound reaches rather than the period configured beside it, and the shortfall is met at the next restart by the store refusing to open rather than by an answer a caller reads. It overrides `--receipts-guard-at`, and the start-up report says which of the two this process is running |
 | `--allow-bearer` | off | Accepts bearer credentials deployment-wide, says so at start-up, and writes `auth=bearer` on every record a bearer secret admitted |
 
 ## 7. The access log
 
-One JSON object per line, one line per request this process routes, written whether the request was
+One JSON object per line, one append attempt per request this process routes, whether the request was
 admitted or refused; a request the HTTP parser refuses before a route is looked up leaves no line.
+
+`onSend` is the last hook a buffered reply passes through with its status final. The reply waits for its
+access-log write before it is handed to the socket. A hijacked streaming reply bypasses that hook, so its
+success path waits for receipt issuance and then the write before releasing the terminal SSE signal
+(`data: [DONE]`, also accepted without the framing space). Earlier chunks still stream; a response with
+no sentinel waits before EOF instead. The terminal line and any bytes behind it retain their original
+order. A caller observing successful completion therefore observes a write that has settled, not one
+still in flight behind the answer.
+
+The write that settles is a commit to the journal, and the log keeps two families of files. A record's
+first and only awaited write appends its rendered line to a part named `journal-NNN.jsonl`, whose number
+is a sequence and not a date. A background drain copies lines from the journal into the dated parts in
+the order they were written, with no line passing another, and retires a journal part once every line it
+holds has been copied; the part the process is still writing to keeps its bytes until a start clears it.
+A record the drain has copied therefore sits in both families while the process lives, and that is the
+design rather than a defect: the journal is what this process committed, the dated parts are what a
+reader of days sees, and no step inside a run reconciles them; a start is what does.
+
+A start puts the two back into one before it serves. It reads every journal part in sequence order,
+feeds the lines the drain has not yet copied through the same sink a live record uses, skips the lines
+whose record ids the dated parts already hold, and deletes the journal parts once it has settled. A
+record therefore reaches a dated part exactly once no matter where the last process died. A journal
+part that ends in a partial line while a later part exists, or holds a line that is not an access
+record, refuses the start with that part named, before any request is served into the state it
+contradicts. The final part's torn tail is neither replayed nor preserved: an interrupted write
+survives no start, and the file it sits in is cleared with the rest.
+
+Within a run the drain is best-effort. A line the dated-part sink refuses stops it with the fixed
+warning `ASHAVERI_ACCESS_JOURNAL_DRAIN_FAILED`, and it tries again a second later with the lines still
+waiting in their journal part. A journal part whose bytes shrink under the drain, which no writer here
+does, suspends that part with the fixed warning `ASHAVERI_ACCESS_JOURNAL_DRAIN_STALLED` for the rest
+of the run: redraining it from zero would put lines the parts already hold into them a second time, so
+the part waits for the next start's replay, which deduplicates by record id and can take it safely. A
+process that closes cleanly leaves a stalled part behind rather than taking the only copy of its
+records with it.
+
+Append rejection is fail-open: it does not change the decided response into a request failure. A fixed
+process warning, `ASHAVERI_ACCESS_LOG_WRITE_FAILED`, reports that the record was refused without including
+the error, payload, path or credential. There is no retry: an append may have written before rejecting,
+and another attempt could duplicate the line. Completion and close listeners share the same attempt,
+including while it is pending and after it rejects.
+
+A client can abort before issuance or before any write. Close is a best-effort recording backstop,
+not a guarantee that an aborted stream completed or earned a receipt, and killing the process before
+that backstop finishes can lose its line. An answer's own record is the opposite case: the write
+whose settlement the answer waited for is the journal commit, so a process killed immediately after
+the buffered answer or the stream terminal signal leaves the line on the volume, and the next start
+moves it into a dated part. That commit is not `fsync`, and does not establish power-loss durability
+for the operating system's or volume's caches; what it settles is the visibility of a killed process,
+not the survival of a powered-off one.
+
 The field names are the entire allowlist: the writer reads exactly these keys out of an object, so an
 object a future hook learns to assemble cannot widen the record. There is no field for a body, a
 header, a key, a secret, or an address to be written into.
@@ -555,7 +609,7 @@ The twelve fields, in the order the writer emits them:
 | `rcp` | The receipt a read route was asked for. Only `GET /v1/receipts/:id` names one in its target, so a completion that issues a receipt records nothing here |
 | `nce` | The request's nonce, so a record can be tied to a receipt; `null` on a bearer request, which presents no nonce to record |
 | `st` | The HTTP status this gateway answered with |
-| `dur` | Request duration in milliseconds |
+| `dur` | Milliseconds from request arrival up to record creation, excluding the awaited access-log append and final output; not the client's end-to-end response duration |
 | `deny` | What this gateway decided the refusal was, on a request the pipeline rejected. This is not always the code the caller was told, and the difference is deliberate: the two part where a refusal is collapsed and where one answer stands for two decisions. An id this file does not carry is answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_UNKNOWN`, because the line sits inside the trust boundary and the response outside it, and an operator reading a spike needs the reason rather than the cover. The sibling case is a name this file carries as a bearer record, answered to its caller as `AUTH_SIGNATURE` and written here as `AUTH_SCHEME`. The third separation is between two limits rather than two names: a connection that has spent the request bound is answered `RATE_LIMITED`, the very code the credential's own bucket answers with, and written here as `PEER_RATE_LIMITED`. What differs between those two refusals is the operator's fix and not the client's, which is to wait `retry-after` either way, so the reason is recorded where a deployer reads and left out of an answer nobody can act on. It is in no status and no message, and it has no row of its own in `docs/error-codes.md`, whose `RATE_LIMITED` row names it as the deployer's reason and not as something a caller catches, which is what it being a reason rather than an answer means. Nothing the caller can observe changes: the status and the body both carry the collapsed answer. The fourth case on this line is the opposite shape, and it is here because the field is where the two are told apart: a completion refused on the durability guard is answered `RECEIPT_WINDOW_UNHOLDABLE` and written here as that same word, because that refusal is a fact about this deployment which no caller can act on and no wait answers, so it joined the codes a caller branches on rather than staying a reason only a deployer reads. A line whose `deny` names a credential the response never acknowledged is still that credential's record, so the scrub described below erases it on the same instruction |
 
 Deliberately not recorded: request and response bodies, so no prompt and no completion; the
@@ -588,17 +642,29 @@ rather than stopping it. Section 8.2 says where 184 comes from and what a longer
 on.
 
 `window()` reports what the process actually holds: the earliest and latest timestamp on the volume
-and a count of the records it can read back. A line that fails to parse is skipped, so the number is
+and a count of the records it can read back, read after the drain has settled, so the count spans the
+journal and the dated parts without a reader of the window knowing the families exist. A line that
+fails to parse is skipped, so the number is
 of readable records rather than of lines. It is a count of what survives, not of what was written, so
 an operator who pruned early sees a shorter window rather than a number that implies the missing days
 exist somewhere. `--access-log-days` is the request; the window is the result.
 
+The journal family sits beside those files in the same directory, and its names carry a sequence and
+no date on purpose. The retention sweep collects dated names: an `access` part whose day has run out,
+and a scrub marker on its own day's schedule. It never matches a journal part, because a journal
+part's age is not the age of its records: a part the sweep collected while the drain had not reached
+it would take acknowledged records with it. The parts a run leaves behind are cleared by the next
+start's replay instead.
+
 ### Erasure
 
 `ashaveri accesslog scrub --credential <id>` is the erasure route. It filters one credential's
-records out of every part, publishes its counts and rewrites each affected part at the permission
+records out of every dated part and out of the journal parts a start would replay, publishes its
+counts and rewrites each affected part at the permission
 bits read back from that part, since a publish replaces the part whole and the mode is the only
-setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The filter is the
+setting that carries across, and leaves a marker named `scrub-<day>-<seq>.jsonl`. The journal is
+included because a journal that kept a scrubbed record would put it back into the log on the next
+start. The filter is the
 `cred` field, so a line this gateway refused without ever acknowledging the name it was given is
 erased with the rest: a collapsed refusal still records which credential the request named, and that
 record is about the subject even when the response said nothing about it. The marker is the proof
@@ -879,7 +945,7 @@ what a deployer has for the log, and it is not offered as settling that duty for
 
 | Field | Purpose | Retention | Where it lives | How it is erased | Whose lawful basis |
 |---|---|---|---|---|---|
-| `t`, `rid`, `m`, `p`, `st`, `dur` | one request's shape and outcome | `--access-log-days`, default 184, and a shorter value starts with a start-up note | one JSONL file per day | deleted with its file on a name read from the file name | the deployer's |
+| `t`, `rid`, `m`, `p`, `st`, `dur` | one request's shape and outcome | `--access-log-days`, default 184, and a shorter value starts with a start-up note | one JSONL file per day, and the journal part holding the record until the next start clears it | deleted with its file on a name read from the file name | the deployer's |
 | `cred`, `auth`, `scope` | which credential made the request, in which mode | same | same | `ashaveri accesslog scrub --credential <id>` | the deployer's |
 | `nce` | the request's nonce, so a record can be tied to a receipt | same | same | scrub | the deployer's |
 | `rcp` | which receipt a read route was asked for | same | same | scrub | the deployer's |

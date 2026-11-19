@@ -10,6 +10,7 @@ import {
   DESTRUCTION_RECEIPT_MANIFEST_MEMBERS,
   DESTRUCTION_UNREACHABLE_COPY_CLASSES,
   ReceiptError,
+  decodeCanonical,
   decodeDestructionReceipt,
   fromBase64Url,
   signDestructionReceipt,
@@ -17,7 +18,10 @@ import {
   toHex,
   verifyDestructionReceipt,
 } from '@ashaveri/receipt';
-import { loadDestructionReceiptVectors } from '../src/index.js';
+import {
+  loadDestructionReceiptVectors,
+  type DestructionReceiptVerificationInput,
+} from '../src/index.js';
 
 /**
  * The published destruction receipt suite, read as bytes and run through the shipped readers.
@@ -68,16 +72,18 @@ function structuralOf(one: { name: string; documentBase64Url?: string }): string
   return codeOf(() => decodeDestructionReceipt(bytesOf(one)));
 }
 
+function verificationOptions(input: DestructionReceiptVerificationInput) {
+  if (input.key !== null && !KEYS.has(input.key)) throw new Error(`unknown verification key: ${String(input.key)}`);
+  return {
+    ...(input.key === null ? {} : { publicKey: KEYS.get(input.key)!.publicKey }),
+    ...(input.objectBase64Url === null ? {} : { objectBytes: fromBase64Url(input.objectBase64Url) }),
+  };
+}
+
 function verdictOf(one: (typeof file.vectors)[number]): string {
-  if (one.expected === 'DESTRUCTION_RECEIPT_UNKNOWN_KEY') return codeOf(() => verifyDestructionReceipt(bytesOf(one), {}));
-  const objectBytes = one.objectBase64Url === undefined ? undefined : fromBase64Url(one.objectBase64Url);
-  const handedKey = one.expected === 'DESTRUCTION_RECEIPT_KID_MISMATCH' ? KEYS.get('another-callers-key')!.publicKey : SIGNER.publicKey;
-  return codeOf(() =>
-    verifyDestructionReceipt(bytesOf(one), {
-      publicKey: handedKey,
-      ...(objectBytes === undefined ? {} : { objectBytes }),
-    }),
-  );
+  if (one.verification === null) throw new Error(`${one.name} publishes no verification input`);
+  const options = verificationOptions(one.verification);
+  return codeOf(() => verifyDestructionReceipt(bytesOf(one), options));
 }
 
 const ACCEPTANCES = file.vectors.filter((one) => one.arm === 'accept');
@@ -100,10 +106,28 @@ describe('the published destruction receipt suite', () => {
     expect(file.layout.objectKinds).toEqual([...DESTRUCTION_OBJECT_KINDS]);
   });
 
-  it('carries both arms, and neither is empty', () => {
-    expect(ACCEPTANCES.length, 'the suite publishes no accepted receipt').toBeGreaterThan(0);
-    expect(REFUSALS.length, 'the suite publishes no refused receipt').toBeGreaterThan(0);
+  it('carries 34 cases: four acceptances and thirty refusals, including two writer-only cases', () => {
+    expect(file.vectors).toHaveLength(34);
+    expect(ACCEPTANCES).toHaveLength(4);
+    expect(REFUSALS).toHaveLength(30);
+    expect(WITH_DOCUMENT).toHaveLength(32);
+    const writerOnly = file.vectors.filter((one) => one.documentBase64Url === undefined);
+    expect(writerOnly.map((one) => one.name)).toEqual(['writer-refuses-to-sign-overreach', 'writer-refuses-its-own-refusal']);
+    for (const one of writerOnly) expect(one.verification).toBeNull();
     expect(new Set(REFUSALS.map((one) => one.expected)).size, 'the refusals turn on too few distinct rules').toBeGreaterThanOrEqual(6);
+  });
+
+  it('does not change the verification verdict when only expected is changed', () => {
+    for (const one of WITH_DOCUMENT) {
+      expect(one.verification).not.toBeNull();
+      const options = verificationOptions(one.verification!);
+      const actual = verdictOf(one);
+      for (const expected of ['verify-ok', 'DESTRUCTION_RECEIPT_UNKNOWN_KEY', 'DESTRUCTION_RECEIPT_KID_MISMATCH']) {
+        const changed = { ...one, expected };
+        expect(verificationOptions(changed.verification!), `${one.name}: expected changed the arguments`).toEqual(options);
+        expect(verdictOf(changed), `${one.name}: expected changed the verdict`).toBe(actual);
+      }
+    }
   });
 
   it('answers every row with the verdict the row states, at both doors', () => {
@@ -113,15 +137,59 @@ describe('the published destruction receipt suite', () => {
     }
   });
 
-  it('keeps the two doors apart where a document is whole and only a key or an object refuses it', () => {
+  it.each([
+    ['malformed-cbor', 'DESTRUCTION_RECEIPT_MALFORMED_CBOR'],
+    ['empty-states', 'DESTRUCTION_RECEIPT_BAD_MANIFEST'],
+    ['states-over-byte-limit', 'DESTRUCTION_RECEIPT_BAD_MANIFEST'],
+  ])('publishes and replays %s', (name, code) => {
+    const one = file.vectors.find((row) => row.name === name)!;
+    expect(one).toBeDefined();
+    expect(one.verification).toEqual({ key: 'signer', objectBase64Url: null });
+    expect(one.structural).toBe(code);
+    expect(one.expected).toBe(code);
+    expect(structuralOf(one)).toBe(code);
+    expect(verdictOf(one)).toBe(code);
+    if (name !== 'malformed-cbor') {
+      const envelope = decodeCanonical(bytesOf(one)) as unknown as { contents: Uint8Array[] };
+      const payload = decodeCanonical(envelope.contents[2]!) as Map<string, unknown>;
+      const states = payload.get('states') as string;
+      expect(new TextEncoder().encode(states).length).toBe(name === 'empty-states' ? 0 : 2049);
+      expect(states.length).toBeLessThan(2048);
+    }
+  });
+
+  it('publishes a structurally valid receipt with a corrupted signature under the correct key', () => {
+    const one = file.vectors.find((row) => row.name === 'signature-corrupted')!;
+    expect(one).toBeDefined();
+    expect(one.verification).toEqual({ key: 'signer', objectBase64Url: null });
+    expect(one.structural).toBe('verify-ok');
+    expect(one.expected).toBe('INVALID_SIGNATURE');
+    const honest = decodeDestructionReceipt(bytesOf(ACCEPTANCES[0]!));
+    const corrupted = decodeDestructionReceipt(bytesOf(one));
+    expect(corrupted.envelope.protectedBytes).toEqual(honest.envelope.protectedBytes);
+    expect(corrupted.envelope.payloadBytes).toEqual(honest.envelope.payloadBytes);
+    expect(corrupted.envelope.signature).not.toEqual(honest.envelope.signature);
+    expect(verdictOf(one)).toBe('INVALID_SIGNATURE');
+  });
+
+  it('keeps the two doors apart where a document is whole and only a key, signature or object refuses it', () => {
     // A row that reads as a document and fails only against a key or against bytes a caller holds is the pair
     // this suite exists to publish: a port that answered `verify-ok` from the shape alone is caught here.
     const apart = file.vectors.filter((one) => one.structural === 'verify-ok' && one.expected !== 'verify-ok');
     expect(apart.length).toBeGreaterThanOrEqual(3);
     for (const one of apart) {
       expect(one.arm).toBe('refuse');
-      expect(['DESTRUCTION_RECEIPT_KID_MISMATCH', 'DESTRUCTION_RECEIPT_UNKNOWN_KEY', 'DESTRUCTION_RECEIPT_OBJECT_MISMATCH', 'DESTRUCTION_RECEIPT_KIND_DISAGREES']).toContain(one.expected);
+      expect(['DESTRUCTION_RECEIPT_KID_MISMATCH', 'DESTRUCTION_RECEIPT_UNKNOWN_KEY', 'DESTRUCTION_RECEIPT_OBJECT_MISMATCH', 'DESTRUCTION_RECEIPT_KIND_DISAGREES', 'INVALID_SIGNATURE']).toContain(one.expected);
     }
+  });
+
+  it('omits backup, and only backup, in class-left-unstated', () => {
+    const one = file.vectors.find((row) => row.name === 'class-left-unstated')!;
+    const envelope = decodeCanonical(bytesOf(one)) as unknown as { contents: Uint8Array[] };
+    const payload = decodeCanonical(envelope.contents[2]!) as Map<string, unknown>;
+    const reach = payload.get('reach') as Map<string, unknown>[];
+    expect(reach.map((entry) => entry.get('class'))).toEqual(['store', 'pack', 'export', 'handout']);
+    expect(structuralOf(one)).toBe('DESTRUCTION_RECEIPT_MISSING_COPY_CLASS');
   });
 
   it('states a reach for every copy class on every accepted row, and none beyond the format at the class that is out of reach', () => {
@@ -137,9 +205,8 @@ describe('the published destruction receipt suite', () => {
     }
   });
 
-  it('carries no key material in any published document, only the kid the format names', () => {
-    // The widths belong to the documents a reader opens; the byte scan asks nothing of a reader, so it runs
-    // over every published document, including the ones assembled to be refused.
+  it('uses digest widths in readable rows and contains none of the known test public keys verbatim', () => {
+    // These fixture-specific byte comparisons are not a general key-material detector.
     for (const one of READABLE) {
       const manifest = decodeDestructionReceipt(bytesOf(one)).manifest;
       expect(manifest.object).toHaveLength(32);
@@ -148,7 +215,6 @@ describe('the published destruction receipt suite', () => {
     for (const one of WITH_DOCUMENT) {
       const raw = Buffer.from(bytesOf(one));
       for (const key of KEYS.values()) {
-        // A public half is 32 bytes of key material by any name, and no published document carries one.
         expect(raw.includes(Buffer.from(key.publicKey)), `${one.name} carries a public key in its bytes`).toBe(false);
       }
     }
