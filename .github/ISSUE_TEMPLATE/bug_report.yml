@@ -1,0 +1,98 @@
+name: Bug report
+description: Report unexpected behavior in the code, tooling, or documentation.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe a reproducible problem in the public ashaveri repository.
+        For documentation errors, name the page and the incorrect statement.
+
+        **Issues are public.** Report suspected vulnerabilities through the
+        [private reporting form](https://github.com/ashaveri/ashaveri/security/advisories/new)
+        or the email address in the [security policy](https://github.com/ashaveri/ashaveri/security/policy).
+        Use synthetic examples. Do not include credentials, signing keys, private request or response data,
+        or logs and receipts that contain them.
+
+        Read the [contribution guide](https://github.com/ashaveri/ashaveri/blob/main/CONTRIBUTING.md)
+        and follow the [Code of Conduct](https://github.com/ashaveri/ashaveri/blob/main/CODE_OF_CONDUCT.md).
+  - type: checkboxes
+    id: before-submitting
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: This is not a vulnerability report and contains no private or sensitive data.
+          required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - Receipt formats and codecs (@ashaveri/receipt)
+        - Attestation verification (@ashaveri/attest-core)
+        - Client SDK (@ashaveri/sdk)
+        - Command-line tools (@ashaveri/cli)
+        - Gateway (@ashaveri/signerd)
+        - Collateral (@ashaveri/collateral)
+        - Conformance fixtures (@ashaveri/fixtures)
+        - Guest container and deployment tooling
+        - Documentation
+        - Build or tests
+        - Other / not sure
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Commit or version
+      description: Give the commit from `git rev-parse HEAD`, or the version you used. For a documentation issue, link the page.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the operating system, Node.js and pnpm versions, and relevant configuration. For a documentation-only issue, write "Not applicable".
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Gateway mode
+      description: Mock and live runs make different claims. Choose the mode used in the reproduction.
+      options:
+        - "--mock"
+        - "--live"
+        - Both modes
+        - Not applicable / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest example, exact commands, and synthetic inputs needed to reproduce the problem. For documentation, quote the incorrect statement and explain the correction.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen? Link the relevant specification or documentation where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include the error code or incorrect result, if any.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or output
+      description: Optional. Remove secrets, private data, and personal paths before pasting.
+      render: text

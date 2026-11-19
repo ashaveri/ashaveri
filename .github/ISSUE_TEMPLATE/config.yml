@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/ashaveri/ashaveri/security/advisories/new
+    about: Use private vulnerability reporting, not a public issue. The security policy also provides an email contact.
+  - name: Security reporting policy
+    url: https://github.com/ashaveri/ashaveri/security/policy
+    about: Read reporting instructions and what to expect before sending a vulnerability report.

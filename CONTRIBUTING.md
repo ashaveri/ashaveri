@@ -1,5 +1,32 @@
 # Contributing
 
+## Issues and pull requests
+
+These contribution standards apply to maintainers and outside contributors alike. Follow the
+[Code of Conduct](CODE_OF_CONDUCT.md) in issues, pull requests, reviews, and project-related
+communication. Its reporting instructions are for conduct concerns; suspected vulnerabilities use
+[SECURITY.md](SECURITY.md) instead of a public issue or pull request.
+
+Start with the [issue chooser](https://github.com/ashaveri/ashaveri/issues/new/choose):
+
+- **Bug report:** unexpected behavior, incorrect verification results, build failures, or documentation
+  errors. Include a minimal reproduction and the commit or version involved.
+- **Feature request:** a proposed improvement, the problem it solves, alternatives, and observable
+  acceptance criteria. Discuss substantial behavior or format changes before implementing them.
+- **Question or help request:** help using, building, or understanding this repository. Explain what
+  you tried and which documentation you consulted.
+
+Search existing issues first and keep each new issue focused on one problem or proposal. Use the
+forms even if repository permissions offer a blank issue. Use synthetic inputs and sanitized output;
+public issues, pull requests, and attachments must not contain credentials, signing keys, or private
+request or response data.
+
+Open pull requests from a topic branch into `main`. Complete the pull request template with the
+purpose, related issues, changes, verification, and compatibility impact. Keep its sections and
+checklist; explain checks that were not run or are not applicable instead of marking them as passed.
+Use a Conventional Commits title as well as Conventional Commits messages. The requirements below
+explain which tests, documents, and generated artifacts belong with a change.
+
 ## Setup
 
 Node 26.13.0 and pnpm 12.3.4. Both are declared rather than assumed: `.nvmrc` names `26.13.0` and
@@ -187,6 +214,10 @@ unless you say otherwise, and submitting is the act that grants the copyright li
 and the patent licence of section 3. Do not submit code you have no right to license this way. This
 is a policy statement about how this repository accepts contributions, not legal advice; if it and
 the licence text ever read differently, the licence text governs.
+
+The [Code of Conduct](CODE_OF_CONDUCT.md) is adapted from Contributor Covenant and licensed separately
+under CC BY-SA 4.0, as its attribution section states. That license applies to the Code of Conduct,
+not to the code or conformance vectors.
 
 Contributing does not create an employment, contractor or agency relationship between you and this
 project.

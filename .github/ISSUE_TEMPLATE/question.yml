@@ -1,0 +1,49 @@
+name: Question or help request
+description: Ask about using, building, or understanding the public repository.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when you need an explanation or are not sure whether an observation is a bug.
+        For a reproducible defect, use Bug report; for a proposed change, use Feature request.
+        Read the [contribution guide](https://github.com/ashaveri/ashaveri/blob/main/CONTRIBUTING.md)
+        and follow the [Code of Conduct](https://github.com/ashaveri/ashaveri/blob/main/CODE_OF_CONDUCT.md).
+
+        **Issues are public.** Do not paste credentials, signing keys, private request or response data,
+        or logs and receipts that contain them. Report suspected vulnerabilities through the
+        [private reporting form](https://github.com/ashaveri/ashaveri/security/advisories/new)
+        or the email address in the [security policy](https://github.com/ashaveri/ashaveri/security/policy).
+  - type: checkboxes
+    id: before-submitting
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and the relevant documentation for an answer.
+          required: true
+        - label: This is not a vulnerability report and contains no private or sensitive data.
+          required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to understand or accomplish? Name the component or command involved.
+    validations:
+      required: true
+  - type: textarea
+    id: attempts
+    attributes:
+      label: What you have tried
+      description: Describe your approach and where you got stuck. Include synthetic examples or sanitized output where useful. For a conceptual question, explain your current understanding instead.
+    validations:
+      required: true
+  - type: textarea
+    id: documentation
+    attributes:
+      label: Documentation consulted
+      description: Optional. Link the pages you read and identify any missing or unclear explanation.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and revision
+      description: Optional for conceptual questions. For build or runtime help, give the commit from `git rev-parse HEAD`, operating system, Node.js and pnpm versions, and gateway mode (`--mock` or `--live`) where relevant.
