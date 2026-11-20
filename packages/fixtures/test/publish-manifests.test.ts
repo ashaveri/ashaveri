@@ -12,6 +12,7 @@ import {
   rangesAgree,
   scopedManifests,
   spelledNumber,
+  type Comparator,
   type PackageManifest,
 } from './doc-contract.js';
 
@@ -42,7 +43,10 @@ import {
  *   the six published copies and the workspace declaration cannot drift apart, and `pinned-node.test.ts`
  *   already holds the root range to the release `.nvmrc` names. The two are read with that file's reader and
  *   compared on the versions they admit rather than on their spelling, because a spacing is not a promise and
- *   a widened floor is one.
+ *   a widened floor is one. The tolerance and the refusal are each held by a case rather than by this
+ *   paragraph: one reads a manifest's range re-spaced and finds the same floor, and one hands the comparison
+ *   ranges this tree does not ship and finds each of them reported by the name of the manifest that would
+ *   state it.
  *
  *   The publish set is the set with no `private` flag, in an order a consumer can install. The workflow
  *   names packages, the manifests say which are publishable and which depend on which, and this file
@@ -233,6 +237,33 @@ function spacedOperators(range: string): string {
   return range.replace(/([<>]=?)[ \t]*/gu, '$1 ');
 }
 
+/** A package directory the tree does not hold, used by the cases that state a range nobody ships. */
+const PLANTED_DIR = 'packages/planted';
+
+/**
+ * What one manifest's floor disagrees with the workspace's about, written as the line this file reports, or
+ * nothing where the two state one promise. The check below reads every publishable manifest through this
+ * function, and a case hands it a manifest the tree does not hold: a comparison only ever shown agreeing has
+ * never been shown refusing, and the widened floor is the thing this field exists to catch. A range the
+ * reader cannot read is left to throw, naming the manifest that states it, rather than turned into one line
+ * among several: a range nobody can read states no promise to compare, so it may not be booked as either a
+ * match or a mismatch.
+ */
+function floorDisagreement(
+  dir: string,
+  stated: string | undefined,
+  declared: Comparator[],
+  wanted: string,
+): string | undefined {
+  if (stated === undefined) {
+    return `${dir} states engines.node as nothing, where ${ROOT_MANIFEST} states ${wanted}`;
+  }
+  if (!rangesAgree(parseRange(stated, `${dir} engines.node`), declared)) {
+    return `${dir} states engines.node as ${stated}, which is not the promise ${ROOT_MANIFEST} states as ${wanted}`;
+  }
+  return undefined;
+}
+
 describe('the manifests a publish reads', () => {
   it('states one exact version in every scoped manifest', () => {
     const stated = new Map<string, string[]>();
@@ -331,19 +362,11 @@ describe('the manifests a publish reads', () => {
     const declared = parseRange(wanted, `${ROOT_MANIFEST} engines.node`);
     const disagreed: string[] = [];
     for (const manifest of publishable()) {
-      const stated = nodeRangeOf(manifest);
-      if (stated === undefined) {
-        disagreed.push(`${manifest.dir} states engines.node as nothing, where ${ROOT_MANIFEST} states ${wanted}`);
-        continue;
-      }
       // Compared as a range and not as text, on the reader `pinned-node.test.ts` states the convention
       // with: `>= 26.13.0 <27` is the root's promise re-spaced, and `>=26.0.0` is a floor widened. A text
       // match reddens the first and passes the second, which is the opposite of what this field claims.
-      if (!rangesAgree(parseRange(stated, `${manifest.dir} engines.node`), declared)) {
-        disagreed.push(
-          `${manifest.dir} states engines.node as ${stated}, which is not the promise ${ROOT_MANIFEST} states as ${wanted}`,
-        );
-      }
+      const line = floorDisagreement(manifest.dir, nodeRangeOf(manifest), declared, wanted);
+      if (line !== undefined) disagreed.push(line);
     }
     expect(
       disagreed,
@@ -380,6 +403,62 @@ describe('the manifests a publish reads', () => {
       misread,
       `a spacing is not a promise, and these manifests were held to a different one than they state:\n${misread.join('\n')}`,
     ).toEqual([]);
+  });
+
+  it('names the manifest whose Node range is wider than the one the workspace declares', () => {
+    const wanted = rootEnginesRange();
+    const declared = parseRange(wanted, `${ROOT_MANIFEST} engines.node`);
+    const planted = [
+      { stated: '>=26.0.0 <27', reads: 'a floor lowered below the release .nvmrc pins' },
+      { stated: '>=26.13.0 <28', reads: 'a ceiling raised past the one the workspace sets for itself' },
+      { stated: '>=26.13.0', reads: 'no ceiling at all, so every release from 27 up is admitted' },
+      { stated: '>26.13.0 <27', reads: 'a floor that leaves the pinned release out' },
+    ];
+    const reported = planted.map((one) => ({
+      ...one,
+      line: floorDisagreement(PLANTED_DIR, one.stated, declared, wanted),
+    }));
+    const silent = reported.filter((one) => one.line === undefined).map((one) => `${one.stated}, ${one.reads}`);
+    expect(
+      silent,
+      `the comparison agreed with a manifest admitting releases ${ROOT_MANIFEST} does not:\n${silent.join('\n')}`,
+    ).toEqual([]);
+    // Naming which manifest disagrees is the whole use of a refusal at this field: six manifests state one
+    // range each, and a line that says only "disagreed" sends a reader to diff six files by hand.
+    const unnamed = reported
+      .filter((one) => {
+        const line = one.line ?? '';
+        return !line.includes(PLANTED_DIR) || !line.includes(one.stated) || !line.includes(wanted);
+      })
+      .map((one) => `${one.stated}: ${one.line ?? 'nothing reported'}`);
+    expect(
+      unnamed,
+      `a reported disagreement names neither the manifest, its own range, and the range declared in ${ROOT_MANIFEST}:\n${unnamed.join('\n')}`,
+    ).toEqual([]);
+    // Two controls, because a check that reports every range it is handed passes this case too: the declared
+    // range restated by a manifest is agreement, and a manifest stating no floor is reported rather than
+    // agreed with.
+    expect(
+      floorDisagreement(PLANTED_DIR, wanted, declared, wanted),
+      `a manifest stating ${wanted} was reported as disagreeing with the ${wanted} the workspace declares`,
+    ).toBeUndefined();
+    const bare = floorDisagreement(PLANTED_DIR, undefined, declared, wanted) ?? '';
+    expect(bare.includes(PLANTED_DIR), `a manifest with no engines.node was reported without ${PLANTED_DIR}`).toBe(true);
+    expect(bare.includes(wanted), `a manifest with no engines.node was reported without the floor it owes: ${bare}`).toBe(true);
+  });
+
+  it('refuses a Node range it cannot read instead of reading it as agreement', () => {
+    const wanted = rootEnginesRange();
+    const declared = parseRange(wanted, `${ROOT_MANIFEST} engines.node`);
+    // Every spelling here is one npm accepts in a range field and this reader does not understand, and the
+    // caret is the likeliest of them in a manifest: it means roughly the promise the workspace makes, and a
+    // reader that could not parse it would have to say so rather than book it as a match or a mismatch.
+    for (const unreadable of ['^26.13.0', '~26.13.0', '26.x', '>=26.13.0 || <28']) {
+      expect(
+        () => floorDisagreement(PLANTED_DIR, unreadable, declared, wanted),
+        `${unreadable} was read as a range rather than refused, where ${ROOT_MANIFEST} declares ${wanted}`,
+      ).toThrow(`${PLANTED_DIR} engines.node declares "${unreadable}"`);
+    }
   });
 
   it('finds each built entry point where the manifest says it will be', () => {
