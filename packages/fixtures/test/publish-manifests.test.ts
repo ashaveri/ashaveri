@@ -60,8 +60,10 @@ import {
  *   apart long before either suite says so out loud. A name from the held-back set belongs in no field an
  *   installer reads, and in a development dependency only where this file lists that package beside it,
  *   because a pack rewrites a workspace range into an exact version in every block a manifest carries. That
- *   list and the paragraph of `docs/receipt-spec.md` stating the same position are compared by one case, since
- *   the document is what a reader trusts and two copies of one claim drift apart on their own schedule.
+ *   list and the paragraph of `docs/receipt-spec.md` stating the same position are compared by one case, which
+ *   reads the clause enumerating them rather than the paragraph arguing them, since the document is what a reader
+ *   trusts, two copies of one claim drift apart on their own schedule, and a package named further along in that
+ *   paragraph is not a package the document says carries anything.
  *
  * Two facts are stated here rather than checked, because a check would restate the implementation rather
  * pin a contract. The `private` flag is the only thing in a manifest standing between a package and a
@@ -307,6 +309,44 @@ const RECEIPT_SPEC = 'docs/receipt-spec.md';
 
 /** The sentence opening the paragraph of that document which states the position. */
 const SPEC_POSITION_ANCHOR = 'publish a package name no registry serves';
+
+/** The phrase the enumeration closes with, and so the end of the clause that lists the packages. */
+const SPEC_LISTED_SET = 'each list';
+
+/**
+ * The clause that names the packages carrying a private development dependency: the text from the start of its
+ * sentence to the phrase the sentence uses for the set. The rest of the paragraph argues why the name resolves
+ * nowhere, points at the gateway by another route, and describes what this file checks, so a package named
+ * there is not a package the document says carries anything. Reading the whole paragraph for scoped names turned
+ * an incidental mention into a refusal that claimed that package carried a private devDependency.
+ *
+ * Two things this refuses rather than reads around. The phrase has to appear once, because two of them leave this
+ * clause ending at whichever came first and the enumeration behind it unchecked. And the clause has to yield a
+ * name, because a clause that yielded none would leave the comparison below with one direction to run.
+ */
+function specListingClause(paragraph: string): string {
+  const found = [...paragraph.matchAll(new RegExp(SPEC_LISTED_SET, 'gu'))];
+  if (found.length !== 1) {
+    throw new Error(
+      `"${SPEC_LISTED_SET}" appears ${String(found.length)} times in the paragraph of ${RECEIPT_SPEC} that states ` +
+        'the position, and the clause listing the packages ends at exactly one of them',
+    );
+  }
+  const at = found[0]?.index ?? -1;
+  const boundary = paragraph.lastIndexOf('. ', at);
+  if (boundary < 0) {
+    throw new Error(`the paragraph of ${RECEIPT_SPEC} holding "${SPEC_LISTED_SET}" is not a sentence this can find the start of`);
+  }
+  const clause = paragraph.slice(boundary + 2, at);
+  if (!new RegExp(`${SCOPE}[a-z0-9-]+`, 'u').test(clause)) {
+    throw new Error(
+      `the clause of ${RECEIPT_SPEC} that ends "${SPEC_LISTED_SET}" names no ${SCOPE} package, so the enumeration ` +
+        'this compares against PRIVATE_DEV_DEPENDENCIES has no names in it: ' +
+        JSON.stringify(clause.replace(/\s+/gu, ' ').slice(0, 120)),
+    );
+  }
+  return clause;
+}
 
 /**
  * The paragraph naming the packages that carry a private development dependency, read out of the document
@@ -697,11 +737,11 @@ describe('the manifests a publish reads', () => {
       if (names.some((name) => held.includes(name))) allowed.push(manifest.name);
     }
 
-    // Every package name the paragraph states that this workspace does not hold back from a publish. The
-    // private names are dropped rather than matched, because the paragraph names the signer it is about.
+    // The names the enumeration states, and only there. The private names are dropped rather than matched,
+    // because the clause names the signer it is about.
     const scoped = new RegExp(`${SCOPE}[a-z0-9-]+`, 'gu');
     const stated = [
-      ...new Set([...paragraph.matchAll(scoped)].map((found) => String(found[0]))),
+      ...new Set([...specListingClause(paragraph).matchAll(scoped)].map((found) => String(found[0]))),
     ]
       .filter((name) => !held.includes(name))
       .sort();
