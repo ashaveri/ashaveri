@@ -2057,9 +2057,20 @@ joins the set a reader parses where documents exist under it. A version nobody h
 rule for a document no reader will ever be handed, so it is neither declared in advance nor reserved, and a
 reader owes it no behaviour.
 
-What a reader does on meeting a version outside its family's set is refuse it with a code that names the
-family, `UNSUPPORTED_VERSION` at the receipt payload and one named for each family beside it, so a caller
-learns which document it was handed rather than that something disagreed. A reader does not accept the
+What a reader does on meeting a version outside its family's set is refuse it rather than read it as a
+version it has rules for. Which code arrives is not uniform across the published readers, and a caller that
+keys on the code alone learns the document for some families and not for others. Every container
+`@ashaveri/receipt` ships, and the ledger reader in `@ashaveri/attest-core`, answers a code carrying that
+family's own name: `UNSUPPORTED_VERSION` at the receipt payload, `PACK_UNSUPPORTED_VERSION` at the pack, and
+the same shape at the export, redaction, epoch inventory, destruction receipt, retention, disclosure record,
+model inventory, hold record and incident bundle readers, so for those the code says which document was
+handed in. Three of the five `@ashaveri/sdk` families answer the payload's `UNSUPPORTED_VERSION`: the capture
+record, the import envelope and the retention assessment. For those three the code says only that a version
+was outside a reader's set, and it is the refusal's message, which states the version found and the versions
+that reader implements, that names the document. The verification policy file answers `POLICY_FILE_INVALID`,
+the one code every refusal of that loader carries, so its version refusal is indistinguishable from its
+structural ones by code. `parseManifest` is the outlier: it throws a plain `Error` naming the document and the
+member it objected to, and it carries no code field at all. A reader does not accept the
 members it happens to know and leave the rest: the payload map is closed, as section 6 says, and the number
 a document names is settled before one member of it is weighed. `ashaveri verify-handover` and
 `ashaveri verify-receipt` carry that answer out of the installed package to the terminal, in the `code`
