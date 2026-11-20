@@ -399,7 +399,8 @@ describe('the manifests a publish reads', () => {
     for (const manifest of publishable()) {
       const stated = nodeRangeOf(manifest);
       if (stated === undefined) {
-        throw new Error(`${manifest.dir} states no engines.node, so it states no spelling of a floor to read`);
+        misread.push(`${manifest.dir} states no engines.node, so it states no spelling of a floor to read`);
+        continue;
       }
       // Every manifest here is written without the space, so the spaced spelling of it is the one this
       // tolerance exists for, and both questions the field answers are asked of it: whether it is still the
