@@ -87,7 +87,7 @@ function publishableFrom(reads: Array<{ dir: string; text: string }>): PackageMa
 
 /** A path spelled with forward slashes, which is how a leaked one reaches a manifest from either side. */
 function asUrlPath(value: string): string {
-  return value.split(path.sep).join('/');
+  return value.split('\\').join('/');
 }
 
 /**
@@ -589,7 +589,7 @@ describe('the installed command on the same bytes', () => {
     // caught whichever way its separators are written, and a runner that cannot write them the other way is
     // no evidence that it would have noticed.
     const forward = asUrlPath(REPO_ROOT);
-    const native = forward.split('/').join(path.sep);
+    const native = forward.split('/').join('\\');
     expect(
       carriesPath(JSON.stringify({ _resolved: native }), REPO_ROOT),
       `a manifest holding the separators-escaped ${native} went uncaught`,
