@@ -1997,8 +1997,8 @@ through the mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
 
 A published version of these packages carries a promise about the bytes it can read, and that promise is
 worth more than the version number, because the bytes are already in other people's hands. The table is the
-promise read off the shipped readers: one row per document family a published reader opens, the package that
-ships it, the entry point a consumer calls, and the format versions that reader parses.
+promise read off the shipped readers: one row per document family whose layout this repository defines, the
+package that ships the reader, the entry point a consumer calls, and the format versions that reader parses.
 
 | Document family | Ships in | Reader a consumer calls | Versions parsed |
 |---|---|---|---|
@@ -2020,10 +2020,20 @@ ships it, the entry point a consumer calls, and the format versions that reader 
 | Verification policy file | `@ashaveri/sdk` | `parsePolicyFile`, `loadPolicyFile` | 1 |
 | Anchor provenance ledger | `@ashaveri/attest-core` | `verifyAnchorLedger`, `parseAnchorLedger` | 1 |
 
-Three published packages hold no reader of their own: `@ashaveri/cli` renders these readers as a command,
-`@ashaveri/collateral` fetches and classifies vendor attestation collateral, whose age is a matter of dates
-rather than of a version member, and `@ashaveri/fixtures` publishes the vectors every row is measured
-against.
+Three published packages add no document family of their own: `@ashaveri/cli` renders these readers as a
+command, `@ashaveri/collateral` fetches, classifies and retains vendor attestation collateral, and
+`@ashaveri/fixtures` publishes and loads the vectors these readers are measured against.
+
+Documents whose layout a vendor defines are read by these packages too and are not in the table, because the
+version numbers they carry belong to their issuers and move on a vendor's schedule rather than on this
+repository's. What a published release promises of each is that it refuses a version it does not implement
+instead of reading it as one it does: the dStack attestation envelope `decodeAttestation` opens must state
+version 1 and is answered `UNSUPPORTED_VERSION` when it states another; the AMD SEV-SNP report
+`parseSnpReport` reads accepts versions 2 and 3 and refuses any other as `MALFORMED_REPORT`; the Intel TDX
+quote whose signature `verifyTdxQuote` reads is parsed at quote version 4 alone and answers
+`UNSUPPORTED_QUOTE` beside the number it found; and the NVIDIA device evidence `parseNvidiaEvidenceBundle`
+unpacks requires SPDM version 1.1 in both directions of the exchange. The trust material these documents
+chain to is in [trust-anchors.md](trust-anchors.md), and it is versioned by its own issuers.
 
 Each family carries its own version member and no two of these numbers move together: a pack stamped at the
 second version of its own layout says nothing about which payload versions the receipts inside it name. The
