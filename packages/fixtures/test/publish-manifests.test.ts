@@ -59,7 +59,9 @@ import {
  *   `installed-artifacts.test.ts` installs the set this rule picks out, and two copies of a rule drift
  *   apart long before either suite says so out loud. A name from the held-back set belongs in no field an
  *   installer reads, and in a development dependency only where this file lists that package beside it,
- *   because a pack rewrites a workspace range into an exact version in every block a manifest carries.
+ *   because a pack rewrites a workspace range into an exact version in every block a manifest carries. That
+ *   list and the paragraph of `docs/receipt-spec.md` stating the same position are compared by one case, since
+ *   the document is what a reader trusts and two copies of one claim drift apart on their own schedule.
  *
  * Two facts are stated here rather than checked, because a check would restate the implementation rather
  * pin a contract. The `private` flag is the only thing in a manifest standing between a package and a
@@ -299,6 +301,32 @@ const PRIVATE_DEV_DEPENDENCIES: Record<string, readonly string[]> = {
   'packages/fixtures': ['@ashaveri/signerd'],
   'packages/sdk': ['@ashaveri/signerd'],
 };
+
+/** The compatibility contract, read by the case that holds this list to the prose stating the same position. */
+const RECEIPT_SPEC = 'docs/receipt-spec.md';
+
+/** The sentence opening the paragraph of that document which states the position. */
+const SPEC_POSITION_ANCHOR = 'publish a package name no registry serves';
+
+/**
+ * The paragraph naming the packages that carry a private development dependency, read out of the document
+ * rather than restated here. The list above and the list in that paragraph are one claim written in two
+ * places, and two copies of a claim drift: the case below compares them, and a paragraph this anchor does not
+ * find exactly once is reported rather than passed over, because a document that states the position twice
+ * leaves this case holding one copy of two, and one that states it nowhere leaves it comparing nothing.
+ */
+function specDevDependencyParagraph(): string {
+  const found = readRepoFile(RECEIPT_SPEC)
+    .split(/\n\n+/u)
+    .filter((paragraph) => paragraph.includes(SPEC_POSITION_ANCHOR));
+  if (found.length !== 1) {
+    throw new Error(
+      `"${SPEC_POSITION_ANCHOR}" opens ${String(found.length)} paragraphs of ${RECEIPT_SPEC}, and this case ` +
+        'reads exactly one',
+    );
+  }
+  return found[0] ?? '';
+}
 
 /**
  * Whether one `prepack` value runs the package's own `build` script. Delegating is what the guard is for:
@@ -646,6 +674,69 @@ describe('the manifests a publish reads', () => {
       offenders,
       `the packages held back from a publish are ${held.join(', ')}; a publishable manifest naming one where an ` +
         `installer looks leaves a consumer resolving a package no registry serves:\n${offenders.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('holds the document to the same private devDependency list this file keeps', () => {
+    const paragraph = specDevDependencyParagraph();
+    const held = manifests()
+      .filter((manifest) => !isPublishable(manifest.fields))
+      .map((manifest) => manifest.name);
+    const publishing = publishable();
+    const offenders: string[] = [];
+
+    // The names the allowance covers, spelled the way the document spells them: as the package that carries
+    // the dependency rather than as the directory holding its manifest.
+    const allowed: string[] = [];
+    for (const [dir, names] of Object.entries(PRIVATE_DEV_DEPENDENCIES)) {
+      const manifest = publishing.find((one) => one.dir === dir);
+      if (manifest === undefined) {
+        offenders.push(`${dir} is on PRIVATE_DEV_DEPENDENCIES and matches no publishable manifest, so no name in the document answers for it`);
+        continue;
+      }
+      if (names.some((name) => held.includes(name))) allowed.push(manifest.name);
+    }
+
+    // Every package name the paragraph states that this workspace does not hold back from a publish. The
+    // private names are dropped rather than matched, because the paragraph names the signer it is about.
+    const scoped = new RegExp(`${SCOPE}[a-z0-9-]+`, 'gu');
+    const stated = [
+      ...new Set([...paragraph.matchAll(scoped)].map((found) => String(found[0]))),
+    ]
+      .filter((name) => !held.includes(name))
+      .sort();
+
+    for (const name of allowed) {
+      if (!stated.includes(name)) {
+        offenders.push(`${name} is allowed a private package in devDependencies here, and ${RECEIPT_SPEC} does not name it`);
+      }
+    }
+    for (const name of stated) {
+      if (!allowed.includes(name)) {
+        offenders.push(`${RECEIPT_SPEC} names ${name} as carrying a private devDependency, and PRIVATE_DEV_DEPENDENCIES allows no such line`);
+      }
+    }
+
+    // The one count the paragraph states, held to the one list it enumerates, so a list that grows in one
+    // place cannot leave a number standing in the other.
+    const counts = new RegExp(`^([A-Za-z]+) of the ([A-Za-z]+) ${SPEC_POSITION_ANCHOR}`, 'u').exec(paragraph);
+    const namingCount = counts?.[1];
+    const publishCount = counts?.[2];
+    if (namingCount === undefined || publishCount === undefined) {
+      throw new Error(`${RECEIPT_SPEC} no longer opens that paragraph with the two counts this case reads`);
+    }
+    if (spelledNumber(namingCount) !== allowed.length) {
+      offenders.push(`${RECEIPT_SPEC} opens by saying ${namingCount} of the packages publish a private name, and PRIVATE_DEV_DEPENDENCIES covers ${String(allowed.length)}`);
+    }
+    if (spelledNumber(publishCount) !== publishing.length) {
+      offenders.push(`${RECEIPT_SPEC} says ${publishCount} packages publish at all, and ${String(publishing.length)} carry no private flag`);
+    }
+
+    expect(
+      offenders,
+      `the allowance covers ${[...allowed].sort().join(', ')} and the paragraph states ${stated.join(', ')}; ` +
+        'one of the two moved alone:\n' +
+        offenders.join('\n'),
     ).toEqual([]);
   });
 

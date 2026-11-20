@@ -2036,8 +2036,9 @@ time instead of depending on `@ashaveri/signerd`, and `packages/cli/test/credent
 writer produced back through the gateway's own parser, so the two declarations are held together by behaviour
 rather than by a comment. `packages/fixtures/test/publish-manifests.test.ts` holds the position to the
 manifests: a private package name is refused in `dependencies`, `peerDependencies` and
-`optionalDependencies`, and admitted in `devDependencies` for the three packages named above and no other, so
-a fourth taking the same dependency arrives as an edit to a list rather than as drift.
+`optionalDependencies`, and admitted in `devDependencies` for those names and no other. The same file reads
+this paragraph back and compares the names it states to the names that test keeps, so a fourth package taking
+the same dependency arrives as an edit to both lists or as a failing test, rather than as drift.
 
 Documents whose layout a vendor defines are read by these packages too and are not in the table, because the
 version numbers they carry belong to their issuers and move on a vendor's schedule rather than on this
