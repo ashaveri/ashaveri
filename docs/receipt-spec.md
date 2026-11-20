@@ -2067,9 +2067,19 @@ model inventory, hold record and incident bundle readers, so for those the code 
 handed in. Three of the five `@ashaveri/sdk` families answer the payload's `UNSUPPORTED_VERSION`: the capture
 record, the import envelope and the retention assessment. For those three the code says only that a version
 was outside a reader's set, and it is the refusal's message, which states the version found and the versions
-that reader implements, that names the document. The verification policy file answers `POLICY_FILE_INVALID`,
-the one code every refusal of that loader carries, so its version refusal is indistinguishable from its
-structural ones by code. `parseManifest` is the outlier: it throws a plain `Error` naming the document and the
+that reader implements, that names the document. The verification policy file answers `POLICY_FILE_INVALID`
+at its version guard, and that is the code this loader gives every refusal about how a document is written: a
+text that is not one JSON object, a key written twice, a field of the wrong type, an anchor path that climbs
+out of the directory holding the file, and a `v` that is not the version the loader reads. The refusals that
+are not about how the document is written carry codes of their own: `POLICY_EMPTY_PIN` for a pinning field
+present and empty, `POLICY_NOTHING_PINNED` for a document pinning nothing a verifier would weigh,
+`POLICY_ANCHOR_UNREADABLE` and `POLICY_ANCHOR_DIGEST_MISMATCH` for the bytes at a pinned root, which
+`loadPolicyFromText` reads and `loadPolicyFile` reaches by the same call, and `POLICY_FILE_UNREADABLE` for the
+file that second one opens. So a policy at the wrong version is indistinguishable by code from a policy with a
+key written twice, and distinguishable from one that pins nothing, pins an empty list, or names a root whose
+bytes cannot be read or do not hash to the digest. As with the three families above, it is the refusal's
+message, naming the version found and the version the loader reads, that says which of them happened.
+`parseManifest` is the outlier: it throws a plain `Error` naming the document and the
 member it objected to, and it carries no code of its own. The loader `readDeploymentManifest` catches that
 error and re-raises it as `BAD_MANIFEST`, the code every failure of that parser shares, so through the loader a
 manifest written at a version it does not read is answered exactly as a manifest with a typo in it. A reader
