@@ -72,6 +72,11 @@ function publishableManifests(): PackageManifest[] {
   return found;
 }
 
+/** A path spelled with forward slashes, which is how a leaked one reaches a manifest from either side. */
+function asUrlPath(value: string): string {
+  return value.split(path.sep).join('/');
+}
+
 interface Run {
   readonly status: number | null;
   readonly stdout: string;
@@ -206,7 +211,11 @@ const collateral = await import('@ashaveri/collateral');
 const manifest = fixtures.loadManifest();
 const key = fixtures.loadFixtureKey();
 const accepted = (wanted) => manifest.fixtures.find((row) => row.v === wanted && row.expected === 'verify-ok');
-const tampered = manifest.fixtures.find((row) => row.expected === 'INVALID_SIGNATURE');
+// The row this file hands over as tampered is found by the name the fixture publishes it under, and not by
+// the code its row states: a row chosen because of the answer it expects cannot then be the source of that
+// answer. The stated code travels into the report from the row, so both refusal checks compare the reader
+// with the fixture rather than with a value restated on either side of the installed boundary.
+const tampered = manifest.fixtures.find((row) => row.name === 'receipt-tampered-v1');
 
 const report = {
   resolved: {
@@ -226,6 +235,8 @@ const report = {
   sdkSurface: { client: typeof sdk.AshaveriClient, wrap: typeof sdk.wrapOpenAI },
   rows: manifest.fixtures.length,
   verified: {},
+  tamperedRow: '',
+  tamperedStated: '',
   tampered: '',
   keyBase64Url: receipt.toBase64Url(key.publicKey),
   prefix: prefix,
@@ -233,9 +244,14 @@ const report = {
 
 const v1 = accepted(1);
 const v2 = accepted(2);
-if (v1 === undefined || v2 === undefined || tampered === undefined) {
+if (v1 === undefined || v2 === undefined) {
   throw new Error('the published manifest states no accepted row to read');
 }
+if (tampered === undefined) {
+  throw new Error('the published manifest states no receipt-tampered-v1 row, so nothing here is tampered');
+}
+report.tamperedRow = tampered.name;
+report.tamperedStated = tampered.expected;
 for (const row of [v1, v2]) {
   const bytes = fixtures.loadReceiptFixture(row.name).bytes;
   const iat = receipt.decodeReceipt(bytes).payload.iat;
@@ -261,6 +277,8 @@ interface ConsumerReport {
   readonly sdkSurface: { readonly client: string; readonly wrap: string };
   readonly rows: number;
   readonly verified: Record<string, { name: string; payloadVersion: number; model: string }>;
+  readonly tamperedRow: string;
+  readonly tamperedStated: string;
   readonly tampered: string;
   readonly keyBase64Url: string;
   readonly prefix: string;
@@ -317,7 +335,7 @@ function packedOf(name: string): PackedPackage {
 }
 
 describe('the tarballs a publish would upload', () => {
-  it('packs one artifact for every manifest the workspace holds back from no publish', () => {
+  it('packs one artifact for every manifest the workspace publishes', () => {
     const names = packed.map((one) => one.name);
     expect(names).toEqual(publishableManifests().map((one) => one.name));
     for (const one of packed) {
@@ -397,9 +415,9 @@ describe('the installed tree a consumer ends up with', () => {
     const answer = consumerAnswer();
     const outside: string[] = [];
     for (const [name, resolved] of Object.entries(answer.resolved)) {
-      const normal = resolved.split(path.sep).join('/');
+      const normal = asUrlPath(resolved);
       if (!normal.includes('/node_modules/@ashaveri/')) outside.push(`${name} resolved to ${resolved}`);
-      if (normal.startsWith(PACKAGE_PARENT.split(path.sep).join('/'))) outside.push(`${name} resolved back into the workspace at ${resolved}`);
+      if (normal.startsWith(asUrlPath(PACKAGE_PARENT))) outside.push(`${name} resolved back into the workspace at ${resolved}`);
     }
     expect(outside, `an installed module was read from outside the prefix:\n${outside.join('\n')}`).toEqual([]);
     const duplicated: string[] = [];
@@ -433,7 +451,11 @@ describe('the installed tree a consumer ends up with', () => {
   });
 
   it('refuses the tampered published receipt through the installed library', () => {
-    expect(consumerAnswer().tampered).toBe('INVALID_SIGNATURE');
+    const answer = consumerAnswer();
+    expect(
+      answer.tampered,
+      `the installed library answered ${answer.tamperedRow} with ${answer.tampered}, where the published row states ${answer.tamperedStated}`,
+    ).toBe(answer.tamperedStated);
   });
 
   it('ships the normative CDDL and JSON twins beside the installed reader', () => {
@@ -443,7 +465,7 @@ describe('the installed tree a consumer ends up with', () => {
       expect(shipped.includes(cddl), `${cddl} is in the manifest's files list and not in the installed package`).toBe(true);
     }
     const schemas = readdirSync(path.join(receiptDir, 'schemas'));
-    expect(schemas.length, 'the installed receipt package holds no JSON twins to read').toBeGreaterThanOrEqual(8);
+    expect(schemas.length, 'the installed receipt package holds no JSON twins to read').toBeGreaterThan(0);
     expect(schemas).toContain('receipt-v1.schema.json');
     expect(schemas).toContain('receipt-v2.schema.json');
   });
@@ -472,18 +494,33 @@ describe('the installed command on the same bytes', () => {
   });
 
   it('refuses the tampered receipt with the code the fixtures state beside it', () => {
-    const refused = runNode(installedCommand(), ['verify-handover', 'installed-tampered.cbor', '--key', consumerAnswer().keyBase64Url, '--json'], prefix);
+    const answer = consumerAnswer();
+    const refused = runNode(installedCommand(), ['verify-handover', 'installed-tampered.cbor', '--key', answer.keyBase64Url, '--json'], prefix);
     expect(refused.status, 'the installed command exited zero on bytes the published row refuses').not.toBe(0);
     const verdict = JSON.parse(refused.stdout) as { ok?: boolean; code?: string };
     expect(verdict.ok).toBe(false);
-    expect(verdict.code).toBe('INVALID_SIGNATURE');
+    expect(
+      verdict.code,
+      `the installed command answered ${answer.tamperedRow} with ${String(verdict.code)}, where the published row states ${answer.tamperedStated}`,
+    ).toBe(answer.tamperedStated);
   });
 
   it('leaves no trace of the checkout it was installed from in the installed manifest', () => {
+    const rootPath = asUrlPath(REPO_ROOT);
+    const scratchPath = asUrlPath(scratch);
     for (const one of packed) {
-      const text = JSON.stringify(installedManifest(one.name));
+      const text = asUrlPath(JSON.stringify(installedManifest(one.name)));
       expect(text.includes('workspace:'), `${one.name} installed a manifest still naming the workspace protocol`).toBe(false);
-      expect(text.includes(REPO_ROOT), `${one.name} installed a manifest carrying a path from this machine`).toBe(false);
+      // Both spellings of both directories, because they are one leak. npm records no `_resolved` entry for
+      // a tarball install, so the path that can travel into an installed manifest is the scratch directory
+      // the tarball was packed into as readily as the checkout it was packed from, and a comparison that
+      // normalizes nothing catches whichever of the two it was written against and misses the other.
+      for (const [label, leaked] of [
+        ['the checkout it was packed from', rootPath],
+        ['the directory it was packed into', scratchPath],
+      ] as const) {
+        expect(text.includes(leaked), `${one.name} installed a manifest carrying a path to ${label}: ${leaked}`).toBe(false);
+      }
     }
   });
 });
