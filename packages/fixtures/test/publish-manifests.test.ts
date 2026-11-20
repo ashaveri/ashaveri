@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  compareVersions,
   entryPoints,
+  floorOf,
   isPublishable,
   PACKAGE_SCOPE,
   parseRange,
@@ -221,6 +223,16 @@ function rootEnginesRange(): string {
   return declared.trim();
 }
 
+/**
+ * The same range with each operator set apart from its version by a space, which is one of the ways a
+ * manifest may be written: npm reads `>= 26.13.0 < 27` as the promise `>=26.13.0 <27` makes, and an author
+ * retyping a range in an editor that wraps the line produces the first out of the second. The reader takes
+ * that space back out, so neither spelling is a floor moved, and the case below is what says so.
+ */
+function spacedOperators(range: string): string {
+  return range.replace(/([<>]=?)[ \t]*/gu, '$1 ');
+}
+
 describe('the manifests a publish reads', () => {
   it('states one exact version in every scoped manifest', () => {
     const stated = new Map<string, string[]>();
@@ -337,6 +349,36 @@ describe('the manifests a publish reads', () => {
       disagreed,
       'a consumer reading these manifests finds no Node floor, or a floor other than the one this workspace ' +
         `declares for itself:\n${disagreed.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('reads one floor from a manifest however it spaces the operators of its range', () => {
+    const wanted = rootEnginesRange();
+    const declared = parseRange(wanted, `${ROOT_MANIFEST} engines.node`);
+    const rootFloor = floorOf(declared, `${ROOT_MANIFEST} engines.node`);
+    const misread: string[] = [];
+    for (const manifest of publishable()) {
+      const stated = nodeRangeOf(manifest);
+      if (stated === undefined) {
+        throw new Error(`${manifest.dir} states no engines.node, so it states no spelling of a floor to read`);
+      }
+      // Every manifest here is written without the space, so the spaced spelling of it is the one this
+      // tolerance exists for, and both questions the field answers are asked of it: whether it is still the
+      // workspace's promise, and what floor it states. A reader that split the range on a space it was told
+      // to allow would report a re-typed manifest as a moved floor.
+      const spaced = spacedOperators(stated);
+      const read = parseRange(spaced, `${manifest.dir} engines.node`);
+      if (!rangesAgree(read, declared)) {
+        misread.push(`${manifest.dir} states ${spaced}, which this reader does not read as ${wanted}`);
+      }
+      const floor = floorOf(read, `${manifest.dir} engines.node`);
+      if (compareVersions(floor, rootFloor) !== 0) {
+        misread.push(`${manifest.dir} states ${spaced}, whose floor is ${floor.text} and not ${rootFloor.text}`);
+      }
+    }
+    expect(
+      misread,
+      `a spacing is not a promise, and these manifests were held to a different one than they state:\n${misread.join('\n')}`,
     ).toEqual([]);
   });
 
