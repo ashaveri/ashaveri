@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm run build",
     "bundle": "node scripts/bundle.mjs",
     "test": "vitest run",
     "lint": "eslint .",

@@ -31,7 +31,9 @@ import {
  *
  *   The metadata a publish reads, and nothing invented beside it. `repository.directory` is the path the
  *   manifest actually sits at, and `bugs.url` and `homepage` are read off `repository.url` rather than
- *   typed again where a typo would survive review.
+ *   typed again where a typo would survive review. Every publishable manifest also declares a `prepack`
+ *   that runs its own `build`, because a pack reads the directory on disk rather than the source beside
+ *   it, and a stale one publishes as quietly as a fresh one.
  *
  *   The `files` list covers every entry point. `main`, `types`, `bin` and every `exports` target live in
  *   a directory the manifest said to ship. This is the tarball's property and not the workspace's: a
@@ -298,6 +300,15 @@ const PRIVATE_DEV_DEPENDENCIES: Record<string, readonly string[]> = {
   'packages/sdk': ['@ashaveri/signerd'],
 };
 
+/**
+ * Whether one `prepack` value runs the package's own `build` script. Delegating is what the guard is for:
+ * a prepack that repeats a compiler line builds something that can drift from what `build` means, and a
+ * prepack that runs nothing leaves the pack shipping the directory whatever command last wrote.
+ */
+function runsOwnBuild(prepack: string): boolean {
+  return /(?:^|[\s;&|(])[\w./-]+\s+run\s+build(?=$|[\s;&|)])/u.test(prepack);
+}
+
 describe('the manifests a publish reads', () => {
   it('states one exact version in every scoped manifest', () => {
     const stated = new Map<string, string[]>();
@@ -371,6 +382,46 @@ describe('the manifests a publish reads', () => {
       held,
       `the packages held back from a publish today are ${held.join(', ')}, which is the gateway and nothing else`,
     ).toEqual(['@ashaveri/signerd']);
+  });
+
+  it('declares a prepack that builds, so a pack ships a tree it compiled', () => {
+    // `pnpm pack` packages whatever `dist` was last left as. Without a prepack the artifact a consumer
+    // receives is a property of the last command anyone ran in this directory, which is the one failure a
+    // published version cannot take back, so the guard is stated in the manifest rather than in the
+    // workflow that happens to build first.
+    const offenders: string[] = [];
+    for (const manifest of publishable()) {
+      const scripts = field(manifest, 'scripts');
+      if (typeof scripts !== 'object' || scripts === null || Array.isArray(scripts)) {
+        offenders.push(`${manifest.dir} carries no scripts object, so it declares no prepack to run`);
+        continue;
+      }
+      const block = scripts as Record<string, unknown>;
+      const prepack = block['prepack'];
+      const build = block['build'];
+      if (typeof prepack !== 'string' || prepack.trim().length === 0) {
+        offenders.push(
+          `${manifest.dir} declares no prepack, so a pack of it ships the dist some earlier command left ` +
+            'behind, including a dist from before the source it publishes',
+        );
+        continue;
+      }
+      if (typeof build !== 'string' || build.trim().length === 0) {
+        offenders.push(`${manifest.dir} declares prepack as ${prepack} and no build script for it to run`);
+        continue;
+      }
+      if (!runsOwnBuild(prepack)) {
+        offenders.push(
+          `${manifest.dir} declares prepack as ${prepack}, which runs no build script, so the pack builds ` +
+            `nothing and the package's own build is ${build}`,
+        );
+      }
+    }
+    expect(
+      offenders,
+      'a publish would upload a tarball whose bytes are whatever the tree last happened to hold:\n' +
+        `${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('ships the directory every entry point lives in', () => {
