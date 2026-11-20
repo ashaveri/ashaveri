@@ -479,13 +479,20 @@ describe('the manifests a publish reads', () => {
   });
 
   it('finds each built entry point where the manifest says it will be', () => {
-    // A suite runs before a build as readily as after one, so this is asserted only where the output
-    // is on disk: it checks that what the build emitted is where the manifest promises it, which is
-    // the same promise a consumer of the tarball takes.
-    const unbuilt = manifests().filter((manifest) => !existsRepoFile(`${manifest.dir}/dist`));
-    if (unbuilt.length > 0) return;
+    // A suite runs before a build as readily as after one, so a set with no output on disk anywhere is a
+    // skip: what is asserted is that what the build emitted sits where the manifest promises it, which is
+    // the same promise a consumer of the tarball takes. A set that is part built is not a skip. The
+    // packages named by such a run would upload a tarball of nothing beside the built ones, so the
+    // unbuilt directory is reported by package and name, and only then are the entry points read.
+    const publishSet = publishable();
+    const unbuilt = publishSet.filter((manifest) => !existsRepoFile(`${manifest.dir}/dist`));
+    if (unbuilt.length === publishSet.length) return;
+    expect(
+      unbuilt.map((manifest) => `${manifest.name}: ${manifest.dir}/dist`),
+      'the publish set is part built, so each package named here would upload a tarball with no output:',
+    ).toEqual([]);
     const missing: string[] = [];
-    for (const manifest of manifests()) {
+    for (const manifest of publishSet) {
       for (const target of entryPoints(manifest.fields)) {
         const path = `${manifest.dir}/${target.replace(/^\.\//u, '')}`;
         if (!existsRepoFile(path)) missing.push(`${manifest.name}: ${path}`);
