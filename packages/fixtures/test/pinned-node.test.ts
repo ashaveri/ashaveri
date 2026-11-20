@@ -6,7 +6,6 @@ import {
   parseRange,
   parseVersion,
   readSourceFile,
-  type Comparator,
   type Version,
 } from './doc-contract.js';
 
