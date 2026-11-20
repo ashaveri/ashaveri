@@ -2024,6 +2024,21 @@ Three published packages add no document family of their own: `@ashaveri/cli` re
 command, `@ashaveri/collateral` fetches, classifies and retains vendor attestation collateral, and
 `@ashaveri/fixtures` publishes and loads the vectors these readers are measured against.
 
+Three of the six publish a package name no registry serves, and that is a stated position rather than
+something left behind. `@ashaveri/cli`, `@ashaveri/sdk` and `@ashaveri/fixtures` each list
+`@ashaveri/signerd`, the gateway their suites mint signing credentials against, under `devDependencies`, and
+packing a package rewrites that workspace range into the exact version the private package states. Nothing
+resolves it: a consumer installs the dependencies of a package, never the devDependencies of that package's
+publisher, so the name sits in metadata read while a package is developed and in no install of it. The
+boundary holds in the other direction too, because an installed command cannot import a package it is never
+handed: `packages/cli/src/records.ts` declares the gateway's credential record and its record limit a second
+time instead of depending on `@ashaveri/signerd`, and `packages/cli/test/credential.test.ts` reads a file that
+writer produced back through the gateway's own parser, so the two declarations are held together by behaviour
+rather than by a comment. `packages/fixtures/test/publish-manifests.test.ts` holds the position to the
+manifests: a private package name is refused in `dependencies`, `peerDependencies` and
+`optionalDependencies`, and admitted in `devDependencies` for the three packages named above and no other, so
+a fourth taking the same dependency arrives as an edit to a list rather than as drift.
+
 Documents whose layout a vendor defines are read by these packages too and are not in the table, because the
 version numbers they carry belong to their issuers and move on a vendor's schedule rather than on this
 repository's. What a published release promises of each is that it refuses a version it does not implement

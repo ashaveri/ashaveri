@@ -55,7 +55,9 @@ import {
  *   without an entry in that list would be silently unpublished rather than loudly wrong. Which manifest
  *   counts as one, and which paths a manifest names as a way into it, are read from `doc-contract.ts`:
  *   `installed-artifacts.test.ts` installs the set this rule picks out, and two copies of a rule drift
- *   apart long before either suite says so out loud.
+ *   apart long before either suite says so out loud. A name from the held-back set belongs in no field an
+ *   installer reads, and in a development dependency only where this file lists that package beside it,
+ *   because a pack rewrites a workspace range into an exact version in every block a manifest carries.
  *
  * Two facts are stated here rather than checked, because a check would restate the implementation rather
  * pin a contract. The `private` flag is the only thing in a manifest standing between a package and a
@@ -101,6 +103,17 @@ function objectField(manifest: Manifest, key: string): Record<string, unknown> {
     throw new Error(`${manifest.dir}/package.json has no ${key} object`);
   }
   return value as Record<string, unknown>;
+}
+
+/**
+ * The names one dependency block declares, or nothing where the manifest carries no such block. A block is
+ * read as a list of names rather than of ranges here because the question asked of it is who is named, and
+ * the range beside a name is another case's business.
+ */
+function dependencyNames(manifest: Manifest, key: string): string[] {
+  const block = field(manifest, key);
+  if (typeof block !== 'object' || block === null || Array.isArray(block)) return [];
+  return Object.keys(block as Record<string, unknown>);
 }
 
 /** Every `@ashaveri` manifest in the workspace, found by walking it rather than by a list kept here. */
@@ -264,6 +277,26 @@ function floorDisagreement(
   }
   return undefined;
 }
+
+/**
+ * The dependency fields npm reads when it installs a package. What sits in one of them has to resolve on a
+ * registry, so a name this workspace holds back from a registry cannot appear in any of them.
+ */
+const CONSUMER_INSTALLED_FIELDS = ['dependencies', 'peerDependencies', 'optionalDependencies'];
+
+/**
+ * The private packages each publishable manifest is allowed to name as a development dependency, and nothing
+ * else in this file. A private package has no tarball on a registry, so a name of one reaches a published
+ * manifest only where no installer is asked to resolve it: three suites mint signing credentials through the
+ * workspace signer, which is a decision those three manifests already make and `docs/receipt-spec.md` states.
+ * Writing the three here is what turns a fourth package gaining the same dependency from drift into an edit
+ * to this list, and an edit is a thing a reviewer sees.
+ */
+const PRIVATE_DEV_DEPENDENCIES: Record<string, readonly string[]> = {
+  'packages/cli': ['@ashaveri/signerd'],
+  'packages/fixtures': ['@ashaveri/signerd'],
+  'packages/sdk': ['@ashaveri/signerd'],
+};
 
 describe('the manifests a publish reads', () => {
   it('states one exact version in every scoped manifest', () => {
@@ -515,6 +548,54 @@ describe('the manifests a publish reads', () => {
         }
       }
     }
+  });
+
+  it('keeps a private package out of every field a consumer installs', () => {
+    // The held-back set is read off the manifests rather than written here, so a fifth private package is
+    // refused in every publishable manifest the moment it is flagged, with no edit to this file. That the
+    // set is not empty is pinned by the case holding `private` as the only statement of publishability,
+    // which answers for this one never having to refuse nothing.
+    const held = manifests()
+      .filter((manifest) => !isPublishable(manifest.fields))
+      .map((manifest) => manifest.name);
+    const publishing = publishable();
+    const offenders: string[] = [];
+    for (const manifest of publishing) {
+      for (const key of CONSUMER_INSTALLED_FIELDS) {
+        for (const name of dependencyNames(manifest, key)) {
+          if (held.includes(name)) {
+            offenders.push(`${manifest.dir} names ${name}, held back from a publish here, in ${key}, which npm installs`);
+          }
+        }
+      }
+      const allowed = PRIVATE_DEV_DEPENDENCIES[manifest.dir] ?? [];
+      const declared = dependencyNames(manifest, 'devDependencies');
+      for (const name of declared) {
+        if (held.includes(name) && !allowed.includes(name)) {
+          offenders.push(
+            `${manifest.dir} names ${name}, held back from a publish here, in devDependencies, which no line of ` +
+              'PRIVATE_DEV_DEPENDENCIES allows it to',
+          );
+        }
+      }
+      for (const name of allowed) {
+        if (!held.includes(name)) {
+          offenders.push(`${manifest.dir} is allowed to name ${name} in devDependencies, and ${name} carries no private flag`);
+        } else if (!declared.includes(name)) {
+          offenders.push(`${manifest.dir} is allowed to name ${name} in devDependencies and no longer does`);
+        }
+      }
+    }
+    for (const dir of Object.keys(PRIVATE_DEV_DEPENDENCIES)) {
+      if (!publishing.some((manifest) => manifest.dir === dir)) {
+        offenders.push(`${dir} is on PRIVATE_DEV_DEPENDENCIES and publishes nothing, so the allowance waits for a manifest that is not here`);
+      }
+    }
+    expect(
+      offenders,
+      `the packages held back from a publish are ${held.join(', ')}; a publishable manifest naming one where an ` +
+        `installer looks leaves a consumer resolving a package no registry serves:\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('ships the license text its declared id promises', () => {
