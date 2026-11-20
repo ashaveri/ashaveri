@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { readSourceFile, spelledNumber } from './doc-contract.js';
+import {
+  entryPoints,
+  isPublishable,
+  PACKAGE_SCOPE,
+  readSourceFile,
+  scopedManifests,
+  spelledNumber,
+  type PackageManifest,
+} from './doc-contract.js';
 
 /**
  * What a publish reads. `@ashaveri/*` packages reach a registry through
@@ -33,7 +41,10 @@ import { readSourceFile, spelledNumber } from './doc-contract.js';
  *   The publish set is the set with no `private` flag, in an order a consumer can install. The workflow
  *   names packages, the manifests say which are publishable and which depend on which, and this file
  *   makes the two answer to each other, because a package added to the workspace, or moved to public,
- *   without an entry in that list would be silently unpublished rather than loudly wrong.
+ *   without an entry in that list would be silently unpublished rather than loudly wrong. Which manifest
+ *   counts as one, and which paths a manifest names as a way into it, are read from `doc-contract.ts`:
+ *   `installed-artifacts.test.ts` installs the set this rule picks out, and two copies of a rule drift
+ *   apart long before either suite says so out loud.
  *
  * Two facts are stated here rather than checked, because a check would restate the implementation rather
  * pin a contract. The `private` flag is the only thing in a manifest standing between a package and a
@@ -55,14 +66,10 @@ const ROOT_MANIFEST = 'package.json';
 const PACKAGE_PARENT = '../../';
 const GATEWAY_DIR = 'gateway';
 
-const SCOPE = '@ashaveri/';
+const SCOPE = PACKAGE_SCOPE;
 
-interface Manifest {
-  readonly dir: string;
-  readonly name: string;
-  readonly version: string;
-  readonly fields: Record<string, unknown>;
-}
+/** One workspace manifest, as the shared reader returns it. */
+type Manifest = PackageManifest;
 
 /** The fields this file reads, taken as they come so a wrong type is reported rather than coerced. */
 function field(manifest: Manifest, key: string): unknown {
@@ -96,20 +103,10 @@ function manifests(): Manifest[] {
     .map((entry) => `packages/${entry.name}`)
     .concat(GATEWAY_DIR)
     .filter((dir) => existsRepoFile(`${dir}/package.json`));
-  const found: Manifest[] = [];
-  for (const dir of dirs) {
-    const raw = JSON.parse(readRepoFile(`${dir}/package.json`)) as Record<string, unknown>;
-    const name = raw['name'];
-    if (typeof name !== 'string' || !name.startsWith(SCOPE)) continue;
-    const version = raw['version'];
-    if (typeof version !== 'string') {
-      throw new Error(`${dir}/package.json names ${name} with no version string`);
-    }
-    found.push({ dir, name, version, fields: raw });
-  }
+  const found = scopedManifests(dirs.map((dir) => ({ dir, text: readRepoFile(`${dir}/package.json`) })));
   if (found.length === 0) throw new Error(`no ${SCOPE}* manifest was found in the workspace`);
-  workspaceManifests = found.sort((a, b) => a.name.localeCompare(b.name));
-  return workspaceManifests;
+  workspaceManifests = found;
+  return found;
 }
 
 function existsRepoFile(relative: string): boolean {
@@ -121,12 +118,12 @@ function readRepoFile(relative: string): string {
 }
 
 /**
- * The publishable set, read the way a registry reads it. Only `private: true` holds a package back, so a
- * manifest spelling the flag `false` belongs here whether or not this workspace ever writes it that way,
- * and the set test below is then the second place that disagreement lands rather than the only one.
+ * The publishable set, read the way a registry reads it: `isPublishable` in `doc-contract.ts` is the rule,
+ * shared with the test that installs the set it picks out, so neither can drift into a different meaning
+ * of the same sentence.
  */
 function publishable(): Manifest[] {
-  return manifests().filter((manifest) => field(manifest, 'private') !== true);
+  return manifests().filter((manifest) => isPublishable(manifest.fields));
 }
 
 /**
@@ -179,34 +176,6 @@ function indexOfStep(holding: string): number {
   const at = workflowSteps().findIndex((step) => step.includes(holding));
   if (at < 0) throw new Error(`${WORKFLOW} has no step labelled with "${holding}"`);
   return at;
-}
-
-/** Every path an entry point names, with the `./` a manifest spells it with taken off. */
-function entryPoints(manifest: Manifest): string[] {
-  const listed: string[] = [];
-  for (const key of ['main', 'types']) {
-    const value = field(manifest, key);
-    if (typeof value === 'string') listed.push(value);
-  }
-  const bin = field(manifest, 'bin');
-  if (typeof bin === 'string') listed.push(bin);
-  else if (typeof bin === 'object' && bin !== null) {
-    for (const value of Object.values(bin as Record<string, unknown>)) {
-      if (typeof value === 'string') listed.push(value);
-    }
-  }
-  // `exports` nests, so the targets are collected by walking rather than by reading one shape.
-  const walk = (value: unknown): void => {
-    if (typeof value === 'string') {
-      listed.push(value);
-      return;
-    }
-    if (typeof value === 'object' && value !== null) {
-      for (const nested of Object.values(value as Record<string, unknown>)) walk(nested);
-    }
-  };
-  walk(field(manifest, 'exports'));
-  return listed;
 }
 
 /** The license text each package's declared id promises, per package where it has one. */
@@ -324,7 +293,7 @@ describe('the manifests a publish reads', () => {
       const files = field(manifest, 'files');
       expect(Array.isArray(files) && files.length > 0, `${manifest.dir} declares no files list`).toBe(true);
       const shipped = (files as unknown[]).map((entry) => String(entry).replace(/^\.\//u, ''));
-      for (const target of entryPoints(manifest)) {
+      for (const target of entryPoints(manifest.fields)) {
         const clean = target.replace(/^\.\//u, '');
         const top = clean.split('/')[0] ?? clean;
         // `package.json` is always shipped, and a bare file at the package root is shipped by naming it.
@@ -361,7 +330,7 @@ describe('the manifests a publish reads', () => {
     if (unbuilt.length > 0) return;
     const missing: string[] = [];
     for (const manifest of manifests()) {
-      for (const target of entryPoints(manifest)) {
+      for (const target of entryPoints(manifest.fields)) {
         const path = `${manifest.dir}/${target.replace(/^\.\//u, '')}`;
         if (!existsRepoFile(path)) missing.push(`${manifest.name}: ${path}`);
       }

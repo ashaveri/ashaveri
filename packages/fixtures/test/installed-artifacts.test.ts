@@ -5,6 +5,15 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync } from 'node:zlib';
+import {
+  entryPoints,
+  isPublishable,
+  PACKAGE_SCOPE,
+  parseRange,
+  rangesAgree,
+  scopedManifests,
+  type PackageManifest,
+} from './doc-contract.js';
 
 /**
  * The published surface, run the way a consumer runs it.
@@ -35,7 +44,8 @@ import { gunzipSync } from 'node:zlib';
 /** Repo-relative, because that is the spelling a failure message has to be readable in. */
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const PACKAGE_PARENT = fileURLToPath(new URL('../../', import.meta.url));
-const SCOPE = '@ashaveri/';
+const SCOPE = PACKAGE_SCOPE;
+const ROOT_MANIFEST = 'package.json';
 
 /** One pack, one install, and one consumer run, each with room for a cold cache. */
 const PACK_CEILING_MS = 180_000;
@@ -43,34 +53,23 @@ const INSTALL_CEILING_MS = 600_000;
 const NODE_CEILING_MS = 180_000;
 const PREP_CEILING_MS = 900_000;
 
-interface WorkspaceManifest {
-  readonly dir: string;
-  readonly name: string;
-  readonly version: string;
-}
-
 /**
- * The publishable set, walked rather than listed: `publish-manifests.test.ts` already holds this same walk to
- * the order `publish.yml` publishes in, so a package added to the workspace arrives here too, and a package
- * whose `private` flag flipped is installed and checked here before anything publishes it.
+ * The publishable set, walked rather than listed. Which manifest a publish uploads is the rule
+ * `doc-contract.ts` states once, the same rule `publish-manifests.test.ts` holds the workspace to and the
+ * workflow's order answers to, so a package added under `packages/` arrives here too, and a package whose
+ * `private` flag flipped is installed and checked before anything publishes it. This walk stops at
+ * `packages/`, because a consumer installs the packages and this file asks questions of those bytes.
  */
-function publishableManifests(): WorkspaceManifest[] {
-  const found: WorkspaceManifest[] = [];
-  for (const entry of readdirSync(PACKAGE_PARENT, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const dir = path.join(PACKAGE_PARENT, entry.name);
-    const manifestPath = path.join(dir, 'package.json');
-    if (!existsSync(manifestPath)) continue;
-    const raw = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>;
-    const name = raw['name'];
-    const version = raw['version'];
-    if (typeof name !== 'string' || !name.startsWith(SCOPE)) continue;
-    if (raw['private'] === true) continue;
-    if (typeof version !== 'string') throw new Error(`${name} carries no version to pack`);
-    found.push({ dir, name, version });
-  }
+function publishableManifests(): PackageManifest[] {
+  const dirs = readdirSync(PACKAGE_PARENT, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(PACKAGE_PARENT, entry.name))
+    .filter((dir) => existsSync(path.join(dir, 'package.json')));
+  const found = scopedManifests(
+    dirs.map((dir) => ({ dir, text: readFileSync(path.join(dir, 'package.json'), 'utf8') })),
+  ).filter((manifest) => isPublishable(manifest.fields));
   if (found.length === 0) throw new Error(`no publishable ${SCOPE}* manifest was found under ${PACKAGE_PARENT}`);
-  return found.sort((a, b) => a.name.localeCompare(b.name));
+  return found;
 }
 
 interface Run {
@@ -317,26 +316,6 @@ function packedOf(name: string): PackedPackage {
   return one;
 }
 
-/** Every `./`-prefixed path an entry point of a manifest names. */
-function entryPointsOf(manifest: Record<string, unknown>): string[] {
-  const listed: string[] = [];
-  for (const key of ['main', 'types']) {
-    const value = manifest[key];
-    if (typeof value === 'string') listed.push(value);
-  }
-  const walk = (value: unknown): void => {
-    if (typeof value === 'string') listed.push(value);
-    else if (typeof value === 'object' && value !== null) {
-      for (const nested of Object.values(value as Record<string, unknown>)) walk(nested);
-    }
-  };
-  walk(manifest['exports']);
-  const bin = manifest['bin'];
-  if (typeof bin === 'string') listed.push(bin);
-  else if (typeof bin === 'object' && bin !== null) walk(bin);
-  return listed;
-}
-
 describe('the tarballs a publish would upload', () => {
   it('packs one artifact for every manifest the workspace holds back from no publish', () => {
     const names = packed.map((one) => one.name);
@@ -369,7 +348,7 @@ describe('the tarballs a publish would upload', () => {
     const missing: string[] = [];
     for (const one of packed) {
       const root = 'package';
-      for (const target of entryPointsOf(one.manifest)) {
+      for (const target of entryPoints(one.manifest)) {
         const member = `${root}/${target.replace(/^\.\//u, '')}`;
         if (!one.members.has(member)) missing.push(`${one.name}: ${member}`);
       }
@@ -385,16 +364,29 @@ describe('the tarballs a publish would upload', () => {
   });
 
   it('carries the engines floor into the artifact, where a consumer reads it', () => {
-    const root = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as {
+    const root = JSON.parse(readFileSync(path.join(REPO_ROOT, ROOT_MANIFEST), 'utf8')) as {
       engines?: { node?: string };
     };
     const wanted = root.engines?.node;
-    expect(typeof wanted, 'the root manifest declares no engines.node to compare a package against').toBe('string');
+    if (typeof wanted !== 'string' || wanted.trim().length === 0) {
+      throw new Error(`${ROOT_MANIFEST} declares no engines.node, so a packed manifest has no floor to carry`);
+    }
+    const declared = parseRange(wanted, `${ROOT_MANIFEST} engines.node`);
     const disagreed: string[] = [];
     for (const one of packed) {
       const engines = one.manifest['engines'];
-      const stated = typeof engines === 'object' && engines !== null ? (engines as Record<string, unknown>)['node'] : undefined;
-      if (stated !== wanted) disagreed.push(`${one.name} ships engines.node ${String(stated)}, where the workspace declares ${String(wanted)}`);
+      const stated =
+        typeof engines === 'object' && engines !== null ? (engines as Record<string, unknown>)['node'] : undefined;
+      if (typeof stated !== 'string') {
+        disagreed.push(`${one.name} ships engines.node ${String(stated)}, where ${ROOT_MANIFEST} declares "${wanted}"`);
+        continue;
+      }
+      // Compared as a range and not as text, because a range is the promise the field makes. A packed
+      // manifest written `>= 26.13.0 <27` states this one promise; one written `>=26.0.0` does not, and a
+      // text match reads the first as a defect and the second as clean.
+      if (!rangesAgree(parseRange(stated, `${one.name} engines.node`), declared)) {
+        disagreed.push(`${one.name} ships engines.node "${stated}", which is not the promise ${ROOT_MANIFEST} declares as "${wanted}"`);
+      }
     }
     expect(disagreed, disagreed.join('\n')).toEqual([]);
   });
