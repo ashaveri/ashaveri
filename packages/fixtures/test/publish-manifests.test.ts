@@ -5,7 +5,9 @@ import {
   entryPoints,
   isPublishable,
   PACKAGE_SCOPE,
+  parseRange,
   readSourceFile,
+  rangesAgree,
   scopedManifests,
   spelledNumber,
   type PackageManifest,
@@ -36,7 +38,9 @@ import {
  *   Every publishable manifest states a Node floor, and the floor it states is the one the root manifest
  *   declares for this workspace. The range is read off that manifest rather than written out again here, so
  *   the six published copies and the workspace declaration cannot drift apart, and `pinned-node.test.ts`
- *   already holds the root range to the release `.nvmrc` names.
+ *   already holds the root range to the release `.nvmrc` names. The two are read with that file's reader and
+ *   compared on the versions they admit rather than on their spelling, because a spacing is not a promise and
+ *   a widened floor is one.
  *
  *   The publish set is the set with no `private` flag, in an order a consumer can install. The workflow
  *   names packages, the manifests say which are publishable and which depend on which, and this file
@@ -190,17 +194,21 @@ function licenseFileIn(dir: string): string | undefined {
   return hit;
 }
 
-/** The `engines.node` a manifest states, spaced as the root spaces it, or the word saying it states none. */
-function nodeRangeOf(manifest: Manifest): string {
+/** The `engines.node` a manifest states, as it is written, or nothing where it states none. */
+function nodeRangeOf(manifest: Manifest): string | undefined {
   const engines = field(manifest, 'engines');
   const declared =
     typeof engines === 'object' && engines !== null && !Array.isArray(engines)
       ? (engines as Record<string, unknown>)['node']
       : undefined;
-  return typeof declared === 'string' ? declared.trim().replace(/\s+/gu, ' ') : 'nothing';
+  return typeof declared === 'string' && declared.trim().length > 0 ? declared : undefined;
 }
 
-/** The floor the workspace declares for itself, read off its own manifest rather than copied here. */
+/**
+ * The floor the workspace declares for itself, read off its own manifest rather than copied here. It is
+ * handed to the range reader as written, because the comparison below is on what the two ranges admit and
+ * not on how either of them is spaced.
+ */
 function rootEnginesRange(): string {
   const engines = (JSON.parse(readRepoFile(ROOT_MANIFEST)) as Record<string, unknown>)['engines'];
   if (typeof engines !== 'object' || engines === null || Array.isArray(engines)) {
@@ -210,7 +218,7 @@ function rootEnginesRange(): string {
   if (typeof declared !== 'string' || declared.trim().length === 0) {
     throw new Error(`${ROOT_MANIFEST} declares no engines.node, so a package has no floor to state`);
   }
-  return declared.trim().replace(/\s+/gu, ' ');
+  return declared.trim();
 }
 
 describe('the manifests a publish reads', () => {
@@ -308,11 +316,21 @@ describe('the manifests a publish reads', () => {
 
   it("states the root's Node floor in every publishable manifest, which a manager enforces only where the consumer opts in", () => {
     const wanted = rootEnginesRange();
+    const declared = parseRange(wanted, `${ROOT_MANIFEST} engines.node`);
     const disagreed: string[] = [];
     for (const manifest of publishable()) {
       const stated = nodeRangeOf(manifest);
-      if (stated !== wanted) {
-        disagreed.push(`${manifest.dir} states engines.node as ${stated}, where ${ROOT_MANIFEST} states ${wanted}`);
+      if (stated === undefined) {
+        disagreed.push(`${manifest.dir} states engines.node as nothing, where ${ROOT_MANIFEST} states ${wanted}`);
+        continue;
+      }
+      // Compared as a range and not as text, on the reader `pinned-node.test.ts` states the convention
+      // with: `>= 26.13.0 <27` is the root's promise re-spaced, and `>=26.0.0` is a floor widened. A text
+      // match reddens the first and passes the second, which is the opposite of what this field claims.
+      if (!rangesAgree(parseRange(stated, `${manifest.dir} engines.node`), declared)) {
+        disagreed.push(
+          `${manifest.dir} states engines.node as ${stated}, which is not the promise ${ROOT_MANIFEST} states as ${wanted}`,
+        );
       }
     }
     expect(
