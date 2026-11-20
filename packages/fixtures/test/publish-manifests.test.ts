@@ -36,7 +36,8 @@ import {
  *   The `files` list covers every entry point. `main`, `types`, `bin` and every `exports` target live in
  *   a directory the manifest said to ship. This is the tarball's property and not the workspace's: a
  *   workspace resolves a sibling through a link to its directory, where a consumer gets only the bytes
- *   the `files` list chose.
+ *   the `files` list chose. A `bin` is read in both shapes a manifest may write it in, the map for several
+ *   commands and the bare string for one, because the shorter of the two names a way in rather than none.
  *
  *   Every publishable manifest states a Node floor, and the floor it states is the one the root manifest
  *   declares for this workspace. The range is read off that manifest rather than written out again here, so
@@ -355,6 +356,21 @@ describe('the manifests a publish reads', () => {
         ).toBe(true);
       }
     }
+  });
+
+  it('reads the way in a manifest names with one bin target, which a one-command package writes short', () => {
+    // `@ashaveri/cli` and the gateway each ship one command and name it as a map, the form npm uses when a
+    // package ships several. A manifest with a single command may write the same fact as the string npm
+    // accepts for it, and then a reader that walked only the map finds an entry point in no manifest: not a
+    // refusal but an empty list, which the check above holds to a shipped directory of nothing.
+    const single = entryPoints({ bin: './dist/cli.js' });
+    expect(single, `a manifest naming its one command as a string read as ${single.join(', ') || 'nothing'}`).toEqual(
+      ['./dist/cli.js'],
+    );
+    const mapped = entryPoints({ bin: { ashaveri: './dist/cli.js' } });
+    expect(mapped, 'the one command named as a map read differently from the same command named as a string').toEqual(
+      single,
+    );
   });
 
   it("states the root's Node floor in every publishable manifest, which a manager enforces only where the consumer opts in", () => {
