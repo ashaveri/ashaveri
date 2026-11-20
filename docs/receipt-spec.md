@@ -2032,13 +2032,14 @@ resolves it: a consumer installs the dependencies of a package, never the devDep
 publisher, so the name sits in metadata read while a package is developed and in no install of it. The
 boundary holds in the other direction too, because an installed command cannot import a package it is never
 handed: `packages/cli/src/records.ts` declares the gateway's credential record and its record limit a second
-time instead of depending on `@ashaveri/signerd`, and `packages/cli/test/credential.test.ts` reads a file that
-writer produced back through the gateway's own parser, so the two declarations are held together by behaviour
-rather than by a comment. `packages/fixtures/test/publish-manifests.test.ts` holds the position to the
+time instead of depending on `@ashaveri/signerd`, and that second declaration is weighed against the first by
+behaviour rather than by a comment: the credential file `ashaveri credential add` writes is read back through
+`loadCredentialFile`, the gateway's own loader, which accepts it and returns the id and the rate the command
+stated. `packages/fixtures/test/publish-manifests.test.ts` holds the position to the
 manifests: a private package name is refused in `dependencies`, `peerDependencies` and
 `optionalDependencies`, and admitted in `devDependencies` for those names and no other. The same file reads
-this paragraph back and compares the names it states to the names that test keeps, so a fourth package taking
-the same dependency arrives as an edit to both lists or as a failing test, rather than as drift.
+this paragraph back and compares the names stated here to the list it keeps, so a fourth package taking the
+same dependency arrives as an edit to both or as a failing test, rather than as drift.
 
 Documents whose layout a vendor defines are read by these packages too and are not in the table, because the
 version numbers they carry belong to their issuers and move on a vendor's schedule rather than on this
