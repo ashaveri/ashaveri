@@ -77,6 +77,22 @@ function asUrlPath(value: string): string {
   return value.split(path.sep).join('/');
 }
 
+/**
+ * Serialized JSON text with each escaped separator read back as the one character the directory is written
+ * with. `JSON.stringify` doubles every separator a native Windows path carries, so a manifest holding
+ * `dir\sub` arrives in text as `dir\\sub`, and a comparison that only turns separators into slashes lands on
+ * `dir//sub`: a string no needle spells. Forward slashes pass through untouched, so both spellings of one
+ * directory come out of here as the same text.
+ */
+function asUnescapedText(value: string): string {
+  return asUrlPath(value.split('\\\\').join('\\'));
+}
+
+/** Whether one serialized manifest names one directory, in either spelling its separators arrive in. */
+function carriesPath(serialized: string, dir: string): boolean {
+  return asUnescapedText(serialized).includes(asUrlPath(dir));
+}
+
 interface Run {
   readonly status: number | null;
   readonly stdout: string;
@@ -506,22 +522,47 @@ describe('the installed command on the same bytes', () => {
   });
 
   it('leaves no trace of the checkout it was installed from in the installed manifest', () => {
-    const rootPath = asUrlPath(REPO_ROOT);
-    const scratchPath = asUrlPath(scratch);
     for (const one of packed) {
-      const text = asUrlPath(JSON.stringify(installedManifest(one.name)));
-      expect(text.includes('workspace:'), `${one.name} installed a manifest still naming the workspace protocol`).toBe(false);
-      // Both spellings of both directories, because they are one leak. npm records no `_resolved` entry for
-      // a tarball install, so the path that can travel into an installed manifest is the scratch directory
-      // the tarball was packed into as readily as the checkout it was packed from, and a comparison that
-      // normalizes nothing catches whichever of the two it was written against and misses the other.
+      const serialized = JSON.stringify(installedManifest(one.name));
+      expect(serialized.includes('workspace:'), `${one.name} installed a manifest still naming the workspace protocol`).toBe(false);
+      // Both directories, because a local pack can name either: npm records no `_resolved` entry for a
+      // tarball install, so the scratch directory the tarball was packed into travels into an installed
+      // manifest as readily as the checkout it was packed from. Each is read in both spellings a manifest
+      // can hold a directory in, the forward slashes a URL or a hand-written field carries and the native
+      // separators `JSON.stringify` doubles, which is the spelling this machine's own paths arrive in and
+      // the one a comparison that only takes separators out reads as some other directory entirely.
       for (const [label, leaked] of [
-        ['the checkout it was packed from', rootPath],
-        ['the directory it was packed into', scratchPath],
+        ['the checkout it was packed from', REPO_ROOT],
+        ['the directory it was packed into', scratch],
       ] as const) {
-        expect(text.includes(leaked), `${one.name} installed a manifest carrying a path to ${label}: ${leaked}`).toBe(false);
+        expect(
+          carriesPath(serialized, leaked),
+          `${one.name} installed a manifest carrying a path to ${label}: ${asUrlPath(leaked)}`,
+        ).toBe(false);
       }
     }
+  });
+
+  it('catches a leaked directory in the spelling its own separators are escaped in', () => {
+    // The plantings this check was written against could only ever carry one of the two spellings, because
+    // a scratch path on a POSIX runner holds no separator that JSON escapes. So the doubled spelling is
+    // shown here from text rather than from a filesystem: the claim the check above makes is that a leak is
+    // caught whichever way its separators are written, and a runner that cannot write them the other way is
+    // no evidence that it would have noticed.
+    const forward = asUrlPath(REPO_ROOT);
+    const native = forward.split('/').join(path.sep);
+    expect(
+      carriesPath(JSON.stringify({ _resolved: native }), REPO_ROOT),
+      `a manifest holding the separators-escaped ${native} went uncaught`,
+    ).toBe(true);
+    expect(
+      carriesPath(JSON.stringify({ _resolved: forward }), REPO_ROOT),
+      `a manifest holding the forward-spelled ${forward} went uncaught`,
+    ).toBe(true);
+    expect(
+      carriesPath(JSON.stringify({ _resolved: '/nowhere/this/run/created' }), REPO_ROOT),
+      'the comparison flags a directory it was never handed',
+    ).toBe(false);
   });
 });
 
