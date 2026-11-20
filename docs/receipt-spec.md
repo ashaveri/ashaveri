@@ -2070,7 +2070,10 @@ was outside a reader's set, and it is the refusal's message, which states the ve
 that reader implements, that names the document. The verification policy file answers `POLICY_FILE_INVALID`,
 the one code every refusal of that loader carries, so its version refusal is indistinguishable from its
 structural ones by code. `parseManifest` is the outlier: it throws a plain `Error` naming the document and the
-member it objected to, and it carries no code field at all. A reader does not accept the
+member it objected to, and it carries no code of its own. The loader `readDeploymentManifest` catches that
+error and re-raises it as `BAD_MANIFEST`, the code every failure of that parser shares, so through the loader a
+manifest written at a version it does not read is answered exactly as a manifest with a typo in it. A reader
+does not accept the
 members it happens to know and leave the rest: the payload map is closed, as section 6 says, and the number
 a document names is settled before one member of it is weighed. `ashaveri verify-handover` and
 `ashaveri verify-receipt` carry that answer out of the installed package to the terminal, in the `code`
