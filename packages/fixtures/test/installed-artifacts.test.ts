@@ -65,11 +65,24 @@ function publishableManifests(): PackageManifest[] {
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(PACKAGE_PARENT, entry.name))
     .filter((dir) => existsSync(path.join(dir, 'package.json')));
-  const found = scopedManifests(
+  const found = publishableFrom(
     dirs.map((dir) => ({ dir, text: readFileSync(path.join(dir, 'package.json'), 'utf8') })),
-  ).filter((manifest) => isPublishable(manifest.fields));
+  );
   if (found.length === 0) throw new Error(`no publishable ${SCOPE}* manifest was found under ${PACKAGE_PARENT}`);
   return found;
+}
+
+/**
+ * The manifests a publish would upload, out of the files one caller read. The `private` marker is asked of
+ * each manifest before the shared reader is handed it, because `scopedManifests` refuses a scoped manifest
+ * that states no version, and this suite has no use for the version of a package it neither packs nor
+ * installs: a private package added under `packages/` without one would arrive as a refusal in every check
+ * here, including the ones that never read it. Ordering is the whole of the change. The refusal still
+ * reaches anything this set is built to pack, and `publish-manifests.test.ts` holds the whole workspace,
+ * gateway included, to one version each.
+ */
+function publishableFrom(reads: Array<{ dir: string; text: string }>): PackageManifest[] {
+  return scopedManifests(reads.filter((one) => isPublishable(JSON.parse(one.text) as Record<string, unknown>)));
 }
 
 /** A path spelled with forward slashes, which is how a leaked one reaches a manifest from either side. */
@@ -349,6 +362,32 @@ function packedOf(name: string): PackedPackage {
   if (one === undefined) throw new Error(`${name} was never packed, so this file has nothing to read`);
   return one;
 }
+
+describe('the set a publish would upload', () => {
+  it('drops a private manifest that states no version before the reader is asked for one', () => {
+    // Nothing files a tarball for a package a publish holds back, so its version is no consumer's business,
+    // and this suite neither packs nor installs it. Asked in the other order, the shared reader refuses that
+    // manifest and the whole run stops: an unrelated package added later, in a shape no publish reads, would
+    // arrive here as errors on checks that never opened its directory.
+    const reads = [
+      { dir: 'packages/kept-public', text: JSON.stringify({ name: '@ashaveri/kept-public', version: '0.1.0' }) },
+      { dir: 'packages/kept-private', text: JSON.stringify({ name: '@ashaveri/kept-private', private: true }) },
+    ];
+    const kept = publishableFrom(reads).map((one) => one.name);
+    expect(kept, `the set a publish uploads came out as ${kept.join(', ')}`).toEqual(['@ashaveri/kept-public']);
+  });
+
+  it('still refuses a manifest it would pack that states no version', () => {
+    // The ordering above is not a tolerance. A manifest this set is built to pack still reaches the one
+    // refusal `doc-contract.ts` states, naming its own directory, rather than arriving as an undefined
+    // version handed to a pack command.
+    const reads = [{ dir: 'packages/kept-public', text: JSON.stringify({ name: '@ashaveri/kept-public' }) }];
+    expect(
+      () => publishableFrom(reads),
+      'a manifest the publish would upload stated no version and the run was allowed to continue',
+    ).toThrow('packages/kept-public/package.json names @ashaveri/kept-public');
+  });
+});
 
 describe('the tarballs a publish would upload', () => {
   it('packs one artifact for every manifest the workspace publishes', () => {
