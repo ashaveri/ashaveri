@@ -25,6 +25,11 @@ import { readSourceFile, spelledNumber } from './doc-contract.js';
  *   workspace resolves a sibling through a link to its directory, where a consumer gets only the bytes
  *   the `files` list chose.
  *
+ *   Every publishable manifest states a Node floor, and the floor it states is the one the root manifest
+ *   declares for this workspace. The range is read off that manifest rather than written out again here, so
+ *   the six published copies and the workspace declaration cannot drift apart, and `pinned-node.test.ts`
+ *   already holds the root range to the release `.nvmrc` names.
+ *
  *   The publish set is the set with no `private` flag, in an order a consumer can install. The workflow
  *   names packages, the manifests say which are publishable and which depend on which, and this file
  *   makes the two answer to each other, because a package added to the workspace, or moved to public,
@@ -44,6 +49,7 @@ const WORKFLOW = 'publish.yml';
 const WORKFLOW_PATH = '.github/workflows/publish.yml';
 const README = 'README.md';
 const ROOT_LICENSE = 'LICENSE';
+const ROOT_MANIFEST = 'package.json';
 
 /** The two places a package sits in this workspace: one directory each, plus the gateway. */
 const PACKAGE_PARENT = '../../';
@@ -215,6 +221,29 @@ function licenseFileIn(dir: string): string | undefined {
   return hit;
 }
 
+/** The `engines.node` a manifest states, spaced as the root spaces it, or the word saying it states none. */
+function nodeRangeOf(manifest: Manifest): string {
+  const engines = field(manifest, 'engines');
+  const declared =
+    typeof engines === 'object' && engines !== null && !Array.isArray(engines)
+      ? (engines as Record<string, unknown>)['node']
+      : undefined;
+  return typeof declared === 'string' ? declared.trim().replace(/\s+/gu, ' ') : 'nothing';
+}
+
+/** The floor the workspace declares for itself, read off its own manifest rather than copied here. */
+function rootEnginesRange(): string {
+  const engines = (JSON.parse(readRepoFile(ROOT_MANIFEST)) as Record<string, unknown>)['engines'];
+  if (typeof engines !== 'object' || engines === null || Array.isArray(engines)) {
+    throw new Error(`${ROOT_MANIFEST} declares no engines object, so a package has no floor to state`);
+  }
+  const declared = (engines as Record<string, unknown>)['node'];
+  if (typeof declared !== 'string' || declared.trim().length === 0) {
+    throw new Error(`${ROOT_MANIFEST} declares no engines.node, so a package has no floor to state`);
+  }
+  return declared.trim().replace(/\s+/gu, ' ');
+}
+
 describe('the manifests a publish reads', () => {
   it('states one exact version in every scoped manifest', () => {
     const stated = new Map<string, string[]>();
@@ -306,6 +335,22 @@ describe('the manifests a publish reads', () => {
         ).toBe(true);
       }
     }
+  });
+
+  it("states the root's Node floor in every publishable manifest, which a manager enforces only where the consumer opts in", () => {
+    const wanted = rootEnginesRange();
+    const disagreed: string[] = [];
+    for (const manifest of publishable()) {
+      const stated = nodeRangeOf(manifest);
+      if (stated !== wanted) {
+        disagreed.push(`${manifest.dir} states engines.node as ${stated}, where ${ROOT_MANIFEST} states ${wanted}`);
+      }
+    }
+    expect(
+      disagreed,
+      'a consumer reading these manifests finds no Node floor, or a floor other than the one this workspace ' +
+        `declares for itself:\n${disagreed.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('finds each built entry point where the manifest says it will be', () => {
