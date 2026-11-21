@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { decodeReceipt, fromBase64Url, toHex, verifyReceipt } from '@ashaveri/receipt';
 import { RECEIPT_ID } from '../src/access.js';
 import { mockCompletion, parseChatCompletionRequest, RequestError } from '../src/mock.js';
+// The member type is named through the package's entry point, because that is the only place a consumer of
+// the gateway can reach it from: a case that spelled the array from `../src/mock.js` would not notice an
+// entry point that handed the type out to nobody.
+import type { ContentPart } from '../src/index.js';
 import { generated, harness, nonceAt, type Harness } from './helpers.js';
 
 /**
@@ -37,6 +41,9 @@ function bodyWithParts(content: readonly unknown[]): string {
 function bodyWithMessages(messages: readonly unknown[]): string {
   return JSON.stringify({ model: MODEL, messages });
 }
+
+/** One message that parses, so a refusal below is about the member its row names and not about this. */
+const ONE_MESSAGE = { role: 'user', content: 'hello' };
 
 /** The text part of the request every case here shares, and one media part beside it. */
 function mixedContent(text: string, dataUrl: string): unknown[] {
@@ -128,6 +135,8 @@ const PART_SHAPES: readonly (readonly [string, Record<string, unknown>])[] = [
   ['an audio part', { type: 'input_audio', input_audio: { data: INLINE_DATA, format: 'wav' } }],
   ['a file part carrying its bytes', { type: 'file', file: { file_data: INLINE_DATA, filename: 'contract.pdf' } }],
   ['a file part naming a url', { type: 'file', file: { file_url: 'https://example.test/contract.pdf' } }],
+  ['a file part naming neither its bytes nor a url', { type: 'file' }],
+  ['an image part whose url is not a string', { type: 'image_url', image_url: { url: 7 } }],
   ['a part type this code does not know', { type: 'video_url', video_url: { url: 'https://example.test/a.mp4' } }],
   ['a part with members this code has never read', { type: 'tool_result', ok: true, nested: { depth: 3 } }],
 ];
@@ -172,6 +181,11 @@ describe('parseChatCompletionRequest, the two shapes a content may take', () => 
       'each message must have a non-empty string role',
     ],
     [
+      'a message whose role is not a string',
+      [{ role: 7, content: 'hello' }],
+      'each message must have a non-empty string role',
+    ],
+    [
       'a content that is neither text nor parts',
       [{ role: 'user', content: 7 }],
       'each message must have a string content or an array of content parts',
@@ -207,7 +221,30 @@ describe('parseChatCompletionRequest, the two shapes a content may take', () => 
   });
 });
 
-describe('the numbers the mock backend states about a parts request', () => {
+describe('parseChatCompletionRequest, the body a content arrives in', () => {
+  /**
+   * The refusals that come from the members read beside a message list. Each row hands the parse a value as
+   * it would parse to, because what a row is about is the member and not how a caller spelled the JSON.
+   */
+  const BODY_REFUSALS: readonly (readonly [string, unknown, string])[] = [
+    ['a body that is a number', 7, 'request body must be a JSON object'],
+    ['a body that is null', null, 'request body must be a JSON object'],
+    ['a body with no messages', { model: MODEL }, 'messages must be a non-empty array'],
+    ['messages that is a string', { model: MODEL, messages: 'hello' }, 'messages must be a non-empty array'],
+    ['messages that is empty', { model: MODEL, messages: [] }, 'messages must be a non-empty array'],
+    ['a model that is a number', { messages: [ONE_MESSAGE], model: 7 }, 'model must be a non-empty string'],
+    ['a model that is empty', { messages: [ONE_MESSAGE], model: '' }, 'model must be a non-empty string'],
+    ['a stream that is a string', { messages: [ONE_MESSAGE], stream: 'yes' }, 'stream must be a boolean'],
+  ];
+
+  it('refuses the body itself and the members read beside its messages, each by name', () => {
+    for (const [name, body, message] of BODY_REFUSALS) {
+      expect(refusalOf(body), name).toBe(message);
+    }
+  });
+});
+
+describe('the numbers the mock backend states about what a message carries', () => {
   const TEXT = 'what is in this image?';
 
   it('counts the characters of the text parts and none of the inline data', () => {
@@ -231,6 +268,53 @@ describe('the numbers the mock backend states about a parts request', () => {
     expect(completion.promptTokens).toBe(0);
     expect(completion.content).toContain('0 characters in 0 text part(s) beside 1 part(s) naming something else');
     expect(completion.completionTokens).toBeGreaterThan(0);
+  });
+
+  it('counts a string content whole, and answers it with the one figure it has', () => {
+    // The other branch of both readers: a message stating text as a string has no parts to count, so the
+    // sentence beside its figure names no part of either kind.
+    const spoken = 'a message that is text on its own';
+    const completion = mockCompletion(
+      parseChatCompletionRequest(JSON.parse(bodyWithMessages([{ role: 'user', content: spoken }]))),
+    );
+    expect(completion.promptTokens).toBe(Math.ceil(spoken.length / 4));
+    expect(completion.content).toContain(`with ${spoken.length} characters`);
+    expect(completion.content).not.toContain('text part(s)');
+  });
+
+  it('counts no characters for a text part whose text member is absent or is not a string', () => {
+    // Admission asks only that a part's type be a string, so a part naming text can arrive holding no such
+    // member. The sound part beside each defective one keeps the figure off zero, so a metering of the
+    // defective member would show as a larger number rather than as a zero that went missing.
+    const DEFECTIVE_TEXT_PARTS: readonly (readonly [string, unknown])[] = [
+      ['no text member at all', { type: 'text' }],
+      ['a text member that is a number', { type: 'text', text: 7 }],
+    ];
+    for (const [name, part] of DEFECTIVE_TEXT_PARTS) {
+      const completion = mockCompletion(
+        parseChatCompletionRequest(JSON.parse(bodyWithParts([{ type: 'text', text: TEXT }, part]))),
+      );
+      expect(completion.promptTokens, `a text part with ${name}`).toBe(Math.ceil(TEXT.length / 4));
+      expect(completion.content, `a text part with ${name}`).toContain(
+        `${TEXT.length} characters in 2 text part(s) beside 0 part(s) naming something else`,
+      );
+    }
+  });
+
+  it('reads no text out of a part whose type names something else, text member and all', () => {
+    // The type decides which reader a part answers to, so a media part that also spells `text` states no
+    // characters here. This is the case that tells the type check inside the reader from its own absence:
+    // drop that check and both parts below are metered as the text they do not name.
+    const spelled = 'characters no media part has any business stating';
+    const parts: readonly ContentPart[] = [
+      { type: 'image_url', image_url: { url: IMAGE_DATA_URL }, text: spelled },
+      { type: 'file', file: { file_data: INLINE_DATA }, text: spelled },
+    ];
+    const completion = mockCompletion(parseChatCompletionRequest(JSON.parse(bodyWithParts(parts))));
+    expect(completion.promptTokens).toBe(0);
+    const sentence = '0 characters in 0 text part(s) beside 2 part(s) naming something else';
+    expect(completion.content).toContain(sentence);
+    expect(completion.content).not.toContain(spelled);
   });
 
   it('sums the text of every message and not only the last one', () => {
@@ -266,6 +350,22 @@ describe('a multimodal request through the completion route', () => {
       expect(payload.mdl).toBe(MODEL);
       expect(payload.tok.p).toBe(Math.ceil(TEXT.length / 4));
       expect(completion.json().choices).toHaveLength(1);
+    } finally {
+      await h.app.close();
+    }
+  });
+
+  it('answers a part refusal with the 400 whose shape the protocol states', async () => {
+    const h = await session();
+    try {
+      const refused = bodyWithParts([{ image_url: { url: IMAGE_DATA_URL } }]);
+      const res = await send(h, 'POST', '/v1/chat/completions', refused);
+      // The sentence above the route is the parse's own, and the type beside it is what a caller with no
+      // code of its own to look up reads, so both travel through this one request.
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        error: { message: 'each content part must have a string type', type: 'invalid_request_error' },
+      });
     } finally {
       await h.app.close();
     }
