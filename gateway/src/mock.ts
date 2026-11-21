@@ -5,7 +5,24 @@ export const DEFAULT_MOCK_MODEL = 'mock-model-1';
 
 export interface ChatMessage {
   readonly role: string;
-  readonly content: string;
+  // One field naming both shapes, because a second one would leave a message free to state both or neither.
+  /**
+   * What this message carries, in whichever of the two shapes a client sends it: text on its own, or the
+   * parts a request naming an image, an audio clip or a file sends in place of text. The parts are kept as
+   * they arrived, because a parsed message is what the mock backend reads, and a part whose members were
+   * dropped on the way in would make that backend's answer about a request nobody sent.
+   */
+  readonly content: string | readonly ContentPart[];
+}
+
+/**
+ * One content part: only its `type` is read here, and every other member travels through unchanged,
+ * because the grammar of a part is the provider's to define and a gateway that checked it would be
+ * answering a well-formed request with this code's opinion of another vendor's field names.
+ */
+export interface ContentPart {
+  readonly type: string;
+  readonly [member: string]: unknown;
 }
 
 export interface ChatCompletionRequest {
@@ -42,10 +59,7 @@ export function parseChatCompletionRequest(raw: unknown): ChatCompletionRequest 
     if (typeof role !== 'string' || role.length === 0) {
       throw new RequestError('each message must have a non-empty string role');
     }
-    if (typeof content !== 'string') {
-      throw new RequestError('each message must have a string content');
-    }
-    messages.push({ role, content });
+    messages.push({ role, content: parseContent(content) });
   }
   const modelRaw = body['model'];
   const model = modelRaw === undefined ? DEFAULT_MOCK_MODEL : modelRaw;
@@ -62,6 +76,36 @@ export function parseChatCompletionRequest(raw: unknown): ChatCompletionRequest 
 
 export class RequestError extends Error {}
 
+/**
+ * The two shapes a message's content arrives in, admitted as the caller sent them. Only a part's `type`
+ * is asked of it, so a content member this code has never seen reaches the provider rather than ending
+ * as a refusal over a field name.
+ */
+function parseContent(raw: unknown): string | readonly ContentPart[] {
+  if (typeof raw === 'string') {
+    return raw;
+  }
+  if (!Array.isArray(raw)) {
+    throw new RequestError('each message must have a string content or an array of content parts');
+  }
+  const listed = raw as readonly unknown[];
+  if (listed.length === 0) {
+    throw new RequestError('a content array must hold at least one content part');
+  }
+  const parts: ContentPart[] = [];
+  for (const part of listed) {
+    if (typeof part !== 'object' || part === null) {
+      throw new RequestError('each content part must be an object');
+    }
+    const type = (part as Record<string, unknown>)['type'];
+    if (typeof type !== 'string') {
+      throw new RequestError('each content part must have a string type');
+    }
+    parts.push(part as ContentPart);
+  }
+  return parts;
+}
+
 function responseId(): string {
   return `chatcmpl-${b64Id(randomNonce())}`;
 }
@@ -72,6 +116,40 @@ function b64Id(bytes: Uint8Array): string {
     binary += String.fromCharCode(b);
   }
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+}
+
+/** The text one part states. A part naming anything else states no text, so this reads none out of it. */
+function partText(part: ContentPart): string {
+  const value = part['text'];
+  return part.type === 'text' && typeof value === 'string' ? value : '';
+}
+
+/**
+ * The characters one message offers as text: a string is all of it, and an array only what its text
+ * parts state, because the bytes of an image, an audio clip or a file are not characters this code can
+ * read, and a figure drawn from their length would be a measurement of nothing.
+ */
+function textCharacters(content: string | readonly ContentPart[]): number {
+  if (typeof content === 'string') {
+    return content.length;
+  }
+  return content.reduce((sum, part) => sum + partText(part).length, 0);
+}
+
+/**
+ * The clause naming what the mock read of one message. Both shapes answer in characters of text, and a
+ * parts message states its part counts beside them, so the figure names what it counted and what it left
+ * out rather than reading as a metering of every byte the caller sent.
+ */
+function describeContent(content: string | readonly ContentPart[]): string {
+  if (typeof content === 'string') {
+    return `with ${content.length} characters`;
+  }
+  const text = content.filter((part) => part.type === 'text').length;
+  return (
+    `with ${textCharacters(content)} characters in ${text} text part(s) ` +
+    `beside ${content.length - text} part(s) naming something else`
+  );
 }
 
 export function mockCompletion(
@@ -88,11 +166,11 @@ export function mockCompletion(
 ): MockCompletion {
   const time = options.time ?? HOST_CLOCK_SOURCE;
   const last = request.messages[request.messages.length - 1] as ChatMessage;
-  const totalChars = request.messages.reduce((sum, message) => sum + message.content.length, 0);
+  const totalChars = request.messages.reduce((sum, message) => sum + textCharacters(message.content), 0);
   const content =
     `This is a mock completion from signerd --mock. ` +
     `Your request contained ${request.messages.length} message(s); ` +
-    `the last message role was "${last.role}" with ${last.content.length} characters.`;
+    `the last message role was "${last.role}" ${describeContent(last.content)}.`;
   return {
     id: responseId(),
     created: Math.floor(time.nowSeconds()),
