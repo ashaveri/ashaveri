@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sha256 } from '@noble/hashes/sha2.js';
+import { createHash } from 'node:crypto';
 import { FILE_ANCHOR_MEMBER_NAME, MARKING_MEMBER_NAME, verifyFileAnchor } from '../src/index.js';
 
 /**
@@ -10,15 +10,31 @@ import { FILE_ANCHOR_MEMBER_NAME, MARKING_MEMBER_NAME, verifyFileAnchor } from '
  * a disagreement, or a disagreement as an absence, tells a verifier something about a conversation
  * that never happened. A match here says the request stated this digest and these bytes are that
  * digest. It says nothing about who held the file, and nothing about whether a provider read it.
+ *
+ * Every expectation below is a value spelled out in this file. No case asks what the reader says about
+ * bytes by asking what the reader said about other bytes, and none takes its expected digest from the
+ * hashing under test: the two digests are literals produced over their own bytes away from this
+ * repository, checked against `node:crypto`, a second implementation, in the cases that use them.
  */
 
 const FILE = new TextEncoder().encode('a recording of the conversation, in full');
 const OTHER_FILE = new TextEncoder().encode('a recording of the conversation, in part');
 
-/** The claim's digest, reached by the hash function directly rather than through this package's hex. */
-const DIGEST = Array.from(sha256(FILE), (byte) => byte.toString(16).padStart(2, '0')).join('');
+/** sha256 from `node:crypto`, used only where a literal would be too long to read. */
+function otherSha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
 
-const COMPLETE_CLAIM = { sha256: DIGEST, bytes: FILE.byteLength, media_type: 'audio/wav' };
+/**
+ * The digests of the two fixtures above, written down rather than computed here. Each was produced
+ * over those exact bytes by `node:crypto`; this package reaches its hex through `@noble/hashes`, so
+ * what a match witnesses is two implementations agreeing over fixed bytes rather than one function
+ * returning what it returns.
+ */
+const FILE_SHA256_HEX = '7d4214c1df232f32b9e6935af6a7a422de12cdfecd6ba35a9b11f43113e52e45';
+const OTHER_FILE_SHA256_HEX = '70613f5e0981e52cba4d2a6cbba1e00534292f0fadb4ea750c8c9c37b81a7362';
+
+const COMPLETE_CLAIM = { sha256: FILE_SHA256_HEX, bytes: FILE.byteLength, media_type: 'audio/wav' };
 
 /** The namespace member as one body states it, with the fields a caller can get wrong written wrong. */
 function memberStaking(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -36,25 +52,36 @@ function bodyStaking(member: unknown): string {
 
 const ANCHORED_BODY = bodyStaking(memberStaking());
 
+/** The answer for the claim above met by the bytes it names. */
+const MATCH = { status: 'match', sha256: FILE_SHA256_HEX, bytes: FILE.byteLength };
+
+/** The answer for a claim stated in a shape no verifier can weigh: no text of its own is quoted back. */
+const UNWEIGHABLE = {
+  status: 'mismatch',
+  computedSha256: FILE_SHA256_HEX,
+  computedBytes: FILE.byteLength,
+  claimedSha256: null,
+  claimedBytes: null,
+};
+
 describe('a verifier holding the file a request claimed', () => {
-  it('reaches the digest both sides compute, by the hash this package reaches its hex through', () => {
-    // The claim above was digested by `@noble/hashes` taken straight from the dependency, and this
-    // reader digests through `sha256Hex`, so a `match` is the witness that the two are one function
-    // rather than two that happen to agree today.
-    const verdict = verifyFileAnchor(ANCHORED_BODY, FILE);
-    expect(verdict).toEqual({ status: 'match', sha256: DIGEST, bytes: FILE.byteLength });
+  it('reaches the digest written down for these bytes, and the digest is not its own doing', () => {
+    // The literal above came from `node:crypto` over the fixture bytes, away from this repository, and
+    // the line below is that check run in the open. The claim in the body was written with the same
+    // literal, so a `match` here is the reader's hex agreeing with an outside implementation.
+    expect(otherSha256Hex(FILE)).toBe(FILE_SHA256_HEX);
+    expect(verifyFileAnchor(ANCHORED_BODY, FILE)).toEqual(MATCH);
   });
 
   it('takes the body as bytes as readily as it takes it as text', () => {
-    expect(verifyFileAnchor(new TextEncoder().encode(ANCHORED_BODY), FILE)).toEqual(verifyFileAnchor(ANCHORED_BODY, FILE));
+    // Both spellings of the body are weighed against the answer written out above, because a case that
+    // asks whether the bytes form agrees with the text form would agree whatever the reader returned.
+    expect(verifyFileAnchor(new TextEncoder().encode(ANCHORED_BODY), FILE)).toEqual(MATCH);
+    expect(verifyFileAnchor(ANCHORED_BODY, FILE)).toEqual(MATCH);
   });
 
   it('tolerates a disclosed filename without letting it move the answer', () => {
-    expect(verifyFileAnchor(bodyStaking(memberStaking({ name: 'session-12.wav' })), FILE)).toEqual({
-      status: 'match',
-      sha256: DIGEST,
-      bytes: FILE.byteLength,
-    });
+    expect(verifyFileAnchor(bodyStaking(memberStaking({ name: 'session-12.wav' })), FILE)).toEqual(MATCH);
   });
 });
 
@@ -63,22 +90,24 @@ describe('a verifier handed some other file', () => {
     // Same byte count, different content: a reader that weighed only the length would call this a
     // match, which is the mistake this case exists to make impossible.
     expect(OTHER_FILE.byteLength).toBe(FILE.byteLength);
-    const verdict = verifyFileAnchor(ANCHORED_BODY, OTHER_FILE);
-    expect(verdict.status).toBe('mismatch');
-    if (verdict.status !== 'mismatch') return;
-    expect(verdict.claimedSha256).toBe(DIGEST);
-    expect(verdict.computedSha256).not.toBe(DIGEST);
-    expect(verdict.claimedBytes).toBe(verdict.computedBytes);
+    expect(otherSha256Hex(OTHER_FILE)).toBe(OTHER_FILE_SHA256_HEX);
+    expect(verifyFileAnchor(ANCHORED_BODY, OTHER_FILE)).toEqual({
+      status: 'mismatch',
+      computedSha256: OTHER_FILE_SHA256_HEX,
+      computedBytes: OTHER_FILE.byteLength,
+      claimedSha256: FILE_SHA256_HEX,
+      claimedBytes: FILE.byteLength,
+    });
   });
 
   it('reports the disagreement when the claim states the right digest and the wrong length', () => {
-    const verdict = verifyFileAnchor(bodyStaking(memberStaking({ bytes: FILE.byteLength + 1 })), FILE);
-    expect(verdict.status).toBe('mismatch');
-    if (verdict.status !== 'mismatch') return;
-    expect(verdict.claimedSha256).toBe(DIGEST);
-    expect(verdict.computedSha256).toBe(DIGEST);
-    expect(verdict.claimedBytes).toBe(FILE.byteLength + 1);
-    expect(verdict.computedBytes).toBe(FILE.byteLength);
+    expect(verifyFileAnchor(bodyStaking(memberStaking({ bytes: FILE.byteLength + 1 })), FILE)).toEqual({
+      status: 'mismatch',
+      computedSha256: FILE_SHA256_HEX,
+      computedBytes: FILE.byteLength,
+      claimedSha256: FILE_SHA256_HEX,
+      claimedBytes: FILE.byteLength + 1,
+    });
   });
 
   it('reports a claim no verifier can weigh as a disagreement rather than as an absence', () => {
@@ -86,37 +115,32 @@ describe('a verifier handed some other file', () => {
     // the claim this member declares is lowercase, and reading the two as agreeing would be reading
     // a hex spelling rather than a digest. The guard below says this fixture's digest carries the
     // letters that make that sentence true rather than sixty digits that would make it empty.
-    expect(DIGEST).not.toBe(DIGEST.toUpperCase());
+    expect(FILE_SHA256_HEX).not.toBe(FILE_SHA256_HEX.toUpperCase());
     const cases: readonly string[] = [
-      DIGEST.toUpperCase(),
-      DIGEST.slice(0, 63),
-      DIGEST.padEnd(65, '0'),
+      FILE_SHA256_HEX.toUpperCase(),
+      FILE_SHA256_HEX.slice(0, 63),
+      FILE_SHA256_HEX.padEnd(65, '0'),
       'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz',
     ];
     for (const digest of cases) {
-      const verdict = verifyFileAnchor(bodyStaking(memberStaking({ sha256: digest })), FILE);
-      expect(verdict.status, digest).toBe('mismatch');
-      if (verdict.status !== 'mismatch') continue;
-      expect(verdict.claimedSha256, digest).toBeNull();
-      expect(verdict.claimedBytes, digest).toBeNull();
+      expect(verifyFileAnchor(bodyStaking(memberStaking({ sha256: digest })), FILE), digest).toEqual(UNWEIGHABLE);
     }
   });
 
   it('refuses a length that is not a whole number a JSON reader reproduces exactly', () => {
     for (const bytes of [1.5, -3, '40', null]) {
-      const verdict = verifyFileAnchor(bodyStaking(memberStaking({ bytes })), FILE);
-      expect(verdict.status, String(bytes)).toBe('mismatch');
+      expect(verifyFileAnchor(bodyStaking(memberStaking({ bytes })), FILE), String(bytes)).toEqual(UNWEIGHABLE);
     }
     // A count written past the width a reader holds exactly is the one refusal no object literal can
     // state, because the literal is the number before it reaches the text: the body is written out.
     const wide = ANCHORED_BODY.replace(`"bytes":${FILE.byteLength}`, '"bytes":123456789012345678901234567890');
     expect(wide).not.toBe(ANCHORED_BODY);
-    expect(verifyFileAnchor(wide, FILE).status).toBe('mismatch');
+    expect(verifyFileAnchor(wide, FILE)).toEqual(UNWEIGHABLE);
   });
 
   it('refuses a claim that declares no media type, and one that declares it as something else', () => {
     for (const member of [memberStaking({ media_type: undefined }), memberStaking({ media_type: 4 })]) {
-      expect(verifyFileAnchor(bodyStaking(member), FILE).status).toBe('mismatch');
+      expect(verifyFileAnchor(bodyStaking(member), FILE)).toEqual(UNWEIGHABLE);
     }
   });
 });
@@ -144,7 +168,7 @@ describe('a verifier handed a request that claimed nothing', () => {
     const marked = bodyStaking({ marking: { sch: 'ashaveri/provenance-v1', gen: 'ai', at: 1 } });
     expect(MARKING_MEMBER_NAME).toBe(FILE_ANCHOR_MEMBER_NAME);
     expect(verifyFileAnchor(marked, FILE)).toEqual({ status: 'absent', reason: 'no-claim' });
-    expect(verifyFileAnchor(ANCHORED_BODY, FILE).status).toBe('match');
+    expect(verifyFileAnchor(ANCHORED_BODY, FILE)).toEqual(MATCH);
   });
 
   it('reads a body that is not one JSON object as an absence it names', () => {
