@@ -183,6 +183,26 @@ describe('upstream backend: streaming', () => {
     expect(toHex(payload.req)).toBe(toHex(hashRequest(new TextEncoder().encode(STREAM_REQUEST_BODY))));
   });
 
+  // The metering rewrite is a parse and a re-serialise, so what a member the gateway does not read survives it is
+  // a property of that rewrite rather than of the code that wrote the member.
+  it('forwards a member it does not read inside the rewritten streamed body, and digests the bytes it received', async () => {
+    const claim = 'ab'.repeat(32);
+    const body =
+      `{"model":"${MODEL}","messages":[{"role":"user","content":"hello"}],"stream":true,` +
+      `"ashaveri":{"file":{"sha256":"${claim}","bytes":3,"media_type":"audio/wav"}}}`;
+    const upstream = fakeUpstream(() => streamResponse(streamEvents()));
+    const app = await gatewayWith(upstream);
+    const res = await send(app, 'POST', '/v1/chat/completions', body);
+    const sent = upstream.requests[0]?.body;
+    expect(sent, 'the added metering member and the member nobody reads travel together').toMatchObject({
+      stream: true,
+      stream_options: { include_usage: true },
+      ashaveri: { file: { sha256: claim, bytes: 3, media_type: 'audio/wav' } },
+    });
+    const payload = await receiptFor(app, res.headers['x-ashaveri-receipt-id'] as string);
+    expect(toHex(payload.req)).toBe(toHex(hashRequest(new TextEncoder().encode(body))));
+  });
+
   it('meters and frames one body whose content type carries a parameter', async () => {
     // The usage of a streamed completion arrives in a frame of its own, so a scan that took this body for
     // one whole item would report zero tokens while the item list named every frame: the two answers to
