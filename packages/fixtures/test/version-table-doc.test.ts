@@ -38,9 +38,12 @@ import {
  *   skipped.
  *
  *   A disagreement is named by family. The table states nothing about which module holds a family's version
- *   set, so the roster below carries that pairing, which is the one place this file restates a claim rather
- *   than reading it: the sets themselves come out of the source, and a roster entry that stops resolving is a
- *   thrown error rather than a skipped family.
+ *   set, so the roster below carries that pairing: the sets themselves come out of the source, and a roster
+ *   entry that stops resolving is a thrown error rather than a skipped family. What the roster no longer
+ *   carries is which package that module ships in, because a name stated beside a path is weighed against the
+ *   document's own cell and the two of them can agree while both sit away from the source. The package is read
+ *   from the manifest of the directory the module sits under, so a family whose file is named wrongly lands as
+ *   a package disagreement rather than as a row that passed.
  *
  * What this reaches: the version set a family's own module declares, the package the table ships it under, the
  * entry points it names, the four figures the vendor paragraph states for the layouts a vendor owns, and the
@@ -84,30 +87,29 @@ type DeclaredSet =
 
 interface FamilySource {
   readonly family: string;
-  readonly pkg: string;
   readonly file: string;
   readonly declared: DeclaredSet;
 }
 
 /** The seventeen families section 7's table is kept for, and the module holding each set. */
 const FAMILY_SOURCES: readonly FamilySource[] = [
-  { family: 'Receipt payload', pkg: '@ashaveri/receipt', file: '../../receipt/src/receipt.ts', declared: { kind: 'list', name: 'PARSED_VERSIONS' } },
-  { family: 'Evidence pack manifest', pkg: '@ashaveri/receipt', file: '../../receipt/src/pack.ts', declared: { kind: 'guard', marker: 'PACK_UNSUPPORTED_VERSION' } },
-  { family: 'Technical export manifest', pkg: '@ashaveri/receipt', file: '../../receipt/src/export.ts', declared: { kind: 'guard', marker: 'EXPORT_UNSUPPORTED_VERSION' } },
-  { family: 'Redaction manifest', pkg: '@ashaveri/receipt', file: '../../receipt/src/redaction.ts', declared: { kind: 'guard', marker: 'REDACTION_UNSUPPORTED_VERSION' } },
-  { family: 'Epoch inventory', pkg: '@ashaveri/receipt', file: '../../receipt/src/epoch-inventory.ts', declared: { kind: 'guard', marker: 'EPOCH_INVENTORY_UNSUPPORTED_VERSION' } },
-  { family: 'Destruction receipt', pkg: '@ashaveri/receipt', file: '../../receipt/src/destruction-receipt.ts', declared: { kind: 'guard', marker: 'DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION' } },
-  { family: 'Retention manifest', pkg: '@ashaveri/receipt', file: '../../receipt/src/retention.ts', declared: { kind: 'list', name: 'RETENTION_FORMAT_VERSIONS' } },
-  { family: 'Disclosure record', pkg: '@ashaveri/receipt', file: '../../receipt/src/disclosure-record.ts', declared: { kind: 'list', name: 'DISCLOSURE_RECORD_VERSIONS' } },
-  { family: 'Model inventory record', pkg: '@ashaveri/receipt', file: '../../receipt/src/model-inventory.ts', declared: { kind: 'list', name: 'MODEL_INVENTORY_VERSIONS' } },
-  { family: 'Hold record', pkg: '@ashaveri/receipt', file: '../../receipt/src/hold.ts', declared: { kind: 'list', name: 'HOLD_RECORD_VERSIONS' } },
-  { family: 'Incident preservation bundle', pkg: '@ashaveri/receipt', file: '../../receipt/src/incident-bundle.ts', declared: { kind: 'list', name: 'INCIDENT_BUNDLE_VERSIONS' } },
-  { family: 'Deployment manifest', pkg: '@ashaveri/sdk', file: '../../sdk/src/manifest.ts', declared: { kind: 'guard', marker: 'v must be 1' } },
-  { family: 'Capture record', pkg: '@ashaveri/sdk', file: '../../sdk/src/capture.ts', declared: { kind: 'scalar', name: 'CAPTURE_FORMAT_VERSION' } },
-  { family: 'Import envelope', pkg: '@ashaveri/sdk', file: '../../sdk/src/import-envelope.ts', declared: { kind: 'scalar', name: 'IMPORT_FORMAT_VERSION' } },
-  { family: 'Retention assessment', pkg: '@ashaveri/sdk', file: '../../sdk/src/retention-assessment.ts', declared: { kind: 'scalar', name: 'RETENTION_ASSESSMENT_FORMAT_VERSION' } },
-  { family: 'Verification policy file', pkg: '@ashaveri/sdk', file: '../../sdk/src/policy-file.ts', declared: { kind: 'scalar', name: 'POLICY_FORMAT_VERSION' } },
-  { family: 'Anchor provenance ledger', pkg: '@ashaveri/attest-core', file: '../../attest-core/src/anchor-ledger.ts', declared: { kind: 'scalar', name: 'ANCHOR_LEDGER_FORMAT_VERSION' } },
+  { family: 'Receipt payload', file: '../../receipt/src/receipt.ts', declared: { kind: 'list', name: 'PARSED_VERSIONS' } },
+  { family: 'Evidence pack manifest', file: '../../receipt/src/pack.ts', declared: { kind: 'guard', marker: 'PACK_UNSUPPORTED_VERSION' } },
+  { family: 'Technical export manifest', file: '../../receipt/src/export.ts', declared: { kind: 'guard', marker: 'EXPORT_UNSUPPORTED_VERSION' } },
+  { family: 'Redaction manifest', file: '../../receipt/src/redaction.ts', declared: { kind: 'guard', marker: 'REDACTION_UNSUPPORTED_VERSION' } },
+  { family: 'Epoch inventory', file: '../../receipt/src/epoch-inventory.ts', declared: { kind: 'guard', marker: 'EPOCH_INVENTORY_UNSUPPORTED_VERSION' } },
+  { family: 'Destruction receipt', file: '../../receipt/src/destruction-receipt.ts', declared: { kind: 'guard', marker: 'DESTRUCTION_RECEIPT_UNSUPPORTED_VERSION' } },
+  { family: 'Retention manifest', file: '../../receipt/src/retention.ts', declared: { kind: 'list', name: 'RETENTION_FORMAT_VERSIONS' } },
+  { family: 'Disclosure record', file: '../../receipt/src/disclosure-record.ts', declared: { kind: 'list', name: 'DISCLOSURE_RECORD_VERSIONS' } },
+  { family: 'Model inventory record', file: '../../receipt/src/model-inventory.ts', declared: { kind: 'list', name: 'MODEL_INVENTORY_VERSIONS' } },
+  { family: 'Hold record', file: '../../receipt/src/hold.ts', declared: { kind: 'list', name: 'HOLD_RECORD_VERSIONS' } },
+  { family: 'Incident preservation bundle', file: '../../receipt/src/incident-bundle.ts', declared: { kind: 'list', name: 'INCIDENT_BUNDLE_VERSIONS' } },
+  { family: 'Deployment manifest', file: '../../sdk/src/manifest.ts', declared: { kind: 'guard', marker: 'v must be 1' } },
+  { family: 'Capture record', file: '../../sdk/src/capture.ts', declared: { kind: 'scalar', name: 'CAPTURE_FORMAT_VERSION' } },
+  { family: 'Import envelope', file: '../../sdk/src/import-envelope.ts', declared: { kind: 'scalar', name: 'IMPORT_FORMAT_VERSION' } },
+  { family: 'Retention assessment', file: '../../sdk/src/retention-assessment.ts', declared: { kind: 'scalar', name: 'RETENTION_ASSESSMENT_FORMAT_VERSION' } },
+  { family: 'Verification policy file', file: '../../sdk/src/policy-file.ts', declared: { kind: 'scalar', name: 'POLICY_FORMAT_VERSION' } },
+  { family: 'Anchor provenance ledger', file: '../../attest-core/src/anchor-ledger.ts', declared: { kind: 'scalar', name: 'ANCHOR_LEDGER_FORMAT_VERSION' } },
 ];
 
 /**
@@ -157,6 +159,31 @@ function specSection(): string {
 /** A file spelled the way a reader looks for it in a failure: from the repository root, not from this test. */
 function shown(specifier: string): string {
   return specifier.replace(/^\.\.\/\.\.\/\.\.\//u, '').replace(/^\.\.\/\.\.\//u, 'packages/');
+}
+
+/**
+ * The package one module ships in, read from the manifest of the directory that module sits under: the same
+ * reader the manifest suite uses to say which manifest counts as one package, handed the nearest directory
+ * carrying one. A package name written out beside a file path is a claim about the document, because the cell
+ * it is compared to comes from the document too, and the pairing that can be wrong is the one between the
+ * module and the package a consumer installs it from.
+ */
+function packageOf(file: string): string {
+  const parts = file.split('/');
+  for (let at = parts.length - 2; at >= 0; at -= 1) {
+    const dir = parts.slice(0, at + 1).join('/');
+    const manifest = `${dir}/package.json`;
+    if (!existsSync(fileURLToPath(new URL(manifest, import.meta.url)))) continue;
+    const found = scopedManifests([{ dir: shown(dir), text: readSourceFile(manifest) }]);
+    if (found.length !== 1) {
+      throw new Error(
+        `${shown(file)} sits under ${shown(dir)}, whose manifest is not one @ashaveri package this can ` +
+          'name, so the package that ships this family could not be read from the source',
+      );
+    }
+    return String(found[0]?.name);
+  }
+  throw new Error(`no manifest was found in or above ${shown(file)}, so which package ships it is not stated`);
 }
 
 /** The package one row ships its reader in, read from the cell the table states it in. */
@@ -755,10 +782,12 @@ describe('the published compatibility table states the version sets its readers 
       `the table's rows were read as ${stated.join(', ')}; the families this holds a reader for are ` +
         `${kept.join(', ')}; a row that was not read and a row this has no source for both land here`,
     ).toEqual(kept);
+    const shipped = rows.map((row) => `${row.family} ships in ${row.pkg}`).sort();
+    const fromSource = FAMILY_SOURCES.map((one) => `${one.family} ships in ${packageOf(one.file)}`).sort();
     expect(
-      rows.map((row) => `${row.family} ships in ${row.pkg}`).sort(),
-      'the table ships a reader in a package other than the one this reads that family in its source from',
-    ).toEqual(FAMILY_SOURCES.map((one) => `${one.family} ships in ${one.pkg}`).sort());
+      shipped,
+      'the table ships a reader in a package other than the one the module holding that family sits under',
+    ).toEqual(fromSource);
   });
 
   it('states each family version set as the owning reader declares it', () => {
