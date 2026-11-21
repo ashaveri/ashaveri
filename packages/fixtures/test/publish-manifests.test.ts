@@ -157,6 +157,35 @@ function publishable(): Manifest[] {
 }
 
 /**
+ * The directories a manifest's own entry points say its built output lives in, or the reason it names none.
+ * A way in is written as a path into the tree the build writes, so the directory above it is where a pack
+ * would find the bytes: read there rather than to one directory spelled out in this file, because a package
+ * that moves its output would then be a package nothing weighs. That is not a tidiness argument. The case
+ * below treats a publish set with no output anywhere as a suite that ran before the build, and a directory
+ * named here rather than by the manifest turns every package into an unbuilt one, so the refusal that exists
+ * to catch a half-built publish becomes a permanent skip.
+ */
+function outputDirs(manifest: Manifest): string[] {
+  const targets = entryPoints(manifest.fields);
+  if (targets.length === 0) {
+    throw new Error(`${manifest.dir}/package.json names no entry point, so nothing here says where its build writes`);
+  }
+  const dirs: string[] = [];
+  for (const target of targets) {
+    const clean = target.replace(/^\.\//u, '');
+    const at = clean.lastIndexOf('/');
+    if (at < 0) {
+      throw new Error(
+        `${manifest.dir}/package.json names the entry point ${target} at the package root, so no directory ` +
+          'says where its build wrote',
+      );
+    }
+    dirs.push(clean.slice(0, at));
+  }
+  return [...new Set(dirs)].sort();
+}
+
+/**
  * The package directories `publish.yml` lists in the order it publishes them, read out of the shell
  * array its publish step builds.
  */
@@ -635,12 +664,14 @@ describe('the manifests a publish reads', () => {
     // skip: what is asserted is that what the build emitted sits where the manifest promises it, which is
     // the same promise a consumer of the tarball takes. A set that is part built is not a skip. The
     // packages named by such a run would upload a tarball of nothing beside the built ones, so the
-    // unbuilt directory is reported by package and name, and only then are the entry points read.
+    // unbuilt directory is reported by package and name, and only then are the entry points read. Where
+    // that directory is comes from the manifest's own entry points, so a package that ships its build from
+    // somewhere else is weighed against where it says it is rather than against a name kept in this file.
     const publishSet = publishable();
-    const unbuilt = publishSet.filter((manifest) => !existsRepoFile(`${manifest.dir}/dist`));
+    const unbuilt = publishSet.filter((manifest) => !outputDirs(manifest).some((dir) => existsRepoFile(`${manifest.dir}/${dir}`)));
     if (unbuilt.length === publishSet.length) return;
     expect(
-      unbuilt.map((manifest) => `${manifest.name}: ${manifest.dir}/dist`),
+      unbuilt.map((manifest) => `${manifest.name}: ${outputDirs(manifest).map((dir) => `${manifest.dir}/${dir}`).join(', ')}`),
       'the publish set is part built, so each package named here would upload a tarball with no output:',
     ).toEqual([]);
     const missing: string[] = [];
