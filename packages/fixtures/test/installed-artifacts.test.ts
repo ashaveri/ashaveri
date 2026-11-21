@@ -329,7 +329,11 @@ beforeAll(() => {
   const tarballs = readdirSync(scratch)
     .filter((entry) => entry.endsWith('.tgz'))
     .map((entry) => path.join(scratch, entry));
-  expect(tarballs.length, `the six publishable manifests packed into ${tarballs.length} tarballs`).toBe(targets.length);
+  expect(
+    tarballs.length,
+    `packing the ${String(targets.length)} publishable manifests read from ${targets.map((one) => one.name).join(', ')} ` +
+      `wrote ${String(tarballs.length)} tarballs into the scratch directory`,
+  ).toBe(targets.length);
   packed = tarballs.map(readTarball).sort((a, b) => a.name.localeCompare(b.name));
 
   writeFileSync(
@@ -466,7 +470,7 @@ describe('the tarballs a publish would upload', () => {
 });
 
 describe('the installed tree a consumer ends up with', () => {
-  it('installs the six as one copy of each, resolved inside the prefix and nowhere else', () => {
+  it('installs the publish set as one copy of each, resolved inside the prefix and nowhere else', () => {
     const answer = consumerAnswer();
     const outside: string[] = [];
     for (const [name, resolved] of Object.entries(answer.resolved)) {
@@ -573,7 +577,9 @@ describe('the installed command on the same bytes', () => {
       `the installed command answered ${answer.tamperedRow} with ${String(verdict.code)}, where the published row states ${answer.tamperedStated}`,
     ).toBe(answer.tamperedStated);
   });
+});
 
+describe('no path into the tree the pack touched survives in an installed manifest', () => {
   it('leaves no trace of the checkout it was installed from in the installed manifest', () => {
     for (const one of packed) {
       const serialized = JSON.stringify(installedManifest(one.name));
