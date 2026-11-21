@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { readSourceFile } from './doc-contract.js';
+import {
+  admitted,
+  compareVersions,
+  floorOf,
+  parseRange,
+  parseVersion,
+  readSourceFile,
+  type Version,
+} from './doc-contract.js';
 
 /**
  * `26.13.0` is written in four places: `.nvmrc`, the `engines.node` floor in the root manifest, and the
@@ -16,9 +24,11 @@ import { readSourceFile } from './doc-contract.js';
  * text would read a re-spacing as a disagreement while missing a floor quietly widened to `>=26.0.0`. Two
  * things follow from parsing instead. Nothing in this package's dependency tree can parse a range:
  * `semver` sits in the store several links deep, unreachable from a test here and with no types
- * installed, so the comparators are read below rather than a package added for one assertion. And the
- * reader is deliberately narrow, accepting only a whitespace-separated list of `>=`, `>`, `<=` and `<`
- * comparators, so a range in any other form is reported rather than read as agreement.
+ * installed, so the comparators are read rather than a package added for one assertion, and they are read
+ * in `doc-contract.ts`, because `installed-artifacts.test.ts` holds the same question to the range a
+ * tarball carries and a reader written twice is a reader that can disagree with itself. And the reader is
+ * deliberately narrow, accepting only a whitespace-separated list of `>=`, `>`, `<=` and `<` comparators,
+ * so a range in any other form is reported rather than read as agreement.
  *
  * Admitting the pin is not by itself the check, either. `>=26.13.0 <27` admits `26.14.0`, so a range can
  * be satisfied by a bumped `.nvmrc` while still naming the release before it: the floor has to be the pin.
@@ -32,81 +42,6 @@ const DOCKERFILE = 'enclave/Dockerfile';
 /** A workspace file, spelled the way the sibling document tests spell them. */
 function repoFile(file: string): string {
   return readSourceFile(`../../../${file}`);
-}
-
-interface Version {
-  readonly major: number;
-  readonly minor: number;
-  readonly patch: number;
-  /** As written in the file, so a message can quote the value rather than a reconstruction of it. */
-  readonly text: string;
-}
-
-function parseVersion(text: string, where: string): Version {
-  // The pattern carries exactly three capture groups, so each is present in every match it yields.
-  const found = /^(\d+)\.(\d+)\.(\d+)$/u.exec(text);
-  if (found === null) {
-    throw new Error(`${where} states ${text}, which is not an exact X.Y.Z version`);
-  }
-  return { major: Number(found[1]), minor: Number(found[2]), patch: Number(found[3]), text };
-}
-
-/** Negative below, zero equal, positive above. */
-function compare(a: Version, b: Version): number {
-  return a.major - b.major || a.minor - b.minor || a.patch - b.patch;
-}
-
-type Operator = '>=' | '>' | '<=' | '<';
-interface Comparator {
-  readonly op: Operator;
-  readonly version: Version;
-}
-
-/** What each operator asks of the ordering between a version and its bound. */
-const HOLDS: Record<Operator, (order: number) => boolean> = {
-  '>=': (order) => order >= 0,
-  '>': (order) => order > 0,
-  '<=': (order) => order <= 0,
-  '<': (order) => order < 0,
-};
-
-/**
- * The comparators of a declared range. A short bound (`<25`) is filled out to `<25.0.0`, which is what a
- * range means by it.
- */
-function parseRange(range: string, where: string): Comparator[] {
-  const unreadable =
-    `${where} declares "${range}", which cannot be read here: this file understands a `
-    + 'whitespace-separated list of >=, >, <= and < comparators with numeric versions, and nothing else';
-  const comparators: Comparator[] = [];
-  for (const token of range.trim().split(/\s+/u)) {
-    const found = /^(>=|<=|>|<)(\d+(?:\.\d+){0,2})$/u.exec(token);
-    const op = found?.[1];
-    const stated = found?.[2];
-    if (op !== '>=' && op !== '>' && op !== '<=' && op !== '<') throw new Error(unreadable);
-    if (stated === undefined) throw new Error(unreadable);
-    const [major = '0', minor = '0', patch = '0'] = stated.split('.');
-    comparators.push({ op, version: parseVersion(`${major}.${minor}.${patch}`, `${where} comparator ${token}`) });
-  }
-  if (comparators.length === 0) throw new Error(unreadable);
-  return comparators;
-}
-
-function admitted(version: Version, comparators: Comparator[]): boolean {
-  return comparators.every((comparator) => HOLDS[comparator.op](compare(version, comparator.version)));
-}
-
-/** The lowest version a range admits: the floor a pin has to sit on exactly. */
-function floorOf(comparators: Comparator[]): Version {
-  const lower = comparators.filter((c) => c.op === '>=' || c.op === '>');
-  const floor = lower.reduce<Version | undefined>(
-    (highest, c) => (highest === undefined || compare(c.version, highest) > 0 ? c.version : highest),
-    undefined,
-  );
-  if (floor === undefined) {
-    throw new Error(`${MANIFEST} engines.node sets no lower bound, so it admits every release`);
-  }
-  return floor;
 }
 
 /** One release below a version: a patch down, or a minor down where the patch is already zero. */
@@ -180,10 +115,11 @@ describe('the copies of the pinned Node version', () => {
   it('declares that release as the engines.node floor and admits nothing below it', () => {
     const pin = pinned();
     const range = declaredRange();
-    const comparators = parseRange(range, `${MANIFEST} engines.node`);
-    const floor = floorOf(comparators);
+    const where = `${MANIFEST} engines.node`;
+    const comparators = parseRange(range, where);
+    const floor = floorOf(comparators, where);
     expect(
-      compare(floor, pin),
+      compareVersions(floor, pin),
       `${MANIFEST} engines.node is "${range}", whose floor is ${floor.text}, but ${NVMRC} pins ${pin.text}`,
     ).toBe(0);
     expect(
@@ -202,7 +138,7 @@ describe('the copies of the pinned Node version', () => {
     const disagreed: string[] = [];
     for (const image of nodeBaseImages()) {
       const named = tagVersion(image.reference);
-      if (compare(named, pin) !== 0) {
+      if (compareVersions(named, pin) !== 0) {
         disagreed.push(`${DOCKERFILE} has ${image.line}, naming Node ${named.text} while ${NVMRC} pins ${pin.text}`);
       }
     }

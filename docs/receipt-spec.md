@@ -6,7 +6,8 @@ vectors in `@ashaveri/fixtures`. Which suites and fixtures are published, and wh
 each of the receipt fixtures carries, is stated once in the inventory in
 [vectors.md](vectors.md) rather than restated file by file here. This document specifies the format
 together with the HTTP protocol used to deliver receipts, and the algorithm clients follow to
-verify them. Section 6 says which payload versions a verifier reads.
+verify them. Section 6 says which payload versions a verifier reads, and section 7 states what a published
+release promises about the formats its readers parse.
 
 ## 1. Overview
 
@@ -1992,7 +1993,135 @@ receipt instead of misgrading it as a hardware claim. The other direction is a t
 break, and what a reader that does not apply it loses is a refusal: it reads the receipt and waves
 through the mismatched pair that `receipt-meas-mismatch-v1` exists to catch.
 
-## 7. References
+## 7. Published compatibility
+
+A published version of these packages carries a promise about the bytes it can read, and that promise is
+worth more than the version number, because the bytes are already in other people's hands. The table is the
+promise read off the shipped readers: one row per document family whose layout this repository defines, the
+package that ships the reader, the entry point a consumer calls, and the format versions that reader parses.
+
+| Document family | Ships in | Reader a consumer calls | Versions parsed |
+|---|---|---|---|
+| Receipt payload | `@ashaveri/receipt` | `verifyReceipt`, `decodeReceipt` | 1 and 2 |
+| Evidence pack manifest | `@ashaveri/receipt` | `decodePack` | 1 |
+| Technical export manifest | `@ashaveri/receipt` | `decodeExport` | 1 |
+| Redaction manifest | `@ashaveri/receipt` | `decodeRedaction` | 1 |
+| Epoch inventory | `@ashaveri/receipt` | `decodeEpochInventory` | 1 |
+| Destruction receipt | `@ashaveri/receipt` | `decodeDestructionReceipt` | 1 |
+| Retention manifest | `@ashaveri/receipt` | `parseRetentionDocument` | 1 and 2 |
+| Disclosure record | `@ashaveri/receipt` | `parseDisclosureRecord` | 1 |
+| Model inventory record | `@ashaveri/receipt` | `parseModelInventory` | 1 |
+| Hold record | `@ashaveri/receipt` | `parseHoldRecord` | 1 |
+| Incident preservation bundle | `@ashaveri/receipt` | `parseIncidentBundle` | 1 |
+| Deployment manifest | `@ashaveri/sdk` | `parseManifest` | 1 |
+| Capture record | `@ashaveri/sdk` | `parseCaptureRecord`, `assessCapture` | 1 |
+| Import envelope | `@ashaveri/sdk` | `parseImportEnvelope`, `readImportEnvelope` | 1 |
+| Retention assessment | `@ashaveri/sdk` | `parseRetentionAssessment` | 1 |
+| Verification policy file | `@ashaveri/sdk` | `parsePolicyFile`, `loadPolicyFile` | 1 |
+| Anchor provenance ledger | `@ashaveri/attest-core` | `verifyAnchorLedger`, `parseAnchorLedger` | 1 |
+
+Three published packages add no document family of their own: `@ashaveri/cli` renders these readers as a
+command, `@ashaveri/collateral` fetches, classifies and retains vendor attestation collateral, and
+`@ashaveri/fixtures` publishes and loads the vectors these readers are measured against.
+
+Three of the six publish a package name no registry serves, and that is a stated position rather than
+something left behind. `@ashaveri/cli`, `@ashaveri/sdk` and `@ashaveri/fixtures` each list
+`@ashaveri/signerd`, the gateway their suites mint signing credentials against, under `devDependencies`, and
+packing a package rewrites that workspace range into the exact version the private package states. Nothing
+resolves it: a consumer installs the dependencies of a package, never the devDependencies of that package's
+publisher, so the name sits in metadata read while a package is developed and in no install of it. The
+boundary holds in the other direction too, because an installed command cannot import a package it is never
+handed: `packages/cli/src/records.ts` declares the gateway's credential record and its record limit a second
+time instead of depending on `@ashaveri/signerd`, and that second declaration is weighed against the first by
+behaviour rather than by a comment: the credential file `ashaveri credential add` writes is read back through
+`loadCredentialFile`, the gateway's own loader, which accepts it and returns the id and the rate the command
+stated. `packages/fixtures/test/publish-manifests.test.ts` holds the position to the
+manifests: a private package name is refused in `dependencies`, `peerDependencies` and
+`optionalDependencies`, and admitted in `devDependencies` for those names and no other. The same file reads
+this paragraph back and compares the names its enumeration states to the list it keeps, so a fourth package
+taking the same dependency arrives as an edit to both or as a failing test, rather than as drift.
+
+Each publishable manifest also declares a `prepack` script that builds that package before a packer reads its
+directory, and the two packers disagree about what the manifest keeps of it: `pnpm pack` runs the script and
+drops the field from the manifest it writes into the tarball, while `npm pack` runs it too and keeps the field,
+and `.github/workflows/publish.yml` packs every package with the former and publishes the artifact with the
+latter.
+
+Documents whose layout a vendor defines are read by these packages too and are not in the table, because the
+version numbers they carry belong to their issuers and move on a vendor's schedule rather than on this
+repository's. What a published release promises of each is that it refuses a version it does not implement
+instead of reading it as one it does: the dStack attestation envelope `decodeAttestation` opens must state
+version 1 and is answered `UNSUPPORTED_VERSION` when it states another; the AMD SEV-SNP report
+`parseSnpReport` reads accepts versions 2 and 3 and refuses any other as `MALFORMED_REPORT`; the Intel TDX
+quote whose signature `verifyTdxQuote` reads is parsed at quote version 4 alone and answers
+`UNSUPPORTED_QUOTE` beside the number it found; and the NVIDIA device evidence `parseNvidiaEvidenceBundle`
+unpacks requires SPDM version 1.1 in both directions of the exchange. The trust material these documents
+chain to is in [trust-anchors.md](trust-anchors.md), and it is versioned by its own issuers.
+
+Each family carries its own version member and no two of these numbers move together: a pack stamped at the
+second version of its own layout says nothing about which payload versions the receipts inside it name. The
+rule the families share is the one section 6 states at the payload, where it was first decided: a number
+joins the set a reader parses where documents exist under it. A version nobody has written bytes under is a
+rule for a document no reader will ever be handed, so it is neither declared in advance nor reserved, and a
+reader owes it no behaviour.
+
+What a reader does on meeting a version outside its family's set is refuse it rather than read it as a
+version it has rules for. Which code arrives is not uniform across the published readers, and a caller that
+keys on the code alone learns the document for some families and not for others. Every container
+`@ashaveri/receipt` ships, and the ledger reader in `@ashaveri/attest-core`, answers a code carrying that
+family's own name: `UNSUPPORTED_VERSION` at the receipt payload, `PACK_UNSUPPORTED_VERSION` at the pack, and
+the same shape at the export, redaction, epoch inventory, destruction receipt, retention, disclosure record,
+model inventory, hold record and incident bundle readers, so for those the code says which document was
+handed in. Three of the five `@ashaveri/sdk` families answer the payload's `UNSUPPORTED_VERSION`: the capture
+record, the import envelope and the retention assessment. For those three the code says only that a version
+was outside a reader's set, and it is the refusal's message, which states the version found and the versions
+that reader implements, that names the document. The verification policy file answers `POLICY_FILE_INVALID`
+at its version guard, and that is the code this loader gives every refusal about how a document is written: a
+text that is not one JSON object, a key written twice, a field of the wrong type, an anchor path that climbs
+out of the directory holding the file, and a `v` that is not the version the loader reads. The refusals that
+are not about how the document is written carry codes of their own: `POLICY_EMPTY_PIN` for a pinning field
+present and empty, `POLICY_NOTHING_PINNED` for a document pinning nothing a verifier would weigh,
+`POLICY_ANCHOR_UNREADABLE` and `POLICY_ANCHOR_DIGEST_MISMATCH` for the bytes at a pinned root, which
+`loadPolicyFromText` reads and `loadPolicyFile` reaches by the same call, and `POLICY_FILE_UNREADABLE` for the
+file that second one opens. So a policy at the wrong version is indistinguishable by code from a policy with a
+key written twice, and distinguishable from one that pins nothing, pins an empty list, or names a root whose
+bytes cannot be read or do not hash to the digest. As with the three families above, it is the refusal's
+message, naming the version found and the version the loader reads, that says which of them happened.
+`parseManifest` is the outlier: it throws a plain `Error` naming the document and the
+member it objected to, and it carries no code of its own. The loader `readDeploymentManifest` catches that
+error and re-raises it as `BAD_MANIFEST`, the code every failure of that parser shares, so through the loader a
+manifest written at a version it does not read is answered exactly as a manifest with a typo in it. A reader
+does not accept the
+members it happens to know and leave the rest: the payload map is closed, as section 6 says, and the number
+a document names is settled before one member of it is weighed. `ashaveri verify-handover` and
+`ashaveri verify-receipt` carry that answer out of the installed package to the terminal, in the `code`
+field of the verdict and in a nonzero exit.
+
+**What a consumer should expect from a new package version.** A release at the same major number reads every
+version this release reads, and it may read more. It changes nothing about what a document these readers
+already accepted attests: a receipt that verified under a key and a set of inputs verifies under that key
+and those inputs at the next release, because a document signed under a number is read exactly as it was
+written. A new package version may add a row, add a function, or refuse more sharply a document that was
+always ambiguous. Taking a version away from a published reader is a different act, and it is a new major
+version: a consumer who pinned an older release keeps the set that release stated, and no upgrade decides on
+their behalf which of their receipts are still readable.
+
+**What a consumer should expect from a new format version.** Bytes written under a number this release does
+not parse are refused by this release, and that refusal is the promise rather than a gap in it. A deployment
+that begins issuing a newer document knows every un-updated verifier stops reading it loudly instead of
+reading it as the shape it knows, which is why the payload gained `enc` as a new version rather than as an
+optional member. Where a format can grow without splitting its audience it does: the deployment manifest is
+read by a parser that leaves the members it does not name alone, so an epoch rule arrived as two optional
+members of a `keys[]` entry and every client written before it keeps working. Sections 4.4 and 6 state that
+pair of trades, and the choice between them belongs to the format, not to the package number.
+
+The published suites are what make the table above checkable by someone holding no copy of this repository.
+Each file in `@ashaveri/fixtures` states the format version its rows are written under and the verdict a
+conforming reader owes every row, so a release that changed what an old number means answers differently from
+the published file, and a reimplementation that runs none of this code is measured against the same rows.
+[vectors.md](vectors.md) is that inventory.
+
+## 8. References
 
 - RFC 8949, Concise Binary Object Representation (CBOR); section 4.2.1 Core Deterministic Encoding
 - RFC 9052, CBOR Object Signing and Encryption (COSE): Structures and Process, as updated by
