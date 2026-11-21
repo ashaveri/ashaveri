@@ -1,13 +1,13 @@
 # Multimodal content admission
 
-A chat completion request states what each of its messages carries either as text or as a list of
-content parts, and this gateway answers both shapes. The parts a client sends are admitted before the
-provider is asked, they are forwarded as the caller wrote them, and the digest a receipt carries is taken
-over the bytes that arrived rather than over a reading of them, so an image, an audio clip or a document
-inline in a request is inside the evidence the moment the completion is receipted. This document states
-which shapes are admitted, which are refused and by what sentence, what the parsed request holds, and
-what the mock backend's token figures count. The protocol around a completion, the headers that authorize
-it and the payload a receipt signs are specified in [receipt-spec.md](receipt-spec.md), section 4.
+A chat completion request states what each of its messages carries either as text or as a list of content
+parts, and this gateway answers both shapes. Parts are admitted ahead of any answer, every member of them
+is carried into the parsed request, and the digest a receipt takes over a request is computed over the
+bytes that arrived rather than over a reading of them, so an image, an audio clip or a document inline in
+a request is inside the evidence the moment the completion is receipted. This document states which shapes
+are admitted, which are refused and by what sentence, what the parsed request holds, and what the mock
+backend's token figures count. The protocol around a completion, the headers that authorize it and the
+payload a receipt signs are specified in [receipt-spec.md](receipt-spec.md), section 4.
 
 ## 1. The two shapes a content may take
 
