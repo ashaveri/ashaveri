@@ -40,6 +40,9 @@ import {
  *   workspace resolves a sibling through a link to its directory, where a consumer gets only the bytes
  *   the `files` list chose. A `bin` is read in both shapes a manifest may write it in, the map for several
  *   commands and the bare string for one, because the shorter of the two names a way in rather than none.
+ *   The two fields a resolver reads before it reads any map are read from the fields too, and not only from
+ *   the map's copy of the same paths, because five of the six publishable manifests state both and a reader
+ *   that kept only the map would weigh one of the two statements and call that coverage.
  *
  *   Every publishable manifest states a Node floor, and the floor it states is the one the root manifest
  *   declares for this workspace. The range is read off that manifest rather than written out again here, so
@@ -552,6 +555,21 @@ describe('the manifests a publish reads', () => {
     expect(mapped, 'the one command named as a map read differently from the same command named as a string').toEqual(
       single,
     );
+  });
+
+  it('reads the way in a manifest names with the two fields a resolver reads before the exports map', () => {
+    // Five of the six publishable manifests state their built output as `main` and `types` as well as writing
+    // the same two paths into the `exports` map, so the shape is read every time this file resolves a package,
+    // and both statements name the same bytes. That is also why the shape is weighed here on its own: a reader
+    // that walked only the map returns those two paths for every manifest in this workspace and nothing at all
+    // for one that states no map, and the list it returns is what the shipped-directory check above and the
+    // built-entry-point check below go on. Dropping the two fields from the shared reader is therefore a
+    // shorter list, not a wrong answer, and this is the case that stops it being silent.
+    const stated = entryPoints({ main: './dist/index.js', types: './dist/index.d.ts' });
+    expect(
+      stated,
+      `a manifest stating main and types with no exports map read as ${stated.join(', ') || 'nothing'}`,
+    ).toEqual(['./dist/index.js', './dist/index.d.ts']);
   });
 
   it("states the root's Node floor in every publishable manifest, which a manager enforces only where the consumer opts in", () => {
