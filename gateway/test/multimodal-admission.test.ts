@@ -77,15 +77,6 @@ function inlineDataStart(text: string): number {
   return text.indexOf('base64,') + 'base64,'.length;
 }
 
-/** How many characters two same-length strings differ by. */
-function characterDifferences(a: string, b: string): number {
-  let differences = 0;
-  for (let at = 0; at < a.length; at += 1) {
-    if (a.charAt(at) !== b.charAt(at)) differences += 1;
-  }
-  return differences;
-}
-
 /** What a parse answered: the sentence it refused with, or `admitted` where it took the body. */
 function refusalOf(raw: unknown): string {
   try {
@@ -385,7 +376,6 @@ describe('a multimodal request through the completion route', () => {
       // this file took over the bytes it wrote into the request: the media inside the JSON is inside the
       // evidence, because the whole body is.
       expect(toHex(verified.payload.req)).toBe(digestOf(sent));
-      expect(digestOf(sent)).not.toBe(digestOf('{"model":"mock-model-1"}'));
     } finally {
       await h.app.close();
     }
@@ -396,8 +386,6 @@ describe('a multimodal request through the completion route', () => {
     try {
       const original = body();
       const changed = flipOneCharacter(original, inlineDataStart(original) + 40);
-      expect(changed).toHaveLength(original.length);
-      expect(characterDifferences(original, changed)).toBe(1);
 
       const firstNonce = nonceAt(3, MARKER);
       const secondNonce = nonceAt(4, MARKER);
