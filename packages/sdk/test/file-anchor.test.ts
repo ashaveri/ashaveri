@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { FILE_ANCHOR_MEMBER_NAME, hashRequest, verifyFileAnchor } from '@ashaveri/receipt';
+import { createHash } from 'node:crypto';
+import { FILE_ANCHOR_MEMBER_NAME, toHex, verifyFileAnchor } from '@ashaveri/receipt';
 import { AshaveriClient, fileAnchor } from '../src/index.js';
 import { createFakeGateway, FAKE_BASE_URL } from './mock-gateway.js';
 
@@ -13,14 +13,37 @@ import { createFakeGateway, FAKE_BASE_URL } from './mock-gateway.js';
  * the evidence without the file ever passing through the deployment. The chain below is run against
  * the deployment double this suite ships, from the helper to the bytes the double was handed to the
  * digest the receipt carries, because each of those steps is a place a claim can be quietly lost.
+ *
+ * No expected value here comes out of the code under test. The digests are literals produced over the
+ * fixture bytes away from this repository, and each is cross-checked against `node:crypto`, which no
+ * shipped code of this estate uses for a file or request digest. A helper that hashed something other
+ * than the bytes it names therefore disagrees with the number written down for it, which is the only
+ * thing a witness over a digest can measure.
  */
 
 const FILE = new TextEncoder().encode('a recording of the conversation, in full');
 const OTHER_FILE = new TextEncoder().encode('a recording of the conversation, in part');
 
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+/** sha256 from `node:crypto`, a second implementation next to the one this package digests through. */
+function otherSha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
+
+/**
+ * The digest of each fixture above, written down rather than computed: each was produced over those
+ * bytes by `node:crypto` outside this repository's code, and the two are checked against each other
+ * in the cases below.
+ */
+const FILE_SHA256_HEX = '7d4214c1df232f32b9e6935af6a7a422de12cdfecd6ba35a9b11f43113e52e45';
+const OTHER_FILE_SHA256_HEX = '70613f5e0981e52cba4d2a6cbba1e00534292f0fadb4ea750c8c9c37b81a7362';
+
+/** The request below as the transport is expected to write it, and the digest of that text. */
+const ANCHORED_REQUEST_TEXT =
+  '{"model":"fake-model","messages":[{"role":"user","content":"what is in this file?"}],' +
+  '"file":"file-9YwQhXkLmRt2VuPz","ashaveri":{"file":{"sha256":"' +
+  FILE_SHA256_HEX +
+  '","bytes":40,"media_type":"audio/wav"}}}';
+const ANCHORED_REQUEST_SHA256_HEX = 'abbd858b52b4958be15d2eda0baef7ce6346c335904471f333141b21b99565a9';
 
 function forwarded(gateway: ReturnType<typeof createFakeGateway>): string {
   const body = gateway.requests.find((one) => one.method === 'POST' && typeof one.body === 'string')?.body;
@@ -33,11 +56,12 @@ function forwarded(gateway: ReturnType<typeof createFakeGateway>): string {
 describe('the claim a client states', () => {
   it('names the digest, the length and the declared media type of the bytes it was handed', () => {
     const member = fileAnchor(FILE, 'audio/wav');
-    // The digest is reached by the hash function straight from the dependency, so the value a client
-    // states is witnessed against the function the verifier will recompute with rather than against
-    // a second copy of the client's own arithmetic.
+    // The literal and `node:crypto` are two spellings of one hash reached away from this code, and the
+    // helper has to agree with both: an expected value taken from the helper itself could not disagree
+    // with it whatever bytes it hashed.
+    expect(otherSha256Hex(FILE)).toBe(FILE_SHA256_HEX);
     expect(member).toEqual({
-      file: { sha256: hex(sha256(FILE)), bytes: FILE.byteLength, media_type: 'audio/wav' },
+      file: { sha256: FILE_SHA256_HEX, bytes: FILE.byteLength, media_type: 'audio/wav' },
     });
     expect(member.file.sha256).toMatch(/^[0-9a-f]{64}$/u);
   });
@@ -78,10 +102,23 @@ describe('a claim carried by a real request', () => {
     });
     if (result.receipt === null) throw new Error('a receipting gateway returned a completion with no receipt');
     const body = forwarded(gateway);
+    // The text is the one this test wrote, and the digest the receipt carries is that text's own,
+    // measured against the literal and against `node:crypto` rather than against a re-run of the
+    // hashing this package does.
+    expect(body).toBe(ANCHORED_REQUEST_TEXT);
+    expect(toHex(result.receipt.payload.req)).toBe(ANCHORED_REQUEST_SHA256_HEX);
+    expect(toHex(result.receipt.payload.req)).toBe(otherSha256Hex(new TextEncoder().encode(ANCHORED_REQUEST_TEXT)));
     expect(body).toContain('file-9YwQhXkLmRt2VuPz');
     expect(body).not.toContain('recording');
-    expect(hashRequest(new TextEncoder().encode(body))).toEqual(result.receipt.payload.req);
-    expect(verifyFileAnchor(body, FILE)).toEqual({ status: 'match', sha256: member.file.sha256, bytes: FILE.byteLength });
-    expect(verifyFileAnchor(body, OTHER_FILE).status).toBe('mismatch');
+    // A `match` says the request stated this digest and these bytes are that digest. It says nothing
+    // about who held the file and nothing about whether a provider read it.
+    expect(verifyFileAnchor(body, FILE)).toEqual({ status: 'match', sha256: FILE_SHA256_HEX, bytes: FILE.byteLength });
+    expect(verifyFileAnchor(body, OTHER_FILE)).toEqual({
+      status: 'mismatch',
+      computedSha256: OTHER_FILE_SHA256_HEX,
+      computedBytes: OTHER_FILE.byteLength,
+      claimedSha256: FILE_SHA256_HEX,
+      claimedBytes: FILE.byteLength,
+    });
   });
 });
