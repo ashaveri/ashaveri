@@ -93,6 +93,8 @@ hold those original bytes beside the context that made them verifiable, is
 conclude, and what none of them can. Whether a store can prove it held every record across a period is
 [docs/retention-assessment-v1.md](docs/retention-assessment-v1.md): the members a deployment declares, the
 observations a checkpoint and a pinned head have to support, and why a span between two timestamps is not one.
+What a message may carry besides plain text, which part shapes this gateway answers and which it refuses, and what
+the mock's figures count, is [docs/multimodal-admission.md](docs/multimodal-admission.md).
 
 Reporting a vulnerability and submitting a change have their own pages:
 [SECURITY.md](SECURITY.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
