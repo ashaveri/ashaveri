@@ -16,9 +16,8 @@ export interface ChatMessage {
 }
 
 /**
- * One content part: only its `type` is read here, and every other member travels through unchanged,
- * because the grammar of a part is the provider's to define and a gateway that checked it would be
- * answering a well-formed request with this code's opinion of another vendor's field names.
+ * One content part: only its `type` is read here, and every other member travels through unchanged, for
+ * the reason section 1 of `docs/multimodal-admission.md` gives.
  */
 export interface ContentPart {
   readonly type: string;
@@ -78,8 +77,7 @@ export class RequestError extends Error {}
 
 /**
  * The two shapes a message's content arrives in, admitted as the caller sent them. Only a part's `type`
- * is asked of it, so a content member this code has never seen is served rather than ending as a refusal
- * over a field name.
+ * is asked of it, for the reason section 1 of `docs/multimodal-admission.md` gives.
  */
 function parseContent(raw: unknown): string | readonly ContentPart[] {
   if (typeof raw === 'string') {

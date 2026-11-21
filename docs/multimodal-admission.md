@@ -6,8 +6,8 @@ is carried into the parsed request, and the digest a receipt takes over a reques
 bytes that arrived rather than over a reading of them, so an image, an audio clip or a document inline in
 a request is inside the evidence the moment the completion is receipted. This document states which shapes
 are admitted, which are refused and by what sentence, what the parsed request holds, and what the mock
-backend's token figures count. The protocol around a completion, the headers that authorize it and the
-payload a receipt signs are specified in [receipt-spec.md](receipt-spec.md), section 4.
+backend's token figures count. The protocol around a completion and the headers that authorize it are
+section 4 of [receipt-spec.md](receipt-spec.md), and the payload a receipt signs is section 3.
 
 ## 1. The two shapes a content may take
 
@@ -22,8 +22,8 @@ Admission reads nothing of a part besides its `type`, and every other member tra
 That is a rule about who owns a grammar: the member names inside an `image_url`, an `input_audio` or a
 `file` object belong to the vendor that published them, and a gateway that checked them would be answering
 a well-formed request with its own opinion of a grammar it does not hold. The question this gateway asks is
-the narrower one of whether the content is text or a list of parts, and section 4 states the one figure a
-deployment later takes from a text part.
+the narrower one of whether the content is text or a list of parts, and section 4 states the one figure
+the mock backend later takes from a text part.
 
 The part types a client meets in the published shapes are below, with what each of them carries. The
 table is a description of what callers send and not a list the admission rule reads: no part type is
@@ -39,11 +39,10 @@ named in the code that decides whether a request is served.
 
 A part whose `type` is the empty string is a part with a string type, so it is admitted too. A `role` is
 held to a non-empty string because the mock backend writes one into the answer it gives. Admission asks
-nothing further of a `type` than that it be a string, and the only code that reads it afterwards is the
-metering in section 4, which asks which parts name text: a `type` nobody uses, and an empty one, are a
-part that states no text and so adds nothing to a count, while still reaching the deployment whole. A
-refusal over such a name would answer a well-formed request with this code's opinion of another vendor's
-field names.
+nothing further of a `type` than that it be a string, and the only code that reads one afterwards is the
+mock backend's metering in section 4, which asks which parts name text: a `type` nobody uses, and an
+empty one, are a part that states no text and so adds nothing to that count, while the part itself still
+reaches the parsed request whole.
 
 ## 2. What is still refused, and in what words
 
