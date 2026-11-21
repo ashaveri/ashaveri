@@ -123,5 +123,6 @@ each refusal sentence of the two tables, read off the parse as the code writes t
 refusals read through the completion route as the 400 and the `error.type` it states; the mock's figure for
 a string content and for a parts content, beside the length of the media it did not count; the two ways a
 `text` part can state no text, and a part naming something else that carries a `text` member all the same;
-and a parts request carrying inline base64 receipted over a digest this file takes with `node:crypto`
-against the gateway's own.
+the zero that a request whose parts name no text is answered with and receipted with; and a parts request
+carrying inline base64 receipted over a digest this file takes with `node:crypto` against the gateway's
+own.

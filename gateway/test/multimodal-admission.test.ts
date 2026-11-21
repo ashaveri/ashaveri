@@ -337,6 +337,23 @@ describe('a multimodal request through the completion route', () => {
     }
   });
 
+  it('receipts a parts request that names no text at all, and carries its zero', async () => {
+    const h = await session();
+    try {
+      const noText = bodyWithParts([{ type: 'file', file: { file_data: INLINE_DATA } }]);
+      const completion = await send(h, 'POST', '/v1/chat/completions', noText, nonceAt(5, MARKER));
+      expect(completion.statusCode).toBe(200);
+      const completionId = completion.headers['x-ashaveri-receipt-id'] as string;
+      const payload = decodeReceipt(await receiptBytesOf(h, completionId)).payload;
+      // A request with nothing to count is served rather than refused, and the figure it answers with is
+      // the one the signed document carries: zero, stated, rather than a number drawn from the file.
+      expect(payload.tok.p).toBe(0);
+      expect(completion.json().usage.prompt_tokens).toBe(0);
+    } finally {
+      await h.app.close();
+    }
+  });
+
   it('answers a part refusal with the 400 whose shape the protocol states', async () => {
     const h = await session();
     try {
