@@ -56,6 +56,13 @@ import {
  * Reading the reader names out of the paragraph is the only way the run can notice the list it drives itself
  * from has moved.
  *
+ * A name stated twice is the same fault pointing the other way, and an exact set of names cannot see it: the
+ * paragraph names a reader once, the roster carries it twice, and the two sets are still equal. So the roster is
+ * read through one refusal of its own before either direction runs, which is the rule the family table states for
+ * its doubled row and the counting sentence states for its doubled name. What the failure prints is the reader and
+ * the index the second copy sits at, because the thing to take out of the roster is one of two entries that read
+ * the same.
+ *
  * The vendor figures are read the way the rows are, against the refusal that states them, with one addition:
  * they are not all whole numbers. `1.1` is how SPDM writes a two-part version, and the source holds it as the
  * byte `0x11`, so a byte is spelled back into the dotted form the document uses and a byte whose halves are not
@@ -514,6 +521,30 @@ function paragraphReaders(paragraph: string): string[] {
   return named;
 }
 
+/**
+ * The roster read as the list of readers it weighs, with one reader stated twice refused. Both directions of the
+ * comparison below are set comparisons, and a set has no room for a copy, so a roster carrying one reader under
+ * two labels and a paragraph naming it once leaves each of them satisfied while one promise is weighed twice and
+ * one roster slot weighs nothing of its own. The refusal names the reader and the index the second copy sits at,
+ * since the two entries that caused it read alike and the run cannot say which one an author meant.
+ */
+function vendorRoster(): readonly VendorFamily[] {
+  const readers = VENDOR_FAMILIES.map((one) => one.reader);
+  const doubled = readers.filter((one, at) => readers.indexOf(one) !== at);
+  if (doubled.length > 0) {
+    const reader = String(doubled[0]);
+    const first = readers.indexOf(reader);
+    const second = readers.indexOf(reader, first + 1);
+    throw new Error(
+      `the vendor roster carries ${reader} twice: the first copy sits at index ${String(first)} under ` +
+        `${String(VENDOR_FAMILIES[first]?.named)} and the second at index ${String(second)} under ` +
+        `${String(VENDOR_FAMILIES[second]?.named)}, so one reader is weighed under two labels and the roster ` +
+        'no longer states which entry the paragraph answers to',
+    );
+  }
+  return VENDOR_FAMILIES;
+}
+
 const VERSION_TOKEN = /^[0-9]+(?:\.[0-9]+)?$/u;
 
 /** Two version spellings ordered: a dotted pair sits above the whole number it grows out of. */
@@ -868,8 +899,9 @@ describe('the published compatibility table states the version sets its readers 
     const paragraph = vendorParagraph();
     const exported = exportedNames(PACKAGE_INDEX['@ashaveri/attest-core'] ?? '');
     const named = paragraphReaders(paragraph);
+    const roster = vendorRoster();
     const offenders: string[] = [];
-    for (const family of VENDOR_FAMILIES) {
+    for (const family of roster) {
       if (!named.includes(family.reader)) {
         offenders.push(`${family.named}: the vendor paragraph no longer names ${family.reader} as the reader it weighs, so the roster carries a reader the paragraph does not`);
       }
@@ -877,11 +909,11 @@ describe('the published compatibility table states the version sets its readers 
         offenders.push(`${family.named}: the vendor paragraph names ${family.reader}, and @ashaveri/attest-core exports no such value`);
       }
     }
-    for (const reader of named.filter((one) => !VENDOR_FAMILIES.some((family) => family.reader === one))) {
+    for (const reader of named.filter((one) => !roster.some((family) => family.reader === one))) {
       offenders.push(`the vendor paragraph names ${reader} as a reader it weighs, and no roster entry carries it, so its figure is weighed nowhere`);
     }
     for (const row of familyRows()) {
-      const vendor = VENDOR_FAMILIES.filter((family) => row.family.includes(family.named) || row.readers.includes(family.reader));
+      const vendor = roster.filter((family) => row.family.includes(family.named) || row.readers.includes(family.reader));
       if (vendor.length > 0) {
         offenders.push(
           `${row.family}: the vendor paragraph says these families are not in the table, and the table states a row for it`,
