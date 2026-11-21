@@ -430,8 +430,8 @@ function sameBound(left: Comparator | undefined, right: Comparator | undefined):
  * Whether two read ranges state one promise. A range in this language is a list of bounds a version has
  * to hold at once, so what it admits turns on the tightest bound on each side: `>=26.13.0 <27`,
  * `>= 26.13.0 <27` and `>=26.13.0 <27.0.0` are one promise written three ways, while `>=26.0.0` admits
- * releases none of them do. Matching the text reddens the first pair as a re-spacing and waves through a
- * floor quietly widened, which is the failure this reader exists to refuse.
+ * releases none of them do. Matching the text reddens the first pair as a re-spacing and lets a quietly
+ * widened floor pass, which is the failure this reader exists to refuse.
  */
 export function rangesAgree(left: Comparator[], right: Comparator[]): boolean {
   return (
