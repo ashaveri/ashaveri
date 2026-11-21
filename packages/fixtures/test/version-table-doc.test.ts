@@ -74,6 +74,14 @@ const NO_FAMILY_MARKER = 'add no document family of their own:';
 const PACKAGES_PARENT = '../../';
 const GATEWAY_DIR = '../../../gateway';
 
+/**
+ * How many path segments deep the directory that lists the packages sits, measured from this test file, so a
+ * walk up from a module knows the boundary it must not cross: a directory holding more segments than this can
+ * still carry one package name, and one holding this many or fewer is the listing itself or something above
+ * it, whose manifest belongs to no package the module ships in.
+ */
+const PACKAGE_LIST_DEPTH = PACKAGES_PARENT.split('/').filter((part) => part.length > 0).length;
+
 /** The index a consumer resolves through, for each package the table ships a reader in. */
 const PACKAGE_INDEX: Record<string, string> = {
   '@ashaveri/receipt': '../../receipt/src/index.ts',
@@ -173,10 +181,16 @@ function shown(specifier: string): string {
  * carrying one. A package name written out beside a file path is a claim about the document, because the cell
  * it is compared to comes from the document too, and the pairing that can be wrong is the one between the
  * module and the package a consumer installs it from.
+ *
+ * The walk stops at the directory that lists the packages, because that is the boundary the module started
+ * inside. A manifest above it is a real manifest of a real package, and reading one is how a module whose own
+ * manifest is missing comes to be attributed to whichever package sits nearest: climbing out names an answer
+ * rather than the absence of one, and the wrong package then agrees with the version set it is asked about,
+ * so nothing downstream notices. What the walk does instead is refuse, naming the module it could not place.
  */
 function packageOf(file: string): string {
   const parts = file.split('/');
-  for (let at = parts.length - 2; at >= 0; at -= 1) {
+  for (let at = parts.length - 2; at + 1 > PACKAGE_LIST_DEPTH; at -= 1) {
     const dir = parts.slice(0, at + 1).join('/');
     const manifest = `${dir}/package.json`;
     if (!existsSync(fileURLToPath(new URL(manifest, import.meta.url)))) continue;
@@ -189,7 +203,10 @@ function packageOf(file: string): string {
     }
     return String(found[0]?.name);
   }
-  throw new Error(`no manifest was found in or above ${shown(file)}, so which package ships it is not stated`);
+  throw new Error(
+    `${shown(file)} carries no manifest between itself and the directory that lists the packages, and the ` +
+      'walk up from a module stops there rather than naming whichever package sits nearest',
+  );
 }
 
 /** The package one row ships its reader in, read from the cell the table states it in. */
