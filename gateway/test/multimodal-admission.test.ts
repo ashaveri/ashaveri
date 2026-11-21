@@ -157,8 +157,8 @@ describe('parseChatCompletionRequest, the two shapes a content may take', () => 
   });
 
   it('asks only that a part type be a string, so a name no provider uses is still a part', () => {
-    // A role is read downstream and an empty one is nothing, so it is held to a non-empty string. A part
-    // type is read here and nowhere else, so an empty one is a string this gateway has no question about.
+    // A role is written into the answer the mock gives, so an empty one is refused. A part's type decides
+    // only how that part is metered, so an empty one is a string this parse asks nothing further about.
     expect(refusalOf(JSON.parse(bodyWithParts([{ type: '' }])))).toBe('admitted');
     expect(refusalOf(JSON.parse(bodyWithParts([{ type: 'text' }])))).toBe('admitted');
   });
