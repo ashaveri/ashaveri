@@ -11,7 +11,9 @@ import {
   readSourceFile,
   rangesAgree,
   scopedManifests,
+  sectionBody,
   spelledNumber,
+  tableRows,
   type Comparator,
   type PackageManifest,
 } from './doc-contract.js';
@@ -946,5 +948,101 @@ describe('what the public README says about the same packages', () => {
     const [version] = manifests();
     if (version === undefined) throw new Error('no scoped manifest was found');
     expect(stated, `${README} states ${stated} while ${version.dir} states ${version.version}`).toBe(version.version);
+  });
+});
+
+/**
+ * The README names packages in three places besides its count: the Status sentence that lists them, the
+ * publish-day badge block a comment holds back until there is something to badge, and the table under
+ * "Packages".
+ *
+ * A count can be right beside the wrong names. The boundary review's finding C3 recorded three documents
+ * stating three different numbers while each sentence was locally true, and the fix that closed it was a
+ * ruling about which set is the promise, not a number typed into each place. So these cases ask membership,
+ * walked off the workspace rather than compared against a list kept in this file, and they draw the
+ * publishable line with `isPublishable`, the same rule the manifest and tarball readers use, because a
+ * second copy of a boundary is a second boundary.
+ */
+describe('the packages the public README names, by name', () => {
+  const publishableNames = (): string[] => publishable().map((manifest) => manifest.name);
+  const privateNames = (): string[] =>
+    manifests().filter((manifest) => !isPublishable(manifest.fields)).map((manifest) => manifest.name);
+
+  /** The package names a slice of the README spells, in the order the document puts them. */
+  function namedIn(text: string): string[] {
+    return [...text.matchAll(/@ashaveri\/[a-z][a-z0-9-]*/giu)].map((found) => found[0] ?? '');
+  }
+
+  it('lists every publishable package in the Status sentence, and says why any private one appears there', () => {
+    const status = sectionBody(readRepoFile(README), '## Status');
+    const named = namedIn(status);
+    const listed = [...new Set(named.filter((name) => publishableNames().includes(name)))].sort();
+    expect(
+      listed,
+      `${README}'s Status sentence names ${listed.length} of the packages this workspace publishes: it should hold ` +
+        `[${publishableNames().join(', ')}] and holds [${listed.join(', ')}]`,
+    ).toEqual([...publishableNames()].sort());
+
+    for (const name of privateNames()) {
+      if (!named.includes(name)) continue;
+      const clause = status
+        .split(/(?<=[.!])\s+/u)
+        .find((one) => one.includes(name));
+      expect(
+        clause ?? '',
+        `the Status sentence names ${name}, which no registry holds, in a clause that does not say it waits: ` +
+          JSON.stringify(clause ?? ''),
+      ).toMatch(/"private": true|private flag|until|waits/iu);
+    }
+  });
+
+  it('badges one name per publishable package on publish day, and none for a package that is still private', () => {
+    const blocks = [...readRepoFile(README).matchAll(/<!--([\s\S]*?)-->/gu)].map((found) => found[1] ?? '');
+    const badgeBlock = blocks.find((one) => one.includes('npmjs.com/package/'));
+    if (badgeBlock === undefined) {
+      throw new Error(`${README} carries no commented publish-day badge block, so the release has no badge list to check`);
+    }
+    const badged = [...new Set([...badgeBlock.matchAll(/npmjs\.com\/package\/(@ashaveri\/[a-z][a-z0-9-]*)/gu)]
+      .map((found) => found[1] ?? ''))].sort();
+    expect(
+      badged,
+      `the badge list would publish ${badged.length} shields against ${publishableNames().length} publishable ` +
+        `packages: [${badged.join(', ')}]`,
+    ).toEqual([...publishableNames()].sort());
+
+    for (const name of privateNames()) {
+      expect(
+        badged.includes(name),
+        `the badge list carries a badge for ${name}, whose manifest still says "private": true, so the release ` +
+          'would advertise a package no registry holds',
+      ).toBe(false);
+    }
+    for (const name of privateNames()) {
+      expect(
+        namedIn(badgeBlock).includes(name),
+        `the badge block does not name ${name} at all, so the change that drops its private flag has no note here ` +
+          'telling it to add a badge, and the count in the Status sentence will move alone',
+      ).toBe(true);
+    }
+  });
+
+  it('gives every workspace manifest one row in the package table and no row to a package the workspace does not hold', () => {
+    const rows = tableRows(readRepoFile(README), '| Package | Purpose |');
+    const tabled = rows.map((row, at) => {
+      const cell = row[1] ?? '';
+      const [name] = namedIn(cell);
+      if (name === undefined) {
+        throw new Error(`row ${String(at + 1)} of the package table names no package: ${JSON.stringify(cell)}`);
+      }
+      return name;
+    });
+    expect(
+      [...new Set(tabled)].sort(),
+      `the package table holds [${[...new Set(tabled)].join(', ')}] against the workspace's ` +
+        `[${manifests().map((manifest) => manifest.name).join(', ')}]`,
+    ).toEqual(manifests().map((manifest) => manifest.name).sort());
+    expect(tabled.length, `the package table lists ${manifests().length} packages across ${String(tabled.length)} rows`).toBe(
+      new Set(tabled).size,
+    );
   });
 });
