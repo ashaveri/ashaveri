@@ -9,10 +9,13 @@
 <a href="tsconfig.base.json"><img src="https://img.shields.io/badge/TypeScript-strict-3178C6?labelColor=0A1517" alt="TypeScript strict mode" /></a>
 <a href="#packages"><img src="https://img.shields.io/badge/version-0.1.0--dev-0B7A77?labelColor=0A1517" alt="Version 0.1.0 in development" /></a>
 
-<!-- Publish day: replace the static version badge with these and drop the Status note.
+<!-- Publish day: replace the static version badge with these six, add a seventh for
+@ashaveri/signerd in the same change that drops its "private" flag, and rewrite the Status
+sentence so its count and this list agree.
 <a href="https://www.npmjs.com/package/@ashaveri/sdk"><img src="https://img.shields.io/npm/v/@ashaveri/sdk?label=@ashaveri/sdk&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/sdk on npm" /></a>
 <a href="https://www.npmjs.com/package/@ashaveri/receipt"><img src="https://img.shields.io/npm/v/@ashaveri/receipt?label=@ashaveri/receipt&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/receipt on npm" /></a>
 <a href="https://www.npmjs.com/package/@ashaveri/attest-core"><img src="https://img.shields.io/npm/v/@ashaveri/attest-core?label=@ashaveri/attest-core&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/attest-core on npm" /></a>
+<a href="https://www.npmjs.com/package/@ashaveri/collateral"><img src="https://img.shields.io/npm/v/@ashaveri/collateral?label=@ashaveri/collateral&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/collateral on npm" /></a>
 <a href="https://www.npmjs.com/package/@ashaveri/cli"><img src="https://img.shields.io/npm/v/@ashaveri/cli?label=@ashaveri/cli&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/cli on npm" /></a>
 <a href="https://www.npmjs.com/package/@ashaveri/fixtures"><img src="https://img.shields.io/npm/v/@ashaveri/fixtures?label=@ashaveri/fixtures&labelColor=0A1517&color=0FA5A0" alt="@ashaveri/fixtures on npm" /></a>
 -->
@@ -37,6 +40,12 @@ source rather than as a precondition; that decision, what it covers and what it 
 
 The six publishable packages are at `0.1.0` and none of them is on a registry, so take them
 from this repository: `pnpm install && pnpm build`, then import them by path or link the workspace.
+Those six are `@ashaveri/receipt`, `@ashaveri/attest-core`, `@ashaveri/sdk`, `@ashaveri/collateral`,
+`@ashaveri/cli` and `@ashaveri/fixtures`: every one of them declares the floor its code is checked on,
+in `engines.node`, and builds itself before a pack takes its bytes. The seventh row of the table,
+`@ashaveri/signerd`, is ruled to publish with the first release and carries `"private": true` until the
+commit that publishes it, which is the change that moves this sentence, the badge list below and the
+package table together.
 Publishing is scheduled against a result rather than a date. `@ashaveri/*` goes to npm with trusted
 publishing from CI once a receipt issued by confidential hardware, not by the mock gateway, verifies
 end to end through the SDK in strict mode.
@@ -47,6 +56,7 @@ end to end through the SDK in strict mode.
 |---|---|
 | `@ashaveri/receipt` | Deterministic CBOR + COSE_Sign1 receipt codec (RFC 8949 / RFC 9052) |
 | `@ashaveri/attest-core` | Offline verification of dStack confidential-VM attestations (SEV-SNP and TDX) |
+| `@ashaveri/collateral` | Fetches vendor attestation collateral across six origins, refuses a document that is stale or unsigned, and classifies and retains it under the cache rule each origin declares, so a verifier reads its trust roots from a package rather than from the chip vendor at the moment of verification |
 | `@ashaveri/sdk` | Client SDK: `AshaveriClient` and `wrapOpenAI` with receipt verification |
 | `@ashaveri/signerd` | Receipt-signing gateway: mock mode for development, live dStack CVM mode. Every route it serves but the weights manifest fetch demands a credential and checks the scope that route needs, and on those routes a credential-bearing request is rejected on a replay or a spent rate bucket before the route answers. The weights fetch reads no header, so a credential presented on it is not verified, not spent and not refused: that request is answered by the route itself, which answers 200 with the bytes when the deployment holds a manifest under that digest and 404 when it holds none. Every request writes one access-log line. A live start requires `--credentials-path` and `--access-log-path` |
 | `@ashaveri/cli` | `ashaveri` binary: `verify` for offline attestation checks, plus `keygen`, `credential` and `accesslog` operator commands, with CI-friendly exit codes |
