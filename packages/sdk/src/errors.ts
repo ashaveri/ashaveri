@@ -87,6 +87,13 @@ export type SdkErrorCode =
   | 'ATTESTED_TEXT_OUTSIDE_SHAPE'
   | 'GATEWAY_ERROR'
   | 'NOT_RECEIPTED'
+  // A request this wrapper cannot put a receipt on before it goes out. `NOT_RECEIPTED` is the gateway's
+  // answer about a response; this one is the client's answer about its own bytes, and the two are not one
+  // code because the acts differ: that is a deployment that issued nothing, this is a request that was
+  // never measurable here. It is reached only under `verify: 'strict'`, which is the one mode that promises
+  // a verified answer for the request it sends, and `wrap.ts` states what the mode does with the same bytes
+  // under the other two levels.
+  | 'REQUEST_BODY_NOT_DIGESTIBLE'
   // A capture record. Both answer the question of what a reader was told to read and did not
   // get, and both sit beside NOT_RECEIPTED for that reason. Neither is it, because a capture
   // record is not a receipt, and the second is a contradiction between a claim and the bytes

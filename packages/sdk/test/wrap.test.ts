@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import OpenAI from 'openai';
-import { parsePopAuthorization, sha256Hex, signingKeyFromSeed, verifyPopSignature } from '@ashaveri/receipt';
+import { parsePopAuthorization, sha256Hex, signingKeyFromSeed, toHex, verifyPopSignature } from '@ashaveri/receipt';
 import { toBase64Url, wrapOpenAI, type AshaveriCredential } from '../src/index.js';
 import {
   createFakeGateway,
@@ -111,6 +111,87 @@ describe('wrapOpenAI', () => {
     expect(response.status).toBe(400);
     expect(gateway.requests[0]!.nonceHeader).toBeUndefined();
     expect(wrapped.ashaveri.receiptIds()).toEqual([]);
+  });
+
+  // The three cells below are the ruling on an undigestible body: `strict` refuses one by name, the two
+  // levels that ask nothing of an unattestable answer still send it, and a text body is still digested
+  // under every level, so the refusal cannot be a widening that switched verification off.
+  it('refuses a body it cannot digest in strict mode, and sends nothing', async () => {
+    const { gateway, client } = fakeOpenAiClient();
+    const wrapped = wrapOpenAI(client, { verify: 'strict', policy: {} });
+    await expect(
+      wrapped.fetch(new Request(CHAT_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: REQUEST_BODY })),
+    ).rejects.toMatchObject({ code: 'REQUEST_BODY_NOT_DIGESTIBLE' });
+    await expect(
+      wrapped.fetch(new Request(CHAT_URL, { method: 'POST', body: REQUEST_BODY })),
+    ).rejects.toThrow(/Send the body as text/u);
+    expect(wrapped.ashaveri.receiptIds(), 'nothing was tracked because nothing was sent').toEqual([]);
+    expect(gateway.requests, 'the refusal happened before the wire').toEqual([]);
+  });
+
+  it('sends a body it cannot digest under the two levels that promise nothing about it', async () => {
+    for (const mode of ['receipt', 'off'] as const) {
+      const { gateway, client } = fakeOpenAiClient();
+      const wrapped = wrapOpenAI(client, { verify: mode });
+      const response = await wrapped.fetch(
+        new Request(CHAT_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: REQUEST_BODY }),
+      );
+      expect(response.status, `${mode}: the request completes`).toBe(200);
+      expect((await response.text()).includes(FAKE_CONTENT), `${mode}: the answer comes back whole}`).toBe(true);
+      expect(gateway.requests[0]!.nonceHeader, `${mode}: no nonce of the client's own goes out`).toBeUndefined();
+      expect(wrapped.ashaveri.receiptIds(), `${mode}: no receipt is claimed`).toEqual([]);
+    }
+  });
+
+  it('digests a text body under every level, so the refusal is about the body and not the mode', async () => {
+    for (const mode of ['off', 'receipt', 'strict'] as const) {
+      const { gateway, client } = fakeOpenAiClient();
+      // `strict` answers only for a deployment the caller named, so the level is reached with the double's own
+      // key pinned. Its receipt instant and its evidence timestamp are fixed 2023 seconds, so both age bounds
+      // are switched off rather than widened to arbitrary numbers: what this case measures is the digest, not
+      // the freshness defaults.
+      const policy = {
+        keys: { [toHex(gateway.key.kid)]: toBase64Url(gateway.key.publicKey) },
+        maxReceiptAgeSeconds: Number.POSITIVE_INFINITY,
+        maxEvidenceAgeSeconds: Number.POSITIVE_INFINITY,
+      };
+      const wrapped = wrapOpenAI(client, mode === 'strict' ? { verify: mode, policy } : { verify: mode });
+      const response = await wrapped.fetch(CHAT_URL, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: REQUEST_BODY,
+      });
+      expect(response.status, `${mode}: the completion is served`).toBe(200);
+      if (mode === 'off') {
+        // `off` digests nothing by definition, and what it must keep doing is sending the text unchanged.
+        expect(gateway.requests[0]!.body, 'off still hands the gateway the bytes it was given').toBe(REQUEST_BODY);
+        expect(wrapped.ashaveri.receiptIds()).toEqual([]);
+        continue;
+      }
+      if (mode === 'strict') {
+        // The point of this iteration is which refusal a text body does *not* draw. This double signs as a
+        // software deployment, so the level that wants platform evidence refuses its answer for that reason;
+        // what matters here is that a body readable as text was digested, signed a nonce over, and sent, and
+        // never met the refusal the unreadable bodies meet.
+        const sent = gateway.requests.find((one) => one.url.endsWith('/chat/completions'));
+        expect(sent?.nonceHeader, 'strict hashed the body it was given and signed over it').toBeDefined();
+        let refusal: { code?: string } = {};
+        try {
+          await wrapped.ashaveri.getReceipt(FAKE_RECEIPT_ID);
+        } catch (error) {
+          refusal = error as { code?: string };
+        }
+        expect(refusal.code, `strict refused for ${refusal.code ?? 'nothing'}, never for the body`).not.toBe(
+          'REQUEST_BODY_NOT_DIGESTIBLE',
+        );
+        continue;
+      }
+      const receipt = await wrapped.ashaveri.getReceipt(FAKE_RECEIPT_ID);
+      expect(receipt.payload.mdl, `${mode}: the text body was hashed and attested`).toBe('fake-model');
+      expect(toHex(receipt.payload.req), `${mode}: the text body was hashed and attested`).toBe(
+        sha256Hex(new TextEncoder().encode(REQUEST_BODY)),
+      );
+    }
   });
 
   it('rejects a client without a fetch property', () => {

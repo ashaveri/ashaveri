@@ -35,6 +35,13 @@ const CHAT_COMPLETIONS_MARKER = '/chat/completions';
  * against the policy. With `verify: 'receipt'` or `'strict'`, a failed
  * verification rejects the completion promise (or errors the stream) instead
  * of silently returning the content.
+ *
+ * The digest is taken of a body this call holds as text, so a request whose body is a `Request`, a stream
+ * or a form is one the wrapper attests nothing about. `receipt` and `off` send it and state nothing about
+ * the answer, which is what they did before this rule was written down; `strict` refuses it with
+ * `REQUEST_BODY_NOT_DIGESTIBLE` before anything goes on the wire, because that level's promise is about the
+ * request as much as the response. Section 5.1 of `docs/receipt-spec.md` states the same asymmetry where
+ * the three levels are defined.
  */
 export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {}): T & { readonly ashaveri: AshaveriTracker } {
   const mode = options.verify ?? 'receipt';
@@ -59,12 +66,27 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
       options.credential === undefined
         ? init
         : { ...init, headers: withoutAuthorization(init?.headers ?? (input instanceof Request ? input.headers : undefined)) };
-    if (mode === 'off' || prepared === undefined || typeof prepared.body !== 'string') {
+    // `off` asks nothing of a response, so it asks nothing of a request either: the caller's own bytes go
+    // out with the credential and no nonce, whatever the body carries.
+    if (mode === 'off') {
       return authed(input, prepared);
     }
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const baseUrl = chatCompletionsBase(url);
     if (baseUrl === undefined) {
+      return authed(input, prepared);
+    }
+    // Everything below digests the bytes this call sends, and a body that is not text gives it nothing to
+    // digest: a `Request`, a stream and a multipart form each carry bytes this wrapper cannot hash, so it can
+    // sign no nonce over them and can check no receipt's `req` against them. The two levels that ask nothing
+    // of an unattestable answer let such a request go, and `strict`, the level that promises a verified answer
+    // for the request it sends, is refused rather than left silent. What lets a request through is a body this
+    // call holds as text, which is what the official client writes; the level that asks nothing is the one that
+    // does not refuse.
+    if (prepared === undefined || typeof prepared.body !== 'string') {
+      if (mode === 'strict') {
+        throw new SdkError('REQUEST_BODY_NOT_DIGESTIBLE', notDigestibleDetail(prepared));
+      }
       return authed(input, prepared);
     }
     const nonce = randomNonce();
@@ -142,8 +164,25 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
   }
 }
 
-function withoutAuthorization(headers: RequestInit['headers']): Headers {
-  const copy = new Headers(headers);
+/**
+ * The refused request stated as what a caller can change: what this wrapper digests, which shapes give it
+ * nothing, which level refused, and the two ways out. A sentence naming only the refusal would leave a
+ * caller sending the same request in the same shape.
+ */
+function notDigestibleDetail(prepared: RequestInit | undefined): string {
+  const carried =
+    prepared === undefined ? 'no request body at all' : `a body that is not text (${typeof prepared.body})`;
+  return (
+    `this wrapper hashes the bytes it sends, and it cannot hash ${carried}: a Request, a stream and a ` +
+      `form-data body are that shape, so no nonce could be signed over the request and no receipt's req ` +
+      `could be checked against it. verify is 'strict', the level that answers for the request it sends, so ` +
+      `this request was refused here and nothing went on the wire. Send the body as text, which is what the ` +
+      `official client writes for a chat completion, or verify at 'receipt' or 'off', either of which passes ` +
+      `such a request through and states nothing about it`
+  );
+}
+
+function withoutAuthorization(headers: RequestInit['headers']): Headers {  const copy = new Headers(headers);
   copy.delete('authorization');
   return copy;
 }
