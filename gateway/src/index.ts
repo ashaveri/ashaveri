@@ -17,7 +17,9 @@ export {
   parseChatCompletionRequest,
   DEFAULT_MOCK_MODEL,
 } from './mock.js';
-export type { ChatCompletionRequest, ChatMessage, MockCompletion } from './mock.js';
+// The type a content array is written with travels beside the message that holds it: a caller that cannot
+// name a part cannot build the request whose parts this gateway admits.
+export type { ChatCompletionRequest, ChatMessage, ContentPart, MockCompletion } from './mock.js';
 export { RequestError } from './mock.js';
 export { fromBase64Url, toBase64Url } from './b64.js';
 export { fromHex, sha256, toHex } from './digest.js';
