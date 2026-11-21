@@ -479,8 +479,22 @@ describe('the installed tree a consumer ends up with', () => {
     for (const one of packed) {
       const installed = path.join(prefix, 'node_modules', ...one.name.split('/'));
       expect(existsSync(installed), `${one.name} is not installed at the prefix root`).toBe(true);
-      const nested = path.join(installed, 'node_modules', ...one.name.split('/'));
-      if (existsSync(nested)) duplicated.push(nested);
+      // A second copy of a published package can sit under its own directory or under a sibling's, and the
+      // two are one fault: the deeper copy is the one a resolver reaches first for the package holding it, so
+      // the host imports a reader that the prefix root, and every check weighing it, never read. Listing the
+      // scoped directory each installed package holds weighs both shapes, because neither one depends on the
+      // nested name matching the name of the directory holding it.
+      const scoped = path.join(installed, 'node_modules', SCOPE);
+      if (existsSync(scoped)) {
+        for (const entry of readdirSync(scoped, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const nested = `${SCOPE}${entry.name}`;
+          if (!packed.some((copy) => copy.name === nested)) continue;
+          duplicated.push(
+            `${nested} sits inside ${one.name} at ${asUrlPath(path.relative(prefix, path.join(scoped, entry.name)))}`,
+          );
+        }
+      }
       expect(String(installedManifest(one.name)['version']), `${one.name} installed a different version than it packed`).toBe(
         String(packedOf(one.name).manifest['version']),
       );
