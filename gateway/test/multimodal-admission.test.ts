@@ -3,18 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { decodeReceipt, fromBase64Url, toHex, verifyReceipt } from '@ashaveri/receipt';
 import { RECEIPT_ID } from '../src/access.js';
 import { mockCompletion, parseChatCompletionRequest, RequestError } from '../src/mock.js';
-// The member type is named through the package's entry point, because that is the only place a consumer of
-// the gateway can reach it from: a case that spelled the array from `../src/mock.js` would not notice an
-// entry point that handed the type out to nobody.
+// The member type is named through the entry point, the only place a consumer of the package can reach it.
 import type { ContentPart } from '../src/index.js';
 import { generated, harness, nonceAt, type Harness } from './helpers.js';
-
-/**
- * What a message is when the client sends something other than text. Three readers are watched here:
- * the parse that decides whether the request is answered at all, the mock that meters it, and the
- * receipt that binds the bytes it was sent in. A part that reaches only the first two is a part the
- * evidence never saw.
- */
 
 const MODEL = 'mock-model-1';
 const CREDENTIAL = 'multimodal';
