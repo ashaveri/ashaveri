@@ -2038,8 +2038,8 @@ behaviour rather than by a comment: the credential file `ashaveri credential add
 stated. `packages/fixtures/test/publish-manifests.test.ts` holds the position to the
 manifests: a private package name is refused in `dependencies`, `peerDependencies` and
 `optionalDependencies`, and admitted in `devDependencies` for those names and no other. The same file reads
-this paragraph back and compares the names stated here to the list it keeps, so a fourth package taking the
-same dependency arrives as an edit to both or as a failing test, rather than as drift.
+this paragraph back and compares the names its enumeration states to the list it keeps, so a fourth package
+taking the same dependency arrives as an edit to both or as a failing test, rather than as drift.
 
 Each publishable manifest also declares a `prepack` script that builds that package before a packer reads its
 directory, and the two packers disagree about what the manifest keeps of it: `pnpm pack` runs the script and
