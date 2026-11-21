@@ -926,7 +926,7 @@ describe('the published compatibility table states the version sets its readers 
   it("weighs the vendor paragraph's four figures against the refusals that state them", () => {
     const clauses = paragraphClauses(vendorParagraph());
     const offenders: string[] = [];
-    for (const family of VENDOR_FAMILIES) {
+    for (const family of vendorRoster()) {
       let claim: { figure: string[]; code: string | null; sites: number };
       try {
         const clause = vendorClause(clauses, family);
