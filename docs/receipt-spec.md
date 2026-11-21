@@ -2041,6 +2041,12 @@ manifests: a private package name is refused in `dependencies`, `peerDependencie
 this paragraph back and compares the names stated here to the list it keeps, so a fourth package taking the
 same dependency arrives as an edit to both or as a failing test, rather than as drift.
 
+Each publishable manifest also declares a `prepack` script that builds that package before a packer reads its
+directory, and the two packers disagree about what the manifest keeps of it: `pnpm pack` runs the script and
+drops the field from the manifest it writes into the tarball, while `npm pack` runs it too and keeps the field,
+and `.github/workflows/publish.yml` packs every package with the former and publishes the artifact with the
+latter.
+
 Documents whose layout a vendor defines are read by these packages too and are not in the table, because the
 version numbers they carry belong to their issuers and move on a vendor's schedule rather than on this
 repository's. What a published release promises of each is that it refuses a version it does not implement
