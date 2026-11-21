@@ -78,8 +78,8 @@ export class RequestError extends Error {}
 
 /**
  * The two shapes a message's content arrives in, admitted as the caller sent them. Only a part's `type`
- * is asked of it, so a content member this code has never seen reaches the provider rather than ending
- * as a refusal over a field name.
+ * is asked of it, so a content member this code has never seen is served rather than ending as a refusal
+ * over a field name.
  */
 function parseContent(raw: unknown): string | readonly ContentPart[] {
   if (typeof raw === 'string') {
