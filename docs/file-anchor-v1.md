@@ -6,7 +6,9 @@ digested a file before it sent anything, and it states what that digest was.
 It is an evidence field and nothing more: it is not a verdict about anything outside the request, and it
 proves no fact about the file itself. What it does is reach an offline verifier: a request the receipt
 digests carries the claim, so a stranger holding the receipt and the file can check the two against each
-other for a file whose bytes never passed through anybody's gateway.
+other. Where the file's own bytes travel is a separate question, and the two answers are different: an
+out-of-band upload never passes a byte through anybody's gateway, and a file sent inside the request
+does.
 
 ## The member
 
@@ -79,10 +81,14 @@ reporting exactly the reading this field must not support.
 ## Where the claim is written, and where it stops
 
 The client's helper is `fileAnchor` in `@ashaveri/sdk`. It takes the bytes and a declared media type,
-computes the digest with the same sha256 the verifier will recompute with, refuses an input of no bytes
-and a length no JSON reader reproduces exactly, and returns the member. It sends nothing, so the same
-claim covers a file that travels inside the request and a file that travelled out of band to a
-provider's upload endpoint and came back as an identifier.
+computes the digest with the same sha256 the verifier will recompute with, refuses an input of no bytes,
+a media type of nothing and a disclosed name of nothing, and returns the member. The length it states is
+the count of the bytes handed over, which the writer does not guard: no `Uint8Array` carries a length a
+JSON reader would not reproduce, so the reader is the only side that ever meets such a spelling. It sends
+nothing, so the same claim covers a file that travels inside the request and a file that travelled out of
+band to a provider's upload endpoint and came back as an identifier. The two do not buy the same thing:
+for the out-of-band file no byte of it reaches a gateway, and for the file inside the body the bytes do
+reach one, where the claim fixes only what the caller digested before it wrote the request.
 
 The gateway reads none of it. A chat completion request is parsed for `model`, `messages` and `stream`,
 and the digest a receipt signs is taken over the whole bytes the deployment read, which are the bytes the

@@ -1,8 +1,8 @@
 import { sha256Hex } from './pop.js';
 
 /**
- * The file anchor: a claim, made by the client inside the request body, that a file it did not send
- * has a stated digest.
+ * The file anchor: a claim, made by the client inside the request body, that the bytes it digested
+ * before it wrote that request have the digest it states.
  *
  * The gateway hashes the bytes it read and signs that digest as `req`, and a buffered body goes on to
  * its upstream as those same bytes, so a claim written into the body is inside the signed evidence the

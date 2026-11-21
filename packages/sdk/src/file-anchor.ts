@@ -5,10 +5,13 @@ import { sha256Hex, type FileAnchorMember } from '@ashaveri/receipt';
  * read as.
  *
  * Nothing here sends anything. The value produced is written into the caller's own request body,
- * which is what lets one claim cover a file that travels inside that body and a file that travelled
- * out of band to a provider's upload endpoint and came back as an identifier: in both cases the body
- * is what the gateway digests, so in both cases the claim arrives inside the signed evidence without
- * a byte of the file passing through anybody's gateway.
+ * which is what lets one claim cover two sorts of file: one that travels inside that body, and one
+ * that travelled out of band to a provider's upload endpoint and came back as an identifier. For the
+ * out-of-band file, no byte of it passes through anybody's gateway, and the claim inside the signed
+ * request is all the evidence says about it. For the file inside the body, the bytes do pass through
+ * the gateway, and what the claim buys is narrower: that the caller digested these bytes before it
+ * wrote the request, and that the digest it stated is fixed by the signature over the body. It is
+ * not proof of what those bytes are, and a verifier holding the file is still the one that compares.
  *
  * The digest is the SHA-256 this estate already computes, taken from the package that will recompute
  * it for a verifier. Two implementations of one hash agree until one of them is reached by another
@@ -28,16 +31,15 @@ export interface FileAnchorOptions {
 /**
  * The claim one file makes on a request: its digest, its length, and what the client says it is.
  *
- * Refused here are the two inputs that cannot state a claim at all, no bytes and a length no JSON
- * reader reproduces exactly, and the two declarations that would state an empty one. What is not
- * refused is anything about the file: its name is the caller's to disclose, its media type is the
- * caller's to declare, and its bytes never need to reach this process again.
+ * Refused here is the input that cannot state a claim at all, no bytes, and the two declarations
+ * that would state an empty one, a media type of nothing and a name of nothing. The length needs no
+ * guard: `byteLength` is a whole count of the bytes in hand, so no call that reaches this function
+ * with a `Uint8Array` can bring a length a JSON reader would not reproduce. What is not refused is
+ * anything about the file: its name is the caller's to disclose, its media type is the caller's to
+ * declare, and its bytes never need to reach this process again.
  */
 export function fileAnchor(file: Uint8Array, mediaType: string, options: FileAnchorOptions = {}): FileAnchorMember {
   const byteCount = file.byteLength;
-  if (!Number.isSafeInteger(byteCount)) {
-    throw new TypeError(`a file anchor states its length as a whole number a JSON reader reproduces, got ${String(byteCount)}`);
-  }
   if (byteCount === 0) {
     throw new TypeError('a file anchor claims the digest of a file, and these are no bytes at all');
   }
