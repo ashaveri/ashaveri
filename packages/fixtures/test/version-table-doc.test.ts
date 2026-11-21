@@ -949,10 +949,10 @@ describe('the published compatibility table states the version sets its readers 
           `leaves ${derived.join(', ')} once the packages the table ships readers in are taken out of it`,
       );
     }
-    if (claim.count !== claim.names.length) {
+    if (claim.count !== derived.length) {
       offenders.push(
-        `${shown(RECEIPT_SPEC)} counts ${String(claim.count)} packages and enumerates ${String(claim.names.length)}: ` +
-          `${claim.names.join(', ')}`,
+        `${shown(RECEIPT_SPEC)} counts ${String(claim.count)} packages adding no document family and the set ` +
+          `that adds none holds ${String(derived.length)}: ${derived.join(', ')}`,
       );
     }
     expect(offenders, 'the packages stated to add no family are not the packages that add none').toEqual([]);
