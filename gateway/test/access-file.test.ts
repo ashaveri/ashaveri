@@ -313,6 +313,9 @@ describe('the status a refusal answers with', () => {
     // A third 429, and the one that does carry a `retry-after`: this refusal is a bucket, and a bucket
     // knows when its next token appears. Its row in `test/completion-bound.test.ts` holds the header.
     DEPLOYMENT_RATE_LIMITED: 429,
+    // The one answer on this union that no check below earns: it is given at the reader, ahead of the
+    // pipeline, and `test/oversize-body-refusal.test.ts` holds the shape the caller is handed.
+    BODY_TOO_LARGE: 413,
   } satisfies Record<AccessErrorCode, number>;
 
   type StatusRow = readonly [code: AccessErrorCode, status: number];

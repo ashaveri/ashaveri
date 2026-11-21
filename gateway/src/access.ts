@@ -59,7 +59,15 @@ export type AccessErrorCode =
   // and a caller that retried on the hint a rate refusal carries would be asking a process that has already
   // said it cannot write a receipt this fast. The quantity is completions a minute for this process, in the
   // unit the per-address bound is stated in, so the two read against each other.
-  | 'DEPLOYMENT_RATE_LIMITED';
+  | 'DEPLOYMENT_RATE_LIMITED'
+  // The answer for a body this process will not read, and the one on this union that a request is given
+  // before the pipeline runs: the bound decides what the reader takes in, so no credential was named, no
+  // route body was reached, nothing was forwarded and no receipt was issued. It joins this union rather than
+  // staying the framework's own word because the caller-facing contract is one shape and one vocabulary for
+  // every refusal this gateway gives a request, and a deployer reading a code needs one name for the size
+  // bound rather than a second for whichever component enforces it. `gateway/src/server.ts` holds the bound,
+  // reads the setting that states it, and writes the answer.
+  | 'BODY_TOO_LARGE';
 
 /**
  * What the access log records: every code a caller can be told, plus the reasons that never leave this
@@ -104,6 +112,11 @@ const ERROR_STATUS: Record<AccessErrorCode, number> = {
   // seconds, on a bound the deployment set for its own write ceiling, needs to know which of the two
   // numbers moved.
   DEPLOYMENT_RATE_LIMITED: 429,
+  // 413, the status a body past the read bound is answered with, and the only one on this map that no check
+  // of the five earns: the request never reached them. The bound is a whole number of bytes an operator
+  // states, so unlike the two 429s above it carries no wait, and unlike the 500s below it the caller holds
+  // half of the fix.
+  BODY_TOO_LARGE: 413,
 };
 
 const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
@@ -131,6 +144,10 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
   // in `server.ts` appends the two configured numbers and the wait, because a refusal that named none of
   // them would read as a wall rather than as a number an operator can move.
   DEPLOYMENT_RATE_LIMITED: 'this deployment admits no completion past the rate it sets for itself',
+  // The fixed half says what this gateway will not read; the raise site in `server.ts` appends the bound this
+  // process holds, where it comes from and what the refusal left undone, because a 413 that named no number
+  // would send a caller back with slightly fewer bytes and no idea which number moved.
+  BODY_TOO_LARGE: 'this gateway reads no request body past the bound it is configured with',
 };
 
 /**
