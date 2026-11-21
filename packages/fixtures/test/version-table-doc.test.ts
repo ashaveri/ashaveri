@@ -355,9 +355,9 @@ function familyRows(): Row[] {
  * The names an index exports, separated into the ones a caller can invoke and the ones that exist only at
  * compile time. The index is walked as statements rather than by finding the ones that match, so an export this
  * cannot resolve is reported: a reader that matched some of an index and returned those names as the whole
- * roster is how a real entry point came to be reported as missing, and the same silence would wave through a
- * name that no longer exists. A star re-export or a rename on the way out leaves no complete list to read, so
- * both are thrown rather than guessed at.
+ * roster reports a real entry point as missing, and the same silence lets a name that no longer exists pass
+ * unchecked. A star re-export or a rename on the way out leaves no complete list to read, so both are thrown
+ * rather than guessed at.
  */
 function exportedNames(index: string): { values: string[]; types: string[] } {
   const source = readSourceFile(index);
