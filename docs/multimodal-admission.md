@@ -18,11 +18,12 @@ non-empty string `role` and a `content`, and `content` is one of two shapes:
 - a string, which is the text a message states;
 - a non-empty array of parts, where a part is a JSON object that states its `type` as a string.
 
-Everything a part carries besides its `type` is passed through unread. That is a rule about who owns a
-grammar: the member names inside an `image_url`, an `input_audio` or a `file` object belong to the vendor
-that published them, and a gateway that checked them would be answering a well-formed request with its own
-opinion of a grammar it does not hold. The question this gateway asks is the narrower one of whether the
-content is text or a list of parts.
+Admission reads nothing of a part besides its `type`, and every other member travels through unchanged.
+That is a rule about who owns a grammar: the member names inside an `image_url`, an `input_audio` or a
+`file` object belong to the vendor that published them, and a gateway that checked them would be answering
+a well-formed request with its own opinion of a grammar it does not hold. The question this gateway asks is
+the narrower one of whether the content is text or a list of parts, and section 4 states the one figure a
+deployment later takes from a text part.
 
 The part types a client meets in the published shapes are below, with what each of them carries. The
 table is a description of what callers send and not a list the admission rule reads: no part type is
@@ -78,11 +79,11 @@ rather than a second field standing beside the first, because two fields would l
 of them or neither, and neither of those is a request anyone sends.
 
 A part is kept as the object that came out of the body, member for member, so no byte a client sent is
-read into the parsed value and then left out of it. The parse is not a serialization step and nothing in
-this path rewrites a body: the bytes a deployment forwards to an upstream and the bytes whose digest a
-receipt carries are both taken from the buffer the request arrived in, before the parse is asked anything
-about them. Widening what the parse admits therefore changes which requests are answered and no byte of
-what an answered request proves.
+read into the parsed value and then left out of it. The parse is no part of a body's serialization: the
+digest a receipt carries over the request is taken from the buffer the request arrived in, whatever a
+backend does with the bytes afterwards, and the parsed messages are read by the mock backend that meters
+an answer. Admission is the whole of what the parse decides about a content, beside the `model` and
+`stream` a route also reads out of the body.
 
 ## 4. What the mock backend counts
 
@@ -103,14 +104,14 @@ name no text at all meters at zero, and the receipt format carries a zero.
 
 The completion sentence names both figures rather than one, so the number's scope travels with it: a
 parts message is answered as `with N characters in X text part(s) beside Y part(s) naming something
-else`, where N is the count above. A string content is still answered as `with N characters`. The figure
+else`, where N is the count above. A string content is answered as `with N characters`. The figure
 a receipt carries in `tok.p` is the same `promptTokens` the completion's `usage` states.
 
 ## 5. What a receipt binds
 
 `req` is SHA-256 over the request bytes exactly as they arrived, so the whole body is inside the claim a
-receipt makes, including any media inlined in it. The consequence is the one this document exists for: a
-file a client sent is in the evidence, and it is there as the bytes that were sent.
+receipt makes, including any media inlined in it. A file a client sent is therefore in the evidence, and
+it is there as the bytes that were sent.
 
 One byte changed inside an inline data URL moves `req`. A reader holding the document issued for the
 untouched request and the bytes of the changed one finds the two digests disagree, which is the request
