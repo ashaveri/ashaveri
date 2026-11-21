@@ -34,9 +34,10 @@ export interface FileAnchorOptions {
  * Refused here is the input that cannot state a claim at all, no bytes, and the two declarations
  * that would state an empty one, a media type of nothing and a name of nothing. The length needs no
  * guard: `byteLength` is a whole count of the bytes in hand, so no call that reaches this function
- * with a `Uint8Array` can bring a length a JSON reader would not reproduce. What is not refused is
- * anything about the file: its name is the caller's to disclose, its media type is the caller's to
- * declare, and its bytes never need to reach this process again.
+ * with a `Uint8Array` can bring a length a JSON reader would not reproduce. A call that brings
+ * something shaped like one is refused by the digest itself, which takes bytes and nothing else.
+ * What is not refused is anything about the file: its name is the caller's to disclose, its media
+ * type is the caller's to declare, and its bytes never need to reach this process again.
  */
 export function fileAnchor(file: Uint8Array, mediaType: string, options: FileAnchorOptions = {}): FileAnchorMember {
   const byteCount = file.byteLength;
