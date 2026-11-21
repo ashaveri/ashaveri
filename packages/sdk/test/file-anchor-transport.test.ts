@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import OpenAI from 'openai';
 import { toHex, type VerifiedReceipt } from '@ashaveri/receipt';
-import { AshaveriClient, wrapOpenAI } from '../src/index.js';
+import { AshaveriClient, wrapOpenAI, type ChatCompletionParams } from '../src/index.js';
 import { createFakeGateway, FAKE_BASE_URL, FAKE_RECEIPT_ID, type FakeGateway } from './mock-gateway.js';
 
 /**
@@ -50,8 +50,8 @@ const CLAIM = {
 
 const MESSAGES = [{ role: 'user' as const, content: 'what is in this file?' }];
 
-/** The member as a caller writes it: one more key beside `model` and `messages`. */
-function anchorParam(): Record<string, unknown> {
+/** The member as a caller passes it: one more key beside `model` and `messages`. */
+function anchorParam(): ChatCompletionParams {
   return { model: 'fake-model', messages: MESSAGES, [ANCHOR_MEMBER]: CLAIM };
 }
 
