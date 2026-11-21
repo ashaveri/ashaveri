@@ -7,6 +7,13 @@ import { mockCompletion, parseChatCompletionRequest, RequestError } from '../src
 import type { ContentPart } from '../src/index.js';
 import { generated, harness, nonceAt, type Harness } from './helpers.js';
 
+/**
+ * What a message is when the client sends something other than text. Three readers are watched here:
+ * the parse that decides whether the request is answered at all, the mock that meters it, and the
+ * receipt that binds the bytes it was sent in. A part that reaches only the first two is a part the
+ * evidence never saw.
+ */
+
 const MODEL = 'mock-model-1';
 const CREDENTIAL = 'multimodal';
 
