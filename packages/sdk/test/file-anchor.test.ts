@@ -37,6 +37,9 @@ function otherSha256Hex(bytes: Uint8Array): string {
 const FILE_SHA256_HEX = '7d4214c1df232f32b9e6935af6a7a422de12cdfecd6ba35a9b11f43113e52e45';
 const OTHER_FILE_SHA256_HEX = '70613f5e0981e52cba4d2a6cbba1e00534292f0fadb4ea750c8c9c37b81a7362';
 
+/** The digest of no bytes at all, the one literal this file needs that no fixture of its own names. */
+const EMPTY_FILE_SHA256_HEX = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+
 /** The request below as the transport is expected to write it, and the digest of that text. */
 const ANCHORED_REQUEST_TEXT =
   '{"model":"fake-model","messages":[{"role":"user","content":"what is in this file?"}],' +
@@ -85,6 +88,43 @@ describe('the claim a client states', () => {
     expect(() => fileAnchor(FILE, '')).toThrow(/media type/u);
     expect(() => fileAnchor(FILE, 'audio/wav', { name: '' })).toThrow(/discloses nothing/u);
   });
+});
+
+describe('the two halves of one claim', () => {
+  /**
+   * The pair the format declares, stated in one list so both halves are asked the same question: the
+   * writer is asked whether it produces the claim, the reader is asked whether it weighs one. A
+   * reader that accepted a member no client can state would report a `match` on a claim that never
+   * came from a client at all, and this case is what fails the day the two lists drift apart.
+   */
+  const refused: readonly (readonly [string, () => unknown, Uint8Array, Record<string, unknown>])[] = [
+    [
+      'a file of no bytes',
+      () => fileAnchor(new Uint8Array(0), 'audio/wav'),
+      new Uint8Array(0),
+      { sha256: EMPTY_FILE_SHA256_HEX, bytes: 0, media_type: 'audio/wav' },
+    ],
+    [
+      'a media type that declares nothing',
+      () => fileAnchor(FILE, ''),
+      FILE,
+      { sha256: FILE_SHA256_HEX, bytes: FILE.byteLength, media_type: '' },
+    ],
+  ];
+
+  for (const [what, write, bytes, member] of refused) {
+    it(`refuses ${what} on the reading side too, which is where a silent pass would sit`, () => {
+      expect(write).toThrow(TypeError);
+      const body = JSON.stringify({ model: 'fake-model', messages: [], [FILE_ANCHOR_MEMBER_NAME]: { file: member } });
+      expect(verifyFileAnchor(body, bytes)).toEqual({
+        status: 'mismatch',
+        computedSha256: otherSha256Hex(bytes),
+        computedBytes: bytes.byteLength,
+        claimedSha256: null,
+        claimedBytes: null,
+      });
+    });
+  }
 });
 
 describe('a claim carried by a real request', () => {

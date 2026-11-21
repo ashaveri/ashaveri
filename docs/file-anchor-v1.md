@@ -59,8 +59,14 @@ and answers one of three named results. It throws for none of them.
 | Result | When it is the answer | What it is not |
 | --- | --- | --- |
 | `match` | The body states a claim in this shape, and the digest and the byte count both equal what these bytes are. | Not a statement that the file is genuine, nor that anybody read it. |
-| `mismatch` | The body states a claim and these bytes are not it. Also the answer when the claim is stated in a shape no reader can weigh: a digest that is not sixty-four lowercase hex, a length that is a fraction or past what a JSON reader holds exactly, a media type that is not text. | Not an absence. The claim was made. |
+| `mismatch` | The body states a claim and these bytes are not it. Also the answer when the claim is stated in a shape no reader can weigh: a digest that is not sixty-four lowercase hex, a length that is a fraction or past what a JSON reader holds exactly, a length of nothing, a media type that is not text or declares nothing. | Not an absence. The claim was made. |
 | `absent` | There was no claim to weigh: no member under this namespace, a member holding no `file`, or a body that is not one JSON object. The reason names which. | Not a refutation. A receipt whose request stated nothing is not a receipt that contradicts a file. |
+
+The reader refuses the two claims the writer refuses, a length of nothing and a media type of
+nothing, rather than weighing them. A verifier that reached `match` over a member no client can
+state would be reporting an agreement about a document that cannot exist, so the answer is the
+named disagreement above. `packages/sdk/test/file-anchor.test.ts` holds the case that fails if the
+two lists ever drift apart.
 
 `absent` is refused as a spelling of `mismatch` on purpose. Reporting the two as one answer would let a
 request that never mentioned a file read as a request that misdescribed one, which is the difference

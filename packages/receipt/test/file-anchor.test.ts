@@ -145,6 +145,33 @@ describe('a verifier handed some other file', () => {
   });
 });
 
+describe('a verifier handed a claim no client can state', () => {
+  /** The digest of no bytes at all, written down like the two above and for the same reason. */
+  const EMPTY_SHA256_HEX = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  const NO_BYTES = new Uint8Array(0);
+
+  it('refuses a length of nothing and a declaration of nothing, which the writer also refuses', () => {
+    for (const over of [{ bytes: 0 }, { media_type: '' }]) {
+      expect(verifyFileAnchor(bodyStaking(memberStaking(over)), FILE), JSON.stringify(over)).toEqual(UNWEIGHABLE);
+    }
+  });
+
+  it('does not reach a match on the one body an empty file and an empty claim used to agree to', () => {
+    // Both sides of that comparison were true at once: these bytes are nothing, and the claim said
+    // they were nothing. The format refuses the claim, because a claim of no file states no file, so
+    // the answer here is the disagreement the shape earns rather than a pass over a member no client
+    // ever sent. `packages/sdk/test/file-anchor.test.ts` asks the writer the same question.
+    expect(otherSha256Hex(NO_BYTES)).toBe(EMPTY_SHA256_HEX);
+    expect(verifyFileAnchor(bodyStaking(memberStaking({ sha256: EMPTY_SHA256_HEX, bytes: 0, media_type: 'audio/wav' })), NO_BYTES)).toEqual({
+      status: 'mismatch',
+      computedSha256: EMPTY_SHA256_HEX,
+      computedBytes: 0,
+      claimedSha256: null,
+      claimedBytes: null,
+    });
+  });
+});
+
 describe('a verifier handed a request that claimed nothing', () => {
   it('names each absence it met rather than throwing, and never calls one a match', () => {
     const withoutNamespace = JSON.stringify({ model: 'a-model', messages: [{ role: 'user', content: 'hi' }] });

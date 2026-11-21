@@ -36,9 +36,16 @@ export const FILE_ANCHOR_CLAIM_MEMBER_NAME = 'file';
 /** The digest the client computed before it handed the file to anybody else, as lowercase hex. */
 export interface FileAnchorClaim {
   readonly sha256: string;
-  /** The decoded length of those bytes, as a whole number that a JSON reader reproduces exactly. */
+  /**
+   * The decoded length of those bytes, as a whole number that a JSON reader reproduces exactly. A
+   * length of nothing is outside the shape: a claim of no bytes states no file, and the client's own
+   * writer refuses to produce one, so this reader weighs none either.
+   */
   readonly bytes: number;
-  /** What the client says the bytes are. Declared, never weighed: nothing here opens a media type. */
+  /**
+   * What the client says the bytes are. Declared, never weighed: nothing here opens a media type. A
+   * declaration of empty text declares nothing, which is the one thing this shape has no room for.
+   */
   readonly media_type: string;
   /**
    * Absent unless the client chooses to disclose a filename. A name is personal data about whoever
@@ -82,9 +89,9 @@ export interface FileAnchorMismatch {
   /**
    * What the request stated, or null where the statement is not in the shape this member declares.
    * A digest that is not sixty-four lowercase hex characters, a length that is not a whole number a
-   * JSON reader reproduces, and a media type that is not text cannot agree with a recomputation and
-   * are reported as the disagreement they are rather than as an absence: the claim was made, and it
-   * was made in a shape no verifier can weigh.
+   * JSON reader reproduces, a length of nothing, and a media type that is not text or is empty cannot
+   * agree with a recomputation and are reported as the disagreement they are rather than as an
+   * absence: the claim was made, and it was made in a shape no verifier can weigh.
    */
   readonly claimedSha256: string | null;
   readonly claimedBytes: number | null;
@@ -122,10 +129,15 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /**
  * The file claim inside this namespace's member, in the shape a verifier can weigh, or null when what
  * the body states is not such a statement. Nothing is assumed from a claim to save a comparison: a
- * digest that is not lowercase hex of sixty-four characters, a length spelled as a fraction or a
- * number past what a JSON reader reproduces exactly, and a media type that is not text all answer
- * null, which is a claim that cannot agree with a recomputation and so a disagreement, not an
- * absence.
+ * digest that is not lowercase hex of sixty-four characters, a length spelled as a fraction, a length
+ * of nothing or a number past what a JSON reader reproduces exactly, and a media type that is not
+ * text or declares nothing all answer null, which is a claim that cannot agree with a recomputation
+ * and so a disagreement, not an absence.
+ *
+ * The two refusals that are not about spelling refuse the same claims the client's own writer refuses,
+ * and the pair is witnessed on both sides in `packages/sdk/test/file-anchor.test.ts`: a reader that
+ * weighed a claim no writer can state would report a `match` on a member no client ever sent, and a
+ * verifier's answer would then be about a document that cannot exist.
  */
 function weighableClaim(member: unknown): FileAnchorClaim | null {
   if (!isObject(member)) return null;
@@ -135,8 +147,8 @@ function weighableClaim(member: unknown): FileAnchorClaim | null {
   const bytes = file['bytes'];
   const mediaType = file['media_type'];
   if (typeof sha256 !== 'string' || !DIGEST.test(sha256)) return null;
-  if (typeof bytes !== 'number' || !Number.isSafeInteger(bytes) || bytes < 0) return null;
-  if (typeof mediaType !== 'string') return null;
+  if (typeof bytes !== 'number' || !Number.isSafeInteger(bytes) || bytes <= 0) return null;
+  if (typeof mediaType !== 'string' || mediaType.length === 0) return null;
   const name = file['name'];
   return typeof name === 'string' ? { sha256, bytes, media_type: mediaType, name } : { sha256, bytes, media_type: mediaType };
 }
