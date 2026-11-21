@@ -160,6 +160,11 @@ AMD Milan ARK and NVIDIA's device identity root as the roots to chain to;
 costs a second fetch, the device bundle from the route beside the platform one, and is refused
 unless a device report that signed this request's digest verifies inside it.
 
+A file that travels to a provider by that provider's own upload endpoint leaves the gateway nothing to hash, so
+the client can state a digest of it inside the request instead:
+[docs/file-anchor-v1.md](docs/file-anchor-v1.md) gives the member, the three answers a verifier can reach with it,
+and what neither the claim nor a receipt can show.
+
 `--live` runs the same gateway inside a dStack confidential VM. There the signing key comes
 from the guest agent and the measurement, issuer and instance come out of the hardware
 evidence rather than from strings; [enclave/README.md](enclave/README.md) is the deployment

@@ -285,6 +285,17 @@ export {
   provenanceV1Member,
 } from './marking.js';
 export type { ProvenanceV1Member } from './marking.js';
+export { FILE_ANCHOR_CLAIM_MEMBER_NAME, FILE_ANCHOR_MEMBER_NAME, verifyFileAnchor } from './file-anchor.js';
+export type {
+  FileAnchorAbsent,
+  FileAnchorAbsence,
+  FileAnchorClaim,
+  FileAnchorMatch,
+  FileAnchorMember,
+  FileAnchorMismatch,
+  FileAnchorRequestBody,
+  FileAnchorVerdict,
+} from './file-anchor.js';
 export {
   SSE_DATA_FIELD,
   SSE_DONE_VALUE,

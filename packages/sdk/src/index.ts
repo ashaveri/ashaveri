@@ -167,6 +167,15 @@ export type {
 export { produceRetentionAssessment } from './retention-assessment-produce.js';
 export type { ProducedRetentionAssessment, RetentionAssessmentEvidence } from './retention-assessment-produce.js';
 export { fromBase64Url, toBase64Url, toHex } from './b64.js';
+/**
+ * The client's half of a file anchor. `verifyFileAnchor`, the reading half, stays in
+ * `@ashaveri/receipt` and is not re-exported here: a sender writes a claim and a verifier weighs one,
+ * and a package that offers both reads as though the weighing happened on the sending side.
+ */
+export { fileAnchor } from './file-anchor.js';
+export type { FileAnchorOptions } from './file-anchor.js';
+export { FILE_ANCHOR_CLAIM_MEMBER_NAME, FILE_ANCHOR_MEMBER_NAME } from '@ashaveri/receipt';
+export type { FileAnchorClaim, FileAnchorMember } from '@ashaveri/receipt';
 export {
   claimsConfidentialDevice,
   decodeReceipt,
