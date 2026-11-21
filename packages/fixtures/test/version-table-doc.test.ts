@@ -50,6 +50,12 @@ import {
  * sentence counting the published packages that add no family of their own. The two paragraphs at the end are
  * read from the same section, so a figure that moved alone in one of them lands here rather than in a review.
  *
+ * The vendor roster is weighed against that paragraph as an exact set of reader names, in both directions, for
+ * the same reason the family table is: every loop over the vendor claims is driven by the roster, so an entry
+ * deleted from it does not fail a check, it just stops weighing one promise and reports the rest as agreement.
+ * Reading the reader names out of the paragraph is the only way the run can notice the list it drives itself
+ * from has moved.
+ *
  * The vendor figures are read the way the rows are, against the refusal that states them, with one addition:
  * they are not all whole numbers. `1.1` is how SPDM writes a two-part version, and the source holds it as the
  * byte `0x11`, so a byte is spelled back into the dotted form the document uses and a byte whose halves are not
@@ -473,6 +479,24 @@ function vendorClause(clauses: readonly string[], family: VendorFamily): string 
   return (stated[0] ?? '').trim();
 }
 
+/**
+ * The readers the vendor paragraph itself names: every backticked name shaped like something a consumer
+ * calls. The paragraph backticks refusal codes too, but those are uppercase and carry an underscore, and a
+ * package name or a path carries a slash or a dot, so the one spelling left is a reader's. This is the roster
+ * weighed against the paragraph rather than against itself: an entry deleted from the roster stops covering a
+ * name that is still here, and a name the paragraph starts spelling is a promise no roster entry weighs.
+ */
+function paragraphReaders(paragraph: string): string[] {
+  const named = [...new Set([...paragraph.matchAll(/`([a-z][A-Za-z0-9]*)`/gu)].map((found) => String(found[1])))].sort();
+  if (named.length === 0) {
+    throw new Error(
+      `the vendor paragraph of ${shown(RECEIPT_SPEC)} ${SPEC_SECTION} backticks no reader-shaped name, so the ` +
+        'roster had nothing read from the paragraph to be compared against',
+    );
+  }
+  return named;
+}
+
 const VERSION_TOKEN = /^[0-9]+(?:\.[0-9]+)?$/u;
 
 /** Two version spellings ordered: a dotted pair sits above the whole number it grows out of. */
@@ -826,14 +850,18 @@ describe('the published compatibility table states the version sets its readers 
   it('keeps the vendor families out of the table and their readers in the package that reads them', () => {
     const paragraph = vendorParagraph();
     const exported = exportedNames(PACKAGE_INDEX['@ashaveri/attest-core'] ?? '');
+    const named = paragraphReaders(paragraph);
     const offenders: string[] = [];
     for (const family of VENDOR_FAMILIES) {
-      if (!paragraph.includes(`\`${family.reader}\``)) {
-        offenders.push(`${family.named}: the vendor paragraph no longer names ${family.reader} as the reader it weighs`);
+      if (!named.includes(family.reader)) {
+        offenders.push(`${family.named}: the vendor paragraph no longer names ${family.reader} as the reader it weighs, so the roster carries a reader the paragraph does not`);
       }
       if (!exported.values.includes(family.reader)) {
         offenders.push(`${family.named}: the vendor paragraph names ${family.reader}, and @ashaveri/attest-core exports no such value`);
       }
+    }
+    for (const reader of named.filter((one) => !VENDOR_FAMILIES.some((family) => family.reader === one))) {
+      offenders.push(`the vendor paragraph names ${reader} as a reader it weighs, and no roster entry carries it, so its figure is weighed nowhere`);
     }
     for (const row of familyRows()) {
       const vendor = VENDOR_FAMILIES.filter((family) => row.family.includes(family.named) || row.readers.includes(family.reader));
