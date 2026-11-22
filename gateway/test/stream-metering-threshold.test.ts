@@ -271,7 +271,11 @@ describe('the metering bound on a streamed request', () => {
     ).toBe('declined');
     // What this cell used to close with, a `data: [DONE]` test on the forwarded stream, was framing rather
     // than metering: no value of the bound and no spelling of `tok` could have moved it. The framing is
-    // pinned where it belongs, by the `res` digest of the cell above and by `gateway/test/upstream.test.ts`.
+    // pinned where it belongs, by the `res` digest a forwarded answer is signed with, in two other files:
+    // `gateway/test/upstream.test.ts` hashes the events it joins, `data: [DONE]\n\n` the last of them, and
+    // `gateway/test/access-line-arrival.test.ts` hashes the text it collects over each spelling of the
+    // ending that file feeds its backend. Neither reads a request digest: the cell above this one binds
+    // `req`, the bytes that arrived, and never reaches `payload.res`.
     await h.app.close();
   });
 
