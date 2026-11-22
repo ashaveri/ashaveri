@@ -173,6 +173,17 @@ body ends, and whether a figure an upstream was asked for arrives is not known u
 Which figures a deployment would rather have, the copy or the count, is the reason the bound is a number
 in the source rather than a rule in the prose.
 
+Another of the bounds above stands on the answer rather than on the ask. `MAX_BUFFERED_BODY`, 32 MiB, is what
+this process will hold of one buffered completion: a buffered answer is collected whole before a byte of it
+reaches the client, because the digest a receipt signs and the item it stamps are cut out of those bytes, and
+past the bound the answer is refused rather than held. The refusal is `RESPONSE_TOO_LARGE`, answered 413 with
+the bound printed in its sentence, and it replaced an untyped error that the generic handler reported as a 502
+upstream failure: a caller reading that answer had no number to act on and an operator read a broken
+installation where what is short is a number this build ships. A streamed completion never meets this bound,
+because its frames are forwarded and hashed as they arrive and nothing is collected, which is why what a
+caller does at the bound is ask for the completion streamed, or for less of an answer, and not send fewer
+bytes.
+
 ## 3. Environment settings the operator declares
 
 Class: the operator's to declare. These are read from the process environment rather than from a

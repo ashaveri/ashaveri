@@ -67,7 +67,16 @@ export type AccessErrorCode =
   // every refusal this gateway gives a request, and a deployer reading a code needs one name for the size
   // bound rather than a second for whichever component enforces it. `gateway/src/server.ts` holds the bound,
   // reads the setting that states it, and writes the answer.
-  | 'BODY_TOO_LARGE';
+  | 'BODY_TOO_LARGE'
+  // The other size bound, on the other side of the exchange: what this process will hold of an inference
+  // server's answer. It joins this union because a caller branching on `error.code` needs one vocabulary for
+  // every refusal this gateway gives a request, and it is the answer that a collected completion is refused
+  // with rather than being reported as a fault of the upstream, which is what an untyped error reaching the
+  // generic 502 handler said. The status is 413 for the same reason the row above carries it, and it cannot
+  // be a 5xx: the tables in both documents, and the reader that holds them to `ERROR_STATUS`, take every 5xx
+  // on this union to be a credential-file refusal no request is answered with, and this one is. What is short
+  // is a bound this build ships, not a broken installation, and the caller holds half of the fix.
+  | 'RESPONSE_TOO_LARGE';
 
 /**
  * What the access log records: every code a caller can be told, plus the reasons that never leave this
@@ -115,8 +124,14 @@ const ERROR_STATUS: Record<AccessErrorCode, number> = {
   // 413, the status a body past the read bound is answered with, and the only one on this map that no check
   // of the five earns: the request never reached them. The bound is a whole number of bytes an operator
   // states, so unlike the two 429s above it carries no wait, and unlike the 500s below it the caller holds
-  // half of the fix.
+  // half of the fix. `RESPONSE_TOO_LARGE` below answers with this same status for the same reason, on the
+  // bytes going the other way.
   BODY_TOO_LARGE: 413,
+  // 413 again, and not the 502 the untyped error this refusal replaces reached: every 5xx on this union is a
+  // credential-file refusal no request is answered with, by the paragraph above and by the two tables this
+  // map is read against, and this code is answered to a request. What is short is a bound this build ships
+  // rather than a broken installation, and the caller holds half of the fix.
+  RESPONSE_TOO_LARGE: 413,
 };
 
 const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
@@ -148,6 +163,11 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
   // process holds, where it comes from and what the refusal left undone, because a 413 that named no number
   // would send a caller back with slightly fewer bytes and no idea which number moved.
   BODY_TOO_LARGE: 'this gateway reads no request body past the bound it is configured with',
+  // The same discipline as the row above, on the answer rather than the ask: the fixed half says what this
+  // gateway will not hand back, and the raise site in `collect` appends the bound, the size this one reached,
+  // and the one thing a caller can do about it, because a refusal that named no figure would leave a caller
+  // asking the same deployment for the same oversized answer.
+  RESPONSE_TOO_LARGE: 'this gateway returns no completion whose body is past the bound it will hold',
 };
 
 /**

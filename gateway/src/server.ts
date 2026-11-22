@@ -58,7 +58,19 @@ import {
 const NONCE_BYTES = 16;
 // A cold model load can hold back the first streamed event for minutes.
 const FIRST_EVENT_TIMEOUT_MS = 120_000;
-const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
+/**
+ * The largest response body this process collects at once.
+ *
+ * A buffered completion is read whole before a byte of it reaches the client, because the digest the receipt
+ * signs and the item it stamps are cut out of those bytes. Past this bound the answer is refused rather than
+ * held, with `RESPONSE_TOO_LARGE`, which is the refusal a caller can name: what is short is a bound this build
+ * ships, not a fault of the inference server, and the two answers are not the same thing to whoever reads one.
+ * A streamed response is never collected, so this bound reaches no part of it: its frames are forwarded and
+ * hashed as they arrive. `collect` below writes the answer, and `docs/configured-values.md` states the number.
+ * Exported for the same reason `STREAM_USAGE_INJECTION_MAX_BYTES` is: the two cells that hold the bound are
+ * written against it rather than against a literal copied out of this file.
+ */
+export const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 /**
  * What a run that named no request body bound reads. This is the number the gateway has always read, and
  * moving it is a decision of its own: making the bound readable changes what an operator can state, not what
@@ -341,11 +353,29 @@ async function collect(response: BackendResponse): Promise<Buffer> {
   for await (const chunk of response.chunks) {
     size += chunk.byteLength;
     if (size > MAX_BUFFERED_BODY) {
-      throw new Error('inference upstream response exceeded the buffering limit');
+      throw bufferedResponseTooLarge(size);
     }
     chunks.push(Buffer.from(chunk));
   }
   return Buffer.concat(chunks, size);
+}
+
+/**
+ * The refusal `collect` answers with: the bound this process ships, the size this answer reached, and the one
+ * change of shape that gets past the bound. An untyped error here was read by the generic handler as a fault
+ * of the inference server, which told a caller nothing it could act on and told an operator their installation
+ * was broken over a number this build chose.
+ */
+function bufferedResponseTooLarge(reachedBytes: number): AccessError {
+  return new AccessError('RESPONSE_TOO_LARGE', {
+    detail:
+      `this gateway collects no buffered completion past ${String(MAX_BUFFERED_BODY)} bytes, and this one had ` +
+      `reached ${String(reachedBytes)} while it was being read, so the answer was refused before any of it was ` +
+      `signed: no receipt was issued, and none of the upstream's bytes were handed on. The bound is ` +
+      `MAX_BUFFERED_BODY, stated in docs/configured-values.md, shipped at 32 MiB and reached by no flag. A ` +
+      `caller asks for less of this deployment's answer, or asks for it streamed: a streamed response is ` +
+      `forwarded as it arrives and never collected, so this bound reaches no part of it`,
+  });
 }
 
 /**
@@ -1231,6 +1261,16 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       try {
         body = await collect(response);
       } catch (err) {
+        // The one answer this route refuses without signing it, and it is refused by this process rather than
+        // by the inference server: the bound is `MAX_BUFFERED_BODY`, so what comes back carries the code a
+        // caller can branch on and the number that moved. Anything else this loop raised is still the
+        // upstream's own failure and keeps the untyped fault it has always been answered with.
+        if (err instanceof AccessError) {
+          await reply
+            .code(err.status)
+            .send({ error: { message: err.message, type: 'upstream_error', code: err.code } });
+          return;
+        }
         await upstreamError(reply, errorMessage(err));
         return;
       }
