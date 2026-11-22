@@ -355,16 +355,19 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
  * The `tok` pair of a receipt, taken from the one value a backend settled.
  *
  * Both figures move together because the usage event that carries them does, which is the rule the format
- * states and the writer enforces: a count beside an absence is refused rather than signed. Reading the pair
- * as a pair here means the gateway states whatever the exchange produced and decides nothing of its own about
- * it, so a completion whose upstream reported nothing signs two nulls and one that reported zero tokens signs
- * two zeros.
+ * states and the writer enforces: a count beside an absence is refused rather than signed. `CompletionUsage`
+ * spells that same rule in the two arms it offers, so a half-reported pair has no spelling in what this
+ * reads, and no runtime test written here could be reached by one. What is asked is which of the two arms
+ * the pair is in, and the absence is matched for what it is: both figures null. Answering anything that is
+ * not the reported pair with the absence would sign that nothing was reported behind a backend that had
+ * reported one figure, which is the reading this function exists not to decide. A completion whose upstream
+ * reported nothing therefore signs two nulls, and one that reported zero tokens signs two zeros.
  */
 function meteringOf(usage: CompletionUsage): TokenMetering {
-  if (typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number') {
-    return { p: usage.promptTokens, c: usage.completionTokens };
+  if (usage.promptTokens === null && usage.completionTokens === null) {
+    return { p: null, c: null };
   }
-  return { p: null, c: null };
+  return { p: usage.promptTokens, c: usage.completionTokens };
 }
 
 /**
