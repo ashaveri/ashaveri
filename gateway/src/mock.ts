@@ -367,6 +367,9 @@ function lastNamed(members: readonly MemberSpan[], name: string): MemberSpan | u
 function membersOfValue(bytes: Uint8Array, span: Span): readonly MemberSpan[] {
   if (bytes[span.start] === SQUARE_OPEN) return [];
   const read = readObject(bytes, span.start);
+  // The invariant is the walk's own: a span it bounded as an object re-reads as one, since both reads take
+  // the same bytes under the same rules. Landing here means the two stopped agreeing about these bytes, and
+  // what a caller then reads is the route's sentence for a body that is not one JSON value.
   if (read === null) throw new SyntaxError('an object the walk read is read again');
   return read.members;
 }

@@ -276,7 +276,7 @@ describe('the metering bound on a streamed request', () => {
     // its zeros through one more round-trip hands back, and `x-ashaveri-metering` travels with no receipt.
     // `a2` is a map of two, `c` sorts before `p` by the bytewise order of their one-byte text keys, `f6` is
     // null and `00` the integer zero: the two runs `packages/receipt` proves distinct for this writer, read
-    // off the payload this gateway signed for these bytes, where the pair is a member and not a rumour.
+    // off the payload this gateway signed for these bytes, which carries the pair as its `tok` member.
     const signed = await signedPayloadHex(h, id);
     expect(signed, 'the signed pair is two absences').toContain('a26163f66170f6');
     expect(signed, 'and not two measurements of nothing').not.toContain('a2616300617000');
