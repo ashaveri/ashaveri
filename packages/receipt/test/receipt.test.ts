@@ -1254,7 +1254,7 @@ describe('the four members a receipt states about itself and the order of its it
     expect(expectFailure(() => decodeReceipt(noReason)).message).toContain('cva.val.r must be a tstr');
   });
 
-  it('refuses a float at `sd.unc`, the one position that also takes null', () => {
+  it('refuses a float at `sd.unc`, one of the three positions that also take null', () => {
     const key = generateSigningKey();
     // The integer sweep takes this position no further, because `unc` is written `int / null` and the
     // sweep reads only the positions written plain `int`. The decode reaches it the same way: a float
@@ -1280,6 +1280,110 @@ describe('the four members a receipt states about itself and the order of its it
     const explicit = decodeReceipt(issueReceipt(stampedPayload(), key));
     expect(membersOf(explicit.payload).get('sd')).toBeInstanceOf(Map);
     expect((membersOf(explicit.payload).get('sd') as Map<string, unknown>).get('unc')).toBeNull();
+  });
+
+  it('writes and reads the `tok` pair of two absences, whose bytes are not the pair of two zeros', () => {
+    const key = generateSigningKey();
+    const unmeasured: ReceiptPayload = { ...stampedPayload(), tok: { p: null, c: null } };
+    const measuredNothing: ReceiptPayload = { ...stampedPayload(), tok: { p: 0, c: 0 } };
+    const absenceBytes = issueReceipt(unmeasured, key);
+    const zeroBytes = issueReceipt(measuredNothing, key);
+
+    // The pair goes out as the pair came in, through the writer this package signs with and the reader
+    // that takes a signed document back. One half is read with a key and the other without, because a
+    // caller holding only the receipt is the reader the widening exists for.
+    expect(verifyReceipt(absenceBytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload.tok).toEqual({
+      p: null,
+      c: null,
+    });
+    expect(decodeReceipt(absenceBytes).payload.tok).toEqual({ p: null, c: null });
+    expect(decodeReceipt(zeroBytes).payload.tok).toEqual({ p: 0, c: 0 });
+
+    // The half the repair lives on, and the one a writer and a reader that agreed about the refusal could
+    // still get wrong: an absence must not have the bytes of a zero. Both documents above carry the same
+    // key, the same nonce and the same members, and only the pair moves, so a canonical form free to
+    // write `null` as the integer `0` would make the two byte strings equal and this assertion red.
+    expect(equalBytes(absenceBytes, zeroBytes), 'the unmeasured receipt is the zero receipt').toBe(false);
+
+    // The runs are the CBOR as RFC 8949 lays it out, written here rather than computed by the encoder
+    // they test: `a2` is a map of two, `c` sorts before `p` by the bytewise order of their one-byte text
+    // keys, `f6` is null and `00` is the integer zero. The order the two keys go out in is the same one
+    // `packages/fixtures/data/receipts/receipt-unmeasured-v1.cbor` carries its integers in, which reads
+    // `a2 6163 1840 6170 1880` beside the 64 and 128 the published JSON states.
+    expect(toHex(absenceBytes), 'the metering pair as two absences').toContain('a26163f66170f6');
+    expect(toHex(zeroBytes), 'the metering pair as two measurements of nothing').toContain('a2616300617000');
+  });
+
+  it('refuses a `tok` carrying one count and one absence, at the writer and at the reader, naming the pair', () => {
+    const key = generateSigningKey();
+    const sentence = 'tok.p and tok.c are one pair: both are non-negative integers, or both are null that nothing was reported';
+    // The mixed pair is what no typed payload can hand over, so each half is built at the level the claim
+    // is made at: the writer is given the object a caller without this package's types can build, and the
+    // reader is given the bytes, with no call site in between to filter them first.
+    const cases: Array<[string, unknown, unknown]> = [
+      ['a count beside an absence', 0, null],
+      ['an absence beside a count', null, 0],
+    ];
+    for (const [name, p, c] of cases) {
+      const given = { ...stampedPayload(), tok: { p, c } } as unknown as ReceiptPayload;
+      const written = expectFailure(() => encodePayload(given), 'BAD_PAYLOAD');
+      expect(written.message, `the writer handed ${name}`).toContain(sentence);
+      expectFailure(() => issueReceipt(given, key), 'BAD_PAYLOAD');
+
+      const bytes = signMembers(
+        editedNested(stampedPayload(), 'tok', (nested) => {
+          nested.set('p', p);
+          nested.set('c', c);
+        }),
+        key,
+      );
+      const read = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+      expect(read.message, `the reader handed ${name}`).toContain(sentence);
+      expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
+    }
+
+    // What the refusal does not say is the assertion beside what it says: a sentence naming one figure
+    // would send a reader to fix the member that moved and hand back the same impossible pair.
+    const oneFigure = expectFailure(() => decodeReceipt(
+      signMembers(editedNested(stampedPayload(), 'tok', (nested) => nested.set('c', null)), key),
+    ), 'BAD_PAYLOAD');
+    expect(oneFigure.message, 'the refusal of a mixed pair names neither member alone').not.toContain('tok.c must be');
+
+    // A figure that is neither a count nor `null` is still the member's own refusal, and not the pair's.
+    const notAFigure = expectFailure(() => decodeReceipt(
+      signMembers(editedNested(stampedPayload(), 'tok', (nested) => nested.set('p', 'twelve')), key),
+    ), 'BAD_PAYLOAD');
+    expect(notAFigure.message).toContain('tok.p must be a non-negative integer or null');
+  });
+
+  it('refuses a float at each figure of `tok`, the two positions that joined `sd.unc` in taking null', () => {
+    const key = generateSigningKey();
+    // The integer sweep left these two positions behind on the day `TokenMetering` was widened, because
+    // it reads the roster `receipt.cddl` writes plain `int`. What refuses a float here is the decode that
+    // reaches every value of a map whose members the file names, which is the same reach `sd.unc` is read
+    // with, and the control half below is what says the refusal is the major type's and not the value's.
+    for (const figure of ['p', 'c']) {
+      for (const [width, floated] of floatWidthsHolding(2)) {
+        const bytes = signKeepingMajorTypes(
+          encodeWithMajorTypes(editedNested(stampedPayload(), 'tok', (nested) => {
+            nested.set(figure, floated);
+          })),
+          key,
+          declaredProtectedHeader(key.kid),
+        );
+        const failure = expectFailure(() => decodeReceipt(bytes), 'BAD_PAYLOAD');
+        expect(failure.message, `tok.${figure} written as a ${width}`).toContain('floating point');
+        expectFailure(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }), 'BAD_PAYLOAD');
+      }
+      const integer = signKeepingMajorTypes(
+        encodeWithMajorTypes(editedNested(stampedPayload(), 'tok', (nested) => {
+          nested.set(figure, 2);
+        })),
+        key,
+        declaredProtectedHeader(key.kid),
+      );
+      expect(valueAt(decodeReceipt(integer).payload, `tok.${figure}`)).toBe(2);
+    }
   });
 
   it('closes each arm of a collateral slot by the label inside it, and refuses a label it does not declare', () => {
@@ -1659,10 +1763,12 @@ describe('the payload map and every map nested inside it are closed', () => {
     // walk has nothing to refuse and the reader's own sentence is what a caller hears. The code is
     // `BAD_PAYLOAD` either way, which is exactly why the detail is the assertion: a walk that checked
     // values as well as names would answer this document with a membership refusal, and only the
-    // message would say that the check had swallowed the one this format has always made here.
+    // message would say that the check had swallowed the one this format has always made here. The
+    // sentence widened with the member on the day `null` joined it, and the string is refused by it for
+    // being neither of the two the format names.
     const stringPrompt = editedNested(markedPayload(), 'tok', (nested) => nested.set('p', 'twelve'));
     const misTyped = expectFailure(() => verifyReceipt(signMembers(stringPrompt, key), { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
-    expect(misTyped.message).toContain('tok.p must be a non-negative integer');
+    expect(misTyped.message).toContain('tok.p must be a non-negative integer or null');
 
     // A member the format makes a map and the bytes did not deliver one is still the reader's answer,
     // because the walk has no map to enter and cannot claim a membership failure it cannot see.

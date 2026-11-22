@@ -71,10 +71,23 @@
           "type": "object",
           "required": ["p", "c"],
           "properties": {
-            "p": { "type": "integer", "minimum": 0, "description": "prompt tokens" },
-            "c": { "type": "integer", "minimum": 0, "description": "completion tokens" }
+            "p": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Prompt tokens, as the serving stack reported them, or `null` that it reported nothing. `0` is the stack saying there were none and `null` is that no figure was carried: two states, not two spellings of one. `null` is a value rather than an absent member for the reason `unc` gives beside it, that an absent figure has two readings and the document cannot say which was meant."
+            },
+            "c": {
+              "type": ["integer", "null"],
+              "minimum": 0,
+              "description": "Completion tokens, as the serving stack reported them, or `null` that it reported nothing, which is the same pair of readings `p` carries and stands beside it as one statement."
+            }
           },
-          "additionalProperties": false
+          "oneOf": [
+            { "properties": { "p": { "type": "integer" }, "c": { "type": "integer" } } },
+            { "properties": { "p": { "type": "null" }, "c": { "type": "null" } } }
+          ],
+          "additionalProperties": false,
+          "description": "The metering pair, and the pair is all-or-nothing: two counts, or two `null`s that nothing was reported. `oneOf` rather than two members each free to be `null` because the usage event an upstream emits carries both figures together, so a count beside an absence is not a third metering state, and a reader would have to choose which of the two the writer meant. The parser answers that document with BAD_PAYLOAD naming the pair, and this twin refuses it as a shape."
         }
       }
     },

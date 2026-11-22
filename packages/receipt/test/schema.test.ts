@@ -455,6 +455,33 @@ describe('the receipt JSON Schema', () => {
     }
   });
 
+  it('admits the metering pair as two counts or two absences and refuses it as one of each', () => {
+    // `tok` is one statement with two readings apiece, and the twin has to carry both the way it carries
+    // `unc`: a projection free to write a count beside an absence would describe a document the parser
+    // refuses, and a port that read this file and nothing else would sign the pair the format says no
+    // producer can be in. Both twins are asked, because each holds its own copy of the definition and a
+    // copy is the thing that goes stale.
+    const atOne = (p: unknown, c: unknown): unknown =>
+      rewrittenNested(payloadOf('software', DIGEST), 'tok', (members) => {
+        members.p = p;
+        members.c = c;
+      });
+    expect(outcome(atOne(0, 0)), 'two measurements of nothing').toBeNull();
+    expect(outcome(atOne(null, null)), 'two absences').toBeNull();
+    expect(outcome(atOne(128, 64)), 'two counts').toBeNull();
+    expect(outcome(atOne(0, null)), 'a count beside an absence').not.toBeNull();
+    expect(outcome(atOne(null, 64)), 'an absence beside a count').not.toBeNull();
+    expect(outcome(atOne('128', 64)), 'a count spelled as text').not.toBeNull();
+
+    const atTwo = (p: unknown, c: unknown): unknown =>
+      rewrittenNested(atVersionTwo(payloadOf('software', DIGEST)), 'tok', (members) => {
+        members.p = p;
+        members.c = c;
+      });
+    expect(outcomeIn(twinForVersion('2'), atTwo(null, null)), 'the version 2 twin admits the pair of absences').toBeNull();
+    expect(outcomeIn(twinForVersion('2'), atTwo(0, null)), 'the version 2 twin refuses the mixed pair').not.toBeNull();
+  });
+
   it('rejects an unknown environment kind', () => {
     expect(outcome(twin(payloadOf('sgx', new Uint8Array(48).fill(1))))).not.toBeNull();
   });
@@ -833,12 +860,19 @@ describe('the receipt JSON Schema', () => {
       expect(positions, `${name} enumerates the integer positions`).toEqual(INTEGER_POSITIONS);
       expect(enumerationHeading(text, 'The positions are'), `${name} enumerates them in one place`).toBe(place);
     }
-    // The roster's shape, pinned as a fact about the file rather than as a claim in a comment: seven
+    // The roster's shape, pinned as a fact about the file rather than as a claim in a comment: five
     // positions, three of them members of a payload block (`v`, which the block types as the integer
-    // literals `1` and `2`, and `iat` and `epk`, which it types `int`) and four below a map or a list
+    // literals `1` and `2`, and `iat` and `epk`, which it types `int`) and two below a map or a list
     // element the payload binds to a rule of its own. A format that gained a position either way
     // arrives here first, and the two documents above go red until they say it too.
-    expect(INTEGER_POSITIONS).toHaveLength(7);
+    //
+    // What left this roster on the day `TokenMetering` began to admit `null` did not become unrefused:
+    // `sd.unc` was written `int / null` before it, and the roster has never held that position either,
+    // because the sweep it feeds reads the positions the CDDL writes plain `int`. A float at `tok.p` is
+    // refused by the decode that reaches every value of a closed map, which is the sentence the two
+    // documents give beside this list rather than a member of it, and `receipt.test.ts` keeps a case for
+    // each null-taking position for exactly that reason.
+    expect(INTEGER_POSITIONS).toHaveLength(5);
     expect(
       INTEGER_POSITIONS.filter((position) => !position.includes('.')),
       'the positions the payload blocks name themselves',
@@ -846,7 +880,7 @@ describe('the receipt JSON Schema', () => {
     expect(
       INTEGER_POSITIONS.filter((position) => position.includes('.')),
       'the positions below a map or an element nested in the payload',
-    ).toEqual(['att.ts', 'tok.p', 'tok.c', 'itm.t']);
+    ).toEqual(['att.ts', 'itm.t']);
 
     // And the format's own file says which they are, once, in its blocks: the prose of `receipt.cddl`
     // carries no second copy of the list to fall out of step with the declarations it describes.

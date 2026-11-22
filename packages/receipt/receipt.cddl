@@ -160,9 +160,21 @@ EvidenceRef = {
     url: tstr,                ; where evidence can be fetched and re-verified
 }
 
+; What the serving stack reported of this call, in the two figures it reports them in. A receipt proves
+; who claimed a count, not that the count is right, and it proves nothing at all about a call it never
+; measured: `0` is the stack reporting none, `null` is that nothing was reported, and a document that
+; could spell only the first would sign a measurement of nothing for every call whose usage event never
+; arrived. `null` is written rather than left out because an absent figure has two readings and a
+; verifier holding these bytes and nothing else cannot say which one it meant, which is the same reason
+; `sd.unc` carries `null` as a value.
+;
+; The two are one pair and all-or-nothing, because the upstream's usage event carries the two figures
+; together: one count beside one absence claims a metering state no producer can justify, so the writer
+; refuses to sign it and the reader refuses to parse it. The refusal is `BAD_PAYLOAD` and it names the
+; pair, not the member that moved, because the pair is what the document cannot state.
 TokenMetering = {
-    p: int,                   ; prompt tokens
-    c: int,                   ; completion tokens
+    p: int / null,            ; prompt tokens, or null that nothing was reported
+    c: int / null,            ; completion tokens, or null that nothing was reported
 }
 
 ; Where the issuance instant came from, in the source's own words. This block, and nothing else in
