@@ -585,6 +585,22 @@ function stampDisclosure(sd: { readonly name: string; readonly uncertaintySecond
 }
 
 /**
+ * What one issuance's metering states, in the reader's words and off the pair the document signed.
+ *
+ * The two figures are the receipt's own `tok` members and this command weighs nothing with them. Two
+ * spellings reach here and no third can: a count beside an absence is a pair the reader refuses before a
+ * report is written, so the pair is tested once and both halves printed from the same arm. Printing the
+ * absence as the word `null` would put a state of the serving stack in the mouth of the receipt, and
+ * printing it as a figure would report a zero the stack never stated, which is the pair `stampDisclosure`
+ * keeps apart one row above for the same reason.
+ */
+function tokenMetering(tok: { readonly p: number | null; readonly c: number | null }): string {
+  return tok.p === null
+    ? 'the serving stack reported neither figure, which is not a count of zero'
+    : `${String(tok.p)} prompt, ${String(tok.c)} completion`;
+}
+
+/**
  * A receipt, read as a receipt.
  *
  * `verifyReceipt` is the shipped reader, so the signature rule, the kid rule and the payload rules are
@@ -637,7 +653,7 @@ function readReceipt(bytes: Uint8Array, inputs: Inputs, kid: Uint8Array): Readin
         value: `${toHex(marking.d)} (${marking.sch})`,
         json: { scheme: marking.sch, sha256: toHex(marking.d) },
       },
-      { key: 'tokens', label: 'tokens', value: `${payload.tok.p} prompt, ${payload.tok.c} completion`, json: { prompt: payload.tok.p, completion: payload.tok.c } },
+      { key: 'tokens', label: 'tokens', value: tokenMetering(payload.tok), json: { prompt: payload.tok.p, completion: payload.tok.c } },
       {
         key: 'evidence',
         label: 'evidence ref',

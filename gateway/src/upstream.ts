@@ -24,11 +24,23 @@ function deferred<T>(): Deferred<T> {
 }
 
 /**
+ * The largest streamed body this gateway will copy in order to ask for its token figures.
+ *
+ * Asking costs a serialised mutation of the caller's own request, which is about one further wire size
+ * held for the duration of the completion, and what it buys is a usage count. Above this bound the copy is
+ * declined and the bytes that arrived are forwarded untouched: a caller that sent a document is served, and
+ * its receipt states the absence of the figures nobody reported rather than two numbers it never measured.
+ * Under it, a body is small enough that the figures are worth the copy they cost, and nothing about a
+ * streamed response changes.
+ */
+export const STREAM_USAGE_INJECTION_MAX_BYTES = 1024 * 1024;
+
+/**
  * Token metering needs usage on streamed responses, which vLLM only emits when
  * asked. The usage-only event is still forwarded verbatim, so `res` keeps
  * binding exactly the bytes the client received.
  */
-function requestForUpstream(raw: Buffer): Buffer {
+function requestWithUsageAsked(raw: Buffer): Buffer {
   try {
     const body = JSON.parse(raw.toString('utf8')) as Record<string, unknown>;
     const existing = body['stream_options'];
@@ -41,6 +53,15 @@ function requestForUpstream(raw: Buffer): Buffer {
   } catch {
     return raw;
   }
+}
+
+/**
+ * Whether the metering figures of this exchange were asked for at all. A buffered response carries its usage
+ * in the body and needs nothing added to the request, so only a stream can be declined, and what is
+ * declined is the copy: the bytes that arrived go to the inference server as they arrived.
+ */
+function meteringAskedFor(raw: Buffer, stream: boolean): boolean {
+  return !stream || raw.length <= STREAM_USAGE_INJECTION_MAX_BYTES;
 }
 
 interface CompletionEvent {
@@ -116,10 +137,11 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
 
   return {
     async respond(rawRequest, request) {
+      const metered = meteringAskedFor(rawRequest, request.stream);
       const upstream = await fetchImpl(`${base}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: request.stream ? requestForUpstream(rawRequest) : rawRequest,
+        body: metered && request.stream ? requestWithUsageAsked(rawRequest) : rawRequest,
       });
 
       if (!upstream.ok || upstream.body === null) {
@@ -130,7 +152,11 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
           chunks: (async function* () {
             yield body;
           })(),
-          usage: Promise.resolve({ model: request.model, promptTokens: 0, completionTokens: 0 }),
+          // A refusal from the inference server reported no figures, and this gateway signs no receipt over
+          // it, so the pair states the absence it holds rather than a measurement of a completion that never
+          // existed. Nothing reads these two numbers as a count: the route answers a failed status from the
+          // body it forwarded and never awaits this.
+          usage: Promise.resolve({ model: request.model, promptTokens: null, completionTokens: null }),
         };
       }
 
@@ -200,7 +226,11 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
             remember(toFields(JSON.parse(pending)) ?? {});
           }
           if (!seen.usage) {
-            usageSlot.resolve({ model, promptTokens: 0, completionTokens: 0 });
+            // Nothing reported either figure, and the format admits that as a value: the pair goes out as two
+            // nulls, because a zero is the stack claiming it served nothing and this is no such claim. Where
+            // this gateway declined the copy the ask costs, `x-ashaveri-metering` says so in the moment, and
+            // these two nulls are what the signed bytes say about it afterwards.
+            usageSlot.resolve({ model, promptTokens: null, completionTokens: null });
           }
         } catch (error) {
           if (!seen.usage) {
@@ -212,7 +242,13 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
         }
       })();
 
-      return { status: upstream.status, contentType, chunks, usage: usageSlot.promise };
+      return {
+        status: upstream.status,
+        contentType,
+        chunks,
+        usage: usageSlot.promise,
+        ...(metered ? {} : { meteringDeclined: true }),
+      };
     },
   };
 }

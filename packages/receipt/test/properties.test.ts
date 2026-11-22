@@ -158,7 +158,13 @@ const payloadArbitrary: fc.Arbitrary<ReceiptPayload> = fc
       url: attestedText(60),
     }),
     epk: fc.integer({ min: 0, max: 1_000_000 }),
-    tok: fc.record({ p: fc.integer({ min: 0, max: 1_000_000 }), c: fc.integer({ min: 0, max: 1_000_000 }) }),
+    // The pair, generated as the format states it: two counts, or two absences. The mixed pair is not in
+    // the arbitrary because it is not a document, and a generator that could reach it would be asking the
+    // round-trip below to describe a refusal rather than a reading.
+    tok: fc.oneof(
+      fc.record({ p: fc.integer({ min: 0, max: 1_000_000 }), c: fc.integer({ min: 0, max: 1_000_000 }) }),
+      fc.constant({ p: null, c: null } as const),
+    ),
     mk: fc.record({
       sch: fc.constantFrom('none' as const, 'provenance-v1' as const),
       d: fc.uint8Array({ minLength: 32, maxLength: 32 }),

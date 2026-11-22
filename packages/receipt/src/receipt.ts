@@ -70,10 +70,14 @@ export interface EvidenceRef {
   url: string;
 }
 
-export interface TokenMetering {
-  p: number;
-  c: number;
-}
+/**
+ * What the serving stack reported of this call, as `TokenMetering` in `receipt.cddl` states it. The two
+ * figures are one pair and the pair is all-or-nothing: either the stack answered with both counts, or it
+ * answered with nothing and both are `null`. A `0` is the stack reporting none and a `null` is that
+ * nothing was reported, so one count beside one absence would claim a metering state no producer can
+ * justify, which is why it has no spelling in this type and is refused at both ends of the wire.
+ */
+export type TokenMetering = { p: number; c: number } | { p: null; c: null };
 
 /**
  * The payload versions this package reads, the one place that set is written. It holds two versions. A
@@ -461,6 +465,37 @@ function assertMembersAreDefined(raw: Map<unknown, unknown>, defined: DefinedMap
   }
 }
 
+/**
+ * One figure of `tok`. `null` is a value at this position and is read the way `sd.unc` is read below,
+ * because a figure that could be left out has no way to tell a reader whether the stack reported none
+ * or reported nothing at all. A float reaches neither reading: the decode this document is handed
+ * after refuses one at any depth, so what arrives here is an integer or `null` or something that is
+ * neither of the two the format names.
+ */
+function readMeteringFigure(value: unknown, where: string): number | null {
+  if (value === null) return null;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw badPayload(`${where} must be a non-negative integer or null`);
+  }
+  return value;
+}
+
+/**
+ * The two figures of `tok`, settled as the pair the format states them to be. One count beside one
+ * absence is refused here rather than read as the pair that suits it, because the upstream's usage
+ * event carries both figures together and a document holding one of each states a metering state no
+ * producer can justify. The refusal is the pair's: `tok` is the member whose two values are one
+ * statement, and a sentence naming the half that disagrees with the other would send a reader to fix
+ * one figure of a document that cannot be made honest that way.
+ */
+function readTokenMetering(tok: Map<unknown, unknown>): TokenMetering {
+  const p = readMeteringFigure(tok.get('p'), 'tok.p');
+  const c = readMeteringFigure(tok.get('c'), 'tok.c');
+  if (p === null && c === null) return { p: null, c: null };
+  if (typeof p === 'number' && typeof c === 'number') return { p, c };
+  throw badPayload('tok.p and tok.c are one pair: both are non-negative integers, or both are null that nothing was reported');
+}
+
 /** The twelve members that are not a statement about this issuance itself, checked in the order the CDDL lists them. */
 function readReceiptFields(raw: Map<unknown, unknown>): ReceiptFields {
   const iss = raw.get('iss');
@@ -500,11 +535,7 @@ function readReceiptFields(raw: Map<unknown, unknown>): ReceiptFields {
   if (typeof epk !== 'number' || !Number.isSafeInteger(epk) || epk < 0) throw badPayload('epk must be a non-negative integer');
   const tok = decodedMap(raw.get('tok'));
   if (tok === null) throw badPayload('tok must be a map');
-  const p = tok.get('p');
-  if (typeof p !== 'number' || !Number.isSafeInteger(p) || p < 0) throw badPayload('tok.p must be a non-negative integer');
-  const c = tok.get('c');
-  if (typeof c !== 'number' || !Number.isSafeInteger(c) || c < 0) throw badPayload('tok.c must be a non-negative integer');
-  return { iss, ins, iat, nce, req, res, mdl, wts, meas: { tee, m }, att: { d, ts, url }, epk, tok: { p, c } };
+  return { iss, ins, iat, nce, req, res, mdl, wts, meas: { tee, m }, att: { d, ts, url }, epk, tok: readTokenMetering(tok) };
 }
 
 /**
@@ -536,11 +567,12 @@ function readMarking(raw: Map<unknown, unknown>, version: ReceiptVersion): Marki
  * the whole of what this member adds is that a reader need not go outside the signed document to
  * ask the question.
  *
- * `unc` is the one position in this payload that takes `null` as a value, and it is a value rather
- * than an absent member on purpose: `null` is that source's own statement that nobody measured how
- * far it can stand from the instants it names, `0` is that source's statement that it is right, and
- * a member that could be missing has no way to tell a reader which of the two the writer meant. A
- * policy that demands a bound reads the difference, which is why nothing here flattens it.
+ * `unc` is one of the three positions in this payload that take `null` as a value, the other two being
+ * the pair in `tok`, and each is a value rather than an absent member on purpose: `null` is that source's
+ * own statement that nobody measured how far it can stand from the instants it names, `0` is that source's
+ * statement that it is right, and a member that could be missing has no way to tell a reader which of the
+ * two the writer meant. A policy that demands a bound reads the difference, which is why nothing here
+ * flattens it.
  */
 function readStampDisclosure(raw: Map<unknown, unknown>, version: ReceiptVersion): StampDisclosure {
   const value = raw.get('sd');
@@ -830,6 +862,24 @@ function assertEncodableSlot(value: unknown, where: string): void {
 }
 
 /**
+ * The two figures of `tok` as one pair, which is the one value question this writer answers. It is
+ * answered here because the pair is not two members that happen to carry numbers: the upstream's usage
+ * event carries both figures together, so a caller handing over one count and one absence is asking for
+ * a signature over a metering state no producer can be in, and nothing read back from those bytes can
+ * say which of the two readings the writer meant. A figure that is neither a count nor `null` is not
+ * this question: it is the value question `assertEncodable` leaves to the reader, with every other
+ * member that is well-placed and illegal. The sentence names the pair rather than either half, because
+ * the pair is what a mixed document cannot state, and `BAD_PAYLOAD` is the code the format already
+ * carries for a member that is not the shape this version names.
+ */
+function assertEncodableMetering(value: unknown): void {
+  const given = encodableMapOf(value, 'tok');
+  if ((given['p'] === null) !== (given['c'] === null)) {
+    throw badPayload('tok.p and tok.c are one pair: both are non-negative integers, or both are null that nothing was reported');
+  }
+}
+
+/**
  * One arm of `enc`, closed at the position it sits on as the reader closes it at the same one, and by the
  * same two sentences. The label decides which member list applies, and nothing else about the map is asked
  * until after it has, so an arm carrying the other arm's key is refused for the member it does not define
@@ -1002,6 +1052,10 @@ function assertEncodable(payload: ReceiptPayload): void {
   for (const [name, nested] of Object.entries(defined.nested ?? {})) {
     assertEncodableMap(members[name], inputMembersOf(nested.members), name, 'the format');
   }
+  // The pair is settled after both of its names are proved present and before anything is signed, so a
+  // document short one figure is refused for that and one carrying a count beside an absence is refused
+  // for the pair, which are the two different sentences the two documents need.
+  if (defined.members.includes('tok')) assertEncodableMetering(members['tok']);
   if (defined.members.includes('cva')) {
     const anchor = members['cva'] as Record<string, unknown>;
     assertEncodableSlot(anchor['collateral'], 'cva.col');
@@ -1050,10 +1104,14 @@ export function encodePayload(payload: ReceiptPayload): Uint8Array {
   ];
   // Every version this format declares writes the members above, and nothing is trimmed for being new: `unc`
   // is written whether or not anything was measured, because `null` is the sentence the source says about
-  // itself and an omitted member is not that sentence. What a writer that filtered would have hidden is the
-  // case `assertEncodable` answers: a caller that handed over a member the format does not define, or held
-  // one back that it requires, gets a refusal at the walk above rather than a signature over a document that
-  // states something other than what it was given.
+  // itself and an omitted member is not that sentence. The two figures of `tok` are written the same way, and
+  // for the same reason in the other direction: a `tok` whose pair is the unmeasured one goes out as two
+  // `null`s, never as the two zeros that would read as the stack having reported none, which is the one
+  // substitution that would make this member's absence a measurement.
+  // What a writer that filtered would have hidden is the case `assertEncodable` answers: a caller that
+  // handed over a member the format does not define, or held one back that it requires, gets a refusal at
+  // the walk above rather than a signature over a document that states something other than what it was
+  // given.
   //
   // `enc` is written last, in the position `receipt.cddl` lists it at, and only for the version that defines
   // it: a v1 document has no such member and the walk above refused a caller that handed one over, so a

@@ -366,6 +366,109 @@ describe('what a response frames, and what the document says about it', () => {
   });
 });
 
+/**
+ * The pair one published document holds at `tok`, read out of the sealed payload map.
+ *
+ * A refusal row publishes no twin and its payload reaches no reader that returns a payload, so the column
+ * stating its pair could only be checked against the bytes themselves. This asks the two positions the map
+ * holds and stops there: no encoder, no writer and no rule of the format is reached, so what the comparison
+ * proves is that the manifest states what the file carries rather than what this file would have written.
+ */
+function tokHeldByTheBytes(name: string): { p: unknown; c: unknown } {
+  const payload = decodeCanonical(decodeCoseSign1(loadReceiptFixture(name).bytes).payloadBytes);
+  if (!(payload instanceof Map)) throw new Error(`${name} seals no payload map to read a pair from`);
+  const tok = payload.get('tok');
+  if (!(tok instanceof Map)) throw new Error(`${name} seals no tok map beside the pair`);
+  return { p: tok.get('p'), c: tok.get('c') };
+}
+
+describe('the metering pair a published row states', () => {
+  /** The two names this suite publishes for the states the member admits, and the one it refuses. */
+  const UNREPORTED = 'receipt-metering-unreported-v1';
+  const HALF_REPORTED = 'receipt-metering-half-reported-v1';
+  /** The accepted row whose pair is read: the same response, disclosure, anchor and list as `UNREPORTED`. */
+  const REPORTED = 'receipt-stream-v1';
+
+  const rowNamed = (name: string): ReceiptFixtureRow => {
+    const entry = loadManifest().fixtures.find((each) => each.name === name);
+    if (entry === undefined) throw new Error(`manifest.json states no row named ${name}`);
+    return entry;
+  };
+
+  it('states the metering pair only on the rows published for it, and states what their bytes hold', () => {
+    const stating = loadManifest().fixtures.filter((entry) => entry.tok !== undefined);
+    expect(stating.map((entry) => entry.name).sort()).toEqual([HALF_REPORTED, UNREPORTED].sort());
+    for (const entry of stating) {
+      expect(tokHeldByTheBytes(entry.name), `${entry.name} holds a different pair than its row states`).toEqual(
+        entry.tok,
+      );
+    }
+  });
+
+  it('admits both spellings of the pair, at the reader that holds a key and the one that holds none', () => {
+    // The two figures and the two absences are written here as the shapes the format names, not rebuilt by
+    // the encoder these bytes came from: a vector whose expected value is computed by the code that made it
+    // can only agree with itself.
+    const expected: Record<string, { p: number | null; c: number | null }> = {
+      [REPORTED]: { p: 128, c: 64 },
+      [UNREPORTED]: { p: null, c: null },
+    };
+    const key = loadFixtureKey();
+    for (const [name, pair] of Object.entries(expected)) {
+      const bytes = loadReceiptFixture(name).bytes;
+      expect(decodeReceipt(bytes).payload.tok, `${name} tok, read with no key`).toEqual(pair);
+      const outcome = errorCode(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
+      expect(`${name}: ${outcome === 'no-error' ? 'verify-ok' : outcome}`, 'the verdict the row promises').toBe(
+        `${name}: ${rowNamed(name).expected}`,
+      );
+      expect(verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }).payload.tok, `${name} tok`).toEqual(
+        pair,
+      );
+      const twin = loadReceiptFixture(name).json;
+      expect(twin, `${name} publishes no twin beside its bytes`).not.toBeNull();
+      expect(twin?.payload.tok, `${name} twin tok`).toEqual(pair);
+    }
+  });
+
+  it('refuses a count beside an absence in both readers, naming the pair and not one half', () => {
+    const key = loadFixtureKey();
+    const bytes = loadReceiptFixture(HALF_REPORTED).bytes;
+    const stated = rowNamed(HALF_REPORTED);
+    const given = refusal(() => verifyReceipt(bytes, { publicKey: key.publicKey, nowSeconds: FIXED_NOW }));
+    expect(`${HALF_REPORTED}: ${given.code}`, 'the verdict the row promises').toBe(`${HALF_REPORTED}: ${stated.expected}`);
+    expect(given.message, 'the refusal names the pair').toContain(stated.fault?.at);
+    expect(
+      `${HALF_REPORTED}: ${errorCode(() => decodeReceipt(bytes))}`,
+      'the same answer from the reader holding no key',
+    ).toBe(`${HALF_REPORTED}: ${stated.keyless}`);
+    // One half of the pair alone is not what this document states wrong, so a sentence singling one figure
+    // out would send a reader to fix a member that is not the one at fault.
+    expect(given.message, 'the refusal singled out one figure').toContain('one pair');
+  });
+
+  it('parts the two admitted spellings at the metering member and at nothing else', () => {
+    const [reported, unreported] = [rowNamed(REPORTED), rowNamed(UNREPORTED)];
+    // One response, one disclosure, one anchor, one item list: the pair is the whole difference between the
+    // two rows, which is what makes them a pair and not two documents. A reader that read the absence as a
+    // count of zero answers both alike, and nothing else in either row would tell it that it had.
+    expect(columnsApartFromMetering(unreported), 'the two rows part at more than the pair').toEqual(
+      columnsApartFromMetering(reported),
+    );
+    expect(unreported.tok, 'the absence row states a pair that is not the absence').toEqual({ p: null, c: null });
+    expect([tokHeldByTheBytes(REPORTED), tokHeldByTheBytes(UNREPORTED)]).toEqual([
+      { p: 128, c: 64 },
+      { p: null, c: null },
+    ]);
+  });
+});
+
+/** The columns one row shares with its twin row, with the metering pair taken off, so two rows compare whole. */
+function columnsApartFromMetering(row: ReceiptFixtureRow): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...row };
+  for (const column of ['tok', 'digestSha256', 'name', 'path', 'note']) delete copy[column];
+  return copy;
+}
+
 describe('the arm of `enc` a published row states', () => {
   /**
    * The rows this suite publishes for the newer version, by the name the family gives them.

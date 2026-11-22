@@ -316,6 +316,10 @@ describe('the status a refusal answers with', () => {
     // The one answer on this union that no check below earns: it is given at the reader, ahead of the
     // pipeline, and `test/oversize-body-refusal.test.ts` holds the shape the caller is handed.
     BODY_TOO_LARGE: 413,
+    // The same status on the other side of the exchange: what this process will not hold of an inference
+    // server's answer. `test/oversize-response-refusal.test.ts` holds that shape, and the reason it is not a
+    // 5xx is on the map in `src/access.ts` that this table is written against.
+    RESPONSE_TOO_LARGE: 413,
   } satisfies Record<AccessErrorCode, number>;
 
   type StatusRow = readonly [code: AccessErrorCode, status: number];

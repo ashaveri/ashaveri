@@ -15,6 +15,7 @@ import {
   type ReceiptPayloadV2,
   type SigningKey,
   type TeeKind,
+  type TokenMetering,
 } from '@ashaveri/receipt';
 import type { AccessLog, AccessRecord } from './aclog.js';
 import {
@@ -34,7 +35,14 @@ import { EpochJournalError, unsealedHistoryRefusal, type EpochJournal, type Epoc
 import { stampDisclosureOf } from './issuance-disclosure.js';
 import { StreamedItemStamps, boundStampsAt, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
 import { markBufferedBody, markingFrame, unmarked } from './marking.js';
-import { parseChatCompletionRequest, RequestError } from './mock.js';
+import {
+  parseChatCompletionRequest,
+  readChatCompletionHead,
+  RequestError,
+  type ChatCompletionHead,
+  type ChatCompletionRequest,
+  type ChatMessage,
+} from './mock.js';
 import { AsyncMarkedStreamTail, StreamCompletionGate } from './stream-completion.js';
 import {
   HOST_CLOCK_SOURCE,
@@ -51,7 +59,22 @@ import {
 const NONCE_BYTES = 16;
 // A cold model load can hold back the first streamed event for minutes.
 const FIRST_EVENT_TIMEOUT_MS = 120_000;
-const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
+/**
+ * The largest response body this process collects at once.
+ *
+ * A buffered completion is read whole before a byte of it reaches the client, because the digest the receipt
+ * signs and the item it stamps are cut out of those bytes. Past this bound the answer is refused rather than
+ * held, with `RESPONSE_TOO_LARGE`, which is the refusal a caller can name: what is short is a bound this build
+ * ships, not a fault of the inference server, and the two answers are not the same thing to whoever reads one.
+ * A streamed completion is never collected, so this bound reaches no part of it: its frames are forwarded and
+ * hashed as they arrive. An answer this route will not sign is read whole whatever the request asked for,
+ * because there is nothing to attest from its bytes and no stream arm to hand them to, which is why the
+ * refusal states two shapes of advice rather than one. `collect` below writes the answer, and
+ * `docs/configured-values.md` states the number. Exported for the same reason
+ * `STREAM_USAGE_INJECTION_MAX_BYTES` is: the two cells that hold the bound are written against it rather than
+ * against a literal copied out of this file.
+ */
+export const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 /**
  * What a run that named no request body bound reads. This is the number the gateway has always read, and
  * moving it is a decision of its own: making the bound readable changes what an operator can state, not what
@@ -328,17 +351,111 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
-async function collect(response: BackendResponse): Promise<Buffer> {
+/**
+ * The `tok` pair of a receipt, taken from the one value a backend settled.
+ *
+ * Both figures move together because the usage event that carries them does, which is the rule the format
+ * states and the writer enforces: a count beside an absence is refused rather than signed. `CompletionUsage`
+ * offers the same two arms and nothing between them, so a half-reported pair is not a value this reads. What
+ * remains is a projection: the guard settles which arm the checker is reading, and each arm hands over the
+ * pair as it was settled, so the answer to a pair this build cannot name is the pair that arrived rather than
+ * an absence decided here. Nothing about either reachable state moves: a completion whose upstream reported
+ * nothing signs two nulls, and one that reported zero tokens signs two zeros.
+ */
+function meteringOf(usage: CompletionUsage): TokenMetering {
+  if (usage.completionTokens === null) {
+    // The absence arm, and by the type the arm both figures are in.
+    return { p: usage.promptTokens, c: null };
+  }
+  return { p: usage.promptTokens, c: usage.completionTokens };
+}
+
+/**
+ * Which answer `collect` is holding.
+ *
+ * The route collects both: a completion it is about to sign, and the inference server's own failure, whose
+ * body is handed back as it arrived. The bound is one number and the advice is not, because the shape of a
+ * request decides what a completion is answered with while nothing about a request decides what a failure is
+ * answered with.
+ */
+type CollectedAnswer = 'completion' | 'upstream-failure';
+
+async function collect(response: BackendResponse, answer: CollectedAnswer): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of response.chunks) {
     size += chunk.byteLength;
     if (size > MAX_BUFFERED_BODY) {
-      throw new Error('inference upstream response exceeded the buffering limit');
+      throw bufferedResponseTooLarge(size, answer);
     }
     chunks.push(Buffer.from(chunk));
   }
   return Buffer.concat(chunks, size);
+}
+
+/** The mebibyte spelling of a bound, so a sentence states the number the constant holds. */
+function mebibytes(bytes: number): string {
+  return String(bytes / (1024 * 1024));
+}
+
+/**
+ * The refusal `collect` answers with: the bound this process ships, the size this answer reached, and what a
+ * caller can do about it. An untyped error here was read by the generic handler as a fault of the inference
+ * server, which told a caller nothing it could act on and told an operator their installation was broken over
+ * a number this build chose.
+ *
+ * The two answers get two sentences because the one change of shape that gets a completion past the bound is
+ * no change at all for a failure. A completion asked for streamed is forwarded as it arrives and never
+ * collected, so the bound reaches no part of it; the inference server's own refusal is read whole whatever the
+ * request asked for, because nothing is being attested from its bytes and the route has no stream arm to hand
+ * it to. Telling a caller to stream an error body would send it back with the same request and the same
+ * answer, which is the failure mode the sentence exists to avoid.
+ */
+function bufferedResponseTooLarge(reachedBytes: number, answer: CollectedAnswer): AccessError {
+  const bound =
+    `The bound is MAX_BUFFERED_BODY, stated in docs/configured-values.md, shipped at ` +
+    `${mebibytes(MAX_BUFFERED_BODY)} MiB and reached by no flag. `;
+  if (answer === 'upstream-failure') {
+    return new AccessError('RESPONSE_TOO_LARGE', {
+      detail:
+        `this gateway collects no answer past ${String(MAX_BUFFERED_BODY)} bytes, and the inference server's ` +
+        `own failure had reached ${String(reachedBytes)} while it was being read, so none of it was handed on ` +
+        `and nothing was signed: this is not a completion and never was one. ${bound}Asking for the completion ` +
+        `streamed reaches nothing here, because the bytes past the bound are the upstream's failure rather ` +
+        `than an answer a stream would carry, so what moves is this process's bound or the size of the ` +
+        `failure the inference server returned`,
+    });
+  }
+  return new AccessError('RESPONSE_TOO_LARGE', {
+    detail:
+      `this gateway collects no buffered completion past ${String(MAX_BUFFERED_BODY)} bytes, and this one had ` +
+      `reached ${String(reachedBytes)} while it was being read, so the answer was refused before any of it was ` +
+      `signed: no receipt was issued, and none of the upstream's bytes were handed on. ${bound}A caller asks ` +
+      `for less of this deployment's answer, or asks for it streamed: a streamed response is forwarded as it ` +
+      `arrives and never collected, so this bound reaches no part of it`,
+  });
+}
+
+/**
+ * The request as a backend reads it.
+ *
+ * The scan above already settled the grammar and took the two fields this route weighs, so the message
+ * graph is built here only if the backend reaches for it: the one that forwards these bytes to an inference
+ * server asks the same two questions the scan answered and nothing else, and holding the graph of a body
+ * whose bulk is one inline file for the life of a completion is the cost the scan exists to remove. The
+ * backend that reads messages is the mock, whose answer is about them, and for it this costs exactly what
+ * the route paid before the scan existed.
+ */
+function requestForBackend(raw: Buffer, head: ChatCompletionHead): ChatCompletionRequest {
+  let messages: readonly ChatMessage[] | undefined;
+  return {
+    model: head.model,
+    stream: head.stream,
+    get messages(): readonly ChatMessage[] {
+      messages ??= parseChatCompletionRequest(JSON.parse(raw.toString('utf8'))).messages;
+      return messages;
+    },
+  };
 }
 
 /**
@@ -1012,7 +1129,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       meas: { tee: deployment.tee, m: deployment.measurement },
       att: { d: sha256(args.evidence.document), ts: args.evidence.timestamp, url: args.evidence.url },
       epk: deployment.epk,
-      tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
+      tok: meteringOf(args.usage),
       mk: args.marking,
       sd: stampDisclosureOf(time),
       cva,
@@ -1121,18 +1238,23 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       return;
     }
     const raw = request.body;
-    let parsed;
+    // Read off the bytes the client sent, and read shallowly: which model this request is for and whether
+    // it asks for a stream are the only two things this route weighs, and a body whose bulk is one inline
+    // file is not worth a string of itself and a graph of it held until the completion is over. The
+    // grammar is still settled here, in full, so a shape this gateway has always refused is refused before
+    // an inference is paid for, whichever backend the deployment runs.
+    let head;
     try {
-      parsed = parseChatCompletionRequest(JSON.parse(raw.toString('utf8')));
+      head = readChatCompletionHead(raw);
     } catch (err) {
       const message = err instanceof RequestError ? err.message : 'request body is not valid JSON';
       await reply.code(400).send({ error: { message, type: 'invalid_request_error' } });
       return;
     }
-    const declared = deployment.models.find((model) => model.id === parsed.model);
+    const declared = deployment.models.find((model) => model.id === head.model);
     if (declared === undefined) {
       await reply.code(400).send({
-        error: { message: asOneLine(`model '${parsed.model}' is not served by this deployment`), type: 'invalid_request_error' },
+        error: { message: asOneLine(`model '${head.model}' is not served by this deployment`), type: 'invalid_request_error' },
       });
       return;
     }
@@ -1171,7 +1293,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
     let response: BackendResponse;
     try {
-      response = await backend.respond(raw, parsed);
+      response = await backend.respond(raw, requestForBackend(raw, head));
     } catch (err) {
       await upstreamError(reply, `inference upstream failed: ${errorMessage(err)}`);
       return;
@@ -1195,8 +1317,22 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       // the client, so an unreceipted response is never observable.
       let body: Buffer;
       try {
-        body = await collect(response);
+        body = await collect(response, failed ? 'upstream-failure' : 'completion');
       } catch (err) {
+        // The one answer this route refuses without signing it, and it is refused by this process rather than
+        // by the inference server: the bound is `MAX_BUFFERED_BODY`, so what comes back carries the code a
+        // caller can branch on and the number that moved. The match is on that code and not on the class it
+        // belongs to, because every refusal this gateway raises belongs to that class, the credential checks'
+        // own among them: an error raised while collecting that was not this bound would answer the caller
+        // with the status of a check that never ran on this request, and every 5xx on that union is a
+        // credential-file refusal no request is answered with. Anything else this loop raised is still the
+        // upstream's own failure and keeps the untyped fault it has always been answered with.
+        if (err instanceof AccessError && err.code === 'RESPONSE_TOO_LARGE') {
+          await reply
+            .code(err.status)
+            .send({ error: { message: err.message, type: 'upstream_error', code: err.code } });
+          return;
+        }
         await upstreamError(reply, errorMessage(err));
         return;
       }
@@ -1284,6 +1420,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       'content-type': response.contentType,
       'x-ashaveri-receipt-id': id,
       'cache-control': 'no-cache',
+      // A stream this gateway declined to copy is a stream whose token figures were never asked for, and its
+      // receipt says so itself: the pair it signs is two nulls, not two numbers nobody measured. This header is
+      // the same statement made where a signed document cannot make it, before the body ends and while the
+      // caller still has nothing to verify. What it cannot say is whether figures arrived, because the headers
+      // are written before the body does.
+      ...(response.meteringDeclined === true ? { 'x-ashaveri-metering': 'declined' } : {}),
     });
     // A property keeps callback state visible to the write loop's narrowing.
     const client = { aborted: false };

@@ -1,7 +1,7 @@
 import { ReceiptError } from './errors.js';
 import type { CollateralSlot, StampDisclosure } from './disclosure.js';
 import { isReceiptVersion } from './receipt.js';
-import type { Encryption, ItemStamp, Marking, ReceiptPayload } from './receipt.js';
+import type { Encryption, ItemStamp, Marking, ReceiptPayload, TokenMetering } from './receipt.js';
 import { decodeReceipt } from './receipt.js';
 
 function toHex(bytes: Uint8Array): string {
@@ -13,6 +13,14 @@ function toHex(bytes: Uint8Array): string {
  * two shapes below, because the version is what tells a reader which format these bytes were signed under,
  * and this build reads two.
  */
+/**
+ * The two figures of `tok`, as one pair and with the same two states the wire admits: the stack reported
+ * both counts, or it reported nothing and both are `null`. Spelled as a pair rather than as two members
+ * that may each be `null` because one count beside one absence is not a state this format states, and a
+ * projection free to write it would be a twin that describes a document the reader refuses.
+ */
+type TokenMeteringJson = { p: number; c: number } | { p: null; c: null };
+
 interface ReceiptFieldsJson {
   iss: string;
   ins: string;
@@ -25,7 +33,7 @@ interface ReceiptFieldsJson {
   meas: { tee: string; m: string };
   att: { d: string; ts: number; url: string };
   epk: number;
-  tok: { p: number; c: number };
+  tok: TokenMeteringJson;
 }
 
 /** The two arms of one anchor slot, spelled as the format spells them: a label, then a digest or a reason. */
@@ -88,8 +96,18 @@ function fieldsToJson(payload: ReceiptPayload): ReceiptFieldsJson {
     meas: { tee: payload.meas.tee, m: toHex(payload.meas.m) },
     att: { d: toHex(payload.att.d), ts: payload.att.ts, url: payload.att.url },
     epk: payload.epk,
-    tok: { p: payload.tok.p, c: payload.tok.c },
+    tok: tokenMeteringToJson(payload.tok),
   };
+}
+
+/**
+ * The metering pair, projected as the one statement it is. Reading the two figures apart would let a
+ * payload that states an absence come out as a count beside an absence, which is the shape the format
+ * refuses at both ends of the wire, and a twin that could write it would describe a document no reader
+ * of these bytes accepts.
+ */
+function tokenMeteringToJson(tok: TokenMetering): TokenMeteringJson {
+  return tok.p === null ? { p: null, c: null } : { p: tok.p, c: tok.c };
 }
 
 function markingToJson(mk: Marking): { sch: string; d: string } {

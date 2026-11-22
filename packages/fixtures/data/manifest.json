@@ -123,6 +123,92 @@
       "note": "A receipt over the four items a streamed completion frames, issued by a deployment whose time source declares a bound: one reading per item in the order the items were framed, the last a second before `iat`, and both anchor slots holding the digest of bytes that were taken in. Its `res` is sha256 of the whole stream with its framing and its sentinel, the bytes marking-v1.json publishes as `streamed-region-stripped`, and its `itm` digests are the four `data:` payloads inside those bytes. This is the anchor a demand of two answers: both slots state they were taken in, so every posture a policy can take about an anchor accepts it, and the column states all three beside that fact."
     },
     {
+      "name": "receipt-metering-unreported-v1",
+      "path": "receipts/receipt-metering-unreported-v1.cbor",
+      "digestSha256": "216e71484a93ee11b5ff491b4762fd716b105e1f9a5e111f2d325ee1b51741dc",
+      "expected": "verify-ok",
+      "keyless": "verify-ok",
+      "v": 1,
+      "marking": "none",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-region-stripped",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiBbRE9ORV0KCg",
+      "responseByteLength": 772,
+      "items": [
+        {
+          "t": 1771999996,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999997,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999998,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999999,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "tok": {
+        "p": null,
+        "c": null
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "held",
+          "d": "0f97dfca91870f4e142f6bc275945fc4aca3a21bbde1924dfc181086e0b03ef9"
+        }
+      },
+      "handover": [
+        {
+          "minAnchorSlotsHeld": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 1,
+          "verdict": "verify-ok"
+        },
+        {
+          "minAnchorSlotsHeld": 2,
+          "verdict": "verify-ok"
+        }
+      ],
+      "stampSource": [
+        {
+          "maxTimeUncertaintySeconds": null,
+          "verdict": "verify-ok"
+        },
+        {
+          "maxTimeUncertaintySeconds": 0,
+          "verdict": "STAMP_SOURCE_TOO_UNCERTAIN"
+        },
+        {
+          "maxTimeUncertaintySeconds": 1,
+          "verdict": "verify-ok"
+        }
+      ],
+      "note": "A receipt over the four items a streamed completion frames whose serving stack reported neither figure: `tok` is `{ null, null }`, which is that nothing was reported, and not the `{ 0, 0 }` a stack that counted none would state. This is the state a large streamed request leaves the issuance in, where the body goes forward without the metering ask and no usage event reaches it, and the state of any completion whose upstream sent no usage event at all, so one document answers both and no header rides beside it. `receipt-stream-v1` is the same response, disclosure and anchor with the pair read, so the two rows move at one member and a reader that flattened the absence into a zero would answer them alike. Its anchor holds both halves and its source declares a bound of one second, which is why the postures this row states are that row's: what the metering moved is a figure, not a demand."
+    },
+    {
       "name": "receipt-buffered-v1",
       "path": "receipts/receipt-buffered-v1.cbor",
       "digestSha256": "f423d55c9a3c1bb3db31dab429e2a20ecac76df83efb1583f0b1a30f615ec793",
@@ -932,6 +1018,74 @@
         "name": "ptp-disciplined host clock"
       },
       "note": "A disclosure that names its source and withholds the bound, where the shape takes two members and `null` is the answer for a source nobody measured. `receipt-unmeasured-v1` states the same source with the member present and its value `null`, and is accepted: this row is the difference between a source saying it was never measured and a writer leaving the question unasked, which is the silence the member exists to refuse."
+    },
+    {
+      "name": "receipt-metering-half-reported-v1",
+      "path": "receipts/receipt-metering-half-reported-v1.cbor",
+      "digestSha256": "562944e0e57302ccc49f9e97d636acba7e919b8f97f9d1abb4229adf2a6ca03f",
+      "expected": "BAD_PAYLOAD",
+      "keyless": "BAD_PAYLOAD",
+      "v": 1,
+      "marking": "provenance-v1",
+      "contentType": "text/event-stream",
+      "response": "marking-v1.json#streamed-frame",
+      "responseBase64Url": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1tYXJraW5nLTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzcyMDAwMDAwLCJtb2RlbCI6Im1vY2stbW9kZWwtMSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIHNlcnZlZC4ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtbWFya2luZy0xIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc3MjAwMDAwMCwibW9kZWwiOiJtb2NrLW1vZGVsLTEiLCJjaG9pY2VzIjpbXSwiYXNoYXZlcmkiOnsibWFya2luZyI6eyJzY2giOiJhc2hhdmVyaS9wcm92ZW5hbmNlLXYxIiwiZ2VuIjoiYWkiLCJhdCI6MTc3MjAwMDAwMH19fQoKZGF0YTogW0RPTkVdCgo",
+      "responseByteLength": 980,
+      "items": [
+        {
+          "t": 1771999995,
+          "d": "8ad85524387f8b33d71d6c825b4098967d582a49255a9ce5d399a4dcf82e34de",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiTW9jayByZXBseToifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQ",
+          "byteLength": 202
+        },
+        {
+          "t": 1771999996,
+          "d": "2b918d88b23a1e4601a9698687c94140916d8d4455746ee42c3029e3331972f4",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgY2Fmw6kg4piVIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0",
+          "byteLength": 182
+        },
+        {
+          "t": 1771999997,
+          "d": "b6317a63b4a079fe282343b5ca0c089280cbce11042acd5f0abd76db4ea548c2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIgc2VydmVkLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19",
+          "byteLength": 180
+        },
+        {
+          "t": 1771999998,
+          "d": "63b374984480c1f0adb487b753b9cb3ac2b732bb6749f7f687243aefbe5c1ca2",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19",
+          "byteLength": 162
+        },
+        {
+          "t": 1771999999,
+          "d": "0d19b35a69c8c6cc3e707510e7b46d19ae7dcdbef79715964615d74fdd0aab2b",
+          "bytesBase64Url": "eyJpZCI6ImNoYXRjbXBsLW1hcmtpbmctMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3NzIwMDAwMDAsIm1vZGVsIjoibW9jay1tb2RlbC0xIiwiY2hvaWNlcyI6W10sImFzaGF2ZXJpIjp7Im1hcmtpbmciOnsic2NoIjoiYXNoYXZlcmkvcHJvdmVuYW5jZS12MSIsImdlbiI6ImFpIiwiYXQiOjE3NzIwMDAwMDB9fX0",
+          "byteLength": 200
+        }
+      ],
+      "sd": {
+        "name": "ptp-disciplined host clock",
+        "unc": 1
+      },
+      "tok": {
+        "p": 128,
+        "c": null
+      },
+      "cva": {
+        "col": {
+          "p": "held",
+          "d": "8701cb3c5b89991d693a58ec59233422f627200be31c8d568ab41bde8710ca34"
+        },
+        "val": {
+          "p": "not-taken-in",
+          "r": "this issuer takes no collateral into the record it signs with: it is handed an evidence document, its stamp and a url, and nothing chained to that document, and no collector beside it holds the vendor chain an appraisal of those bytes would run on"
+        }
+      },
+      "fault": {
+        "at": "tok.p and tok.c",
+        "states": "the pair the member is one statement of, split between one count and one absence"
+      },
+      "note": "A document holding one figure read and the other reported none: `tok.p` is the count the envelope states for every row of this suite and `tok.c` is `null` beside it. The usage event an upstream emits carries the two figures together, so this pair states a metering state no producer can justify, and the writer refuses to sign it while the reader refuses to open it, each naming the pair in its sentence rather than the half that disagrees with the other. `receipt-metering-unreported-v1` and `receipt-stream-v1` are the two shapes the member admits; a count beside an absence is neither, and a reader that resolved the pair to whichever half it liked would be answering a question the document never coherently asked. The signature is the published key's, so nothing here refuses for authenticity, and the column states the pair as these bytes hold it."
     },
     {
       "name": "receipt-retired-shape-v1",
@@ -1893,6 +2047,7 @@
       "responseByteLength": "The length of those same bytes, stated beside them so a reader that rebuilt the body from another suite checks a length as well as a digest, and a port that decoded the string and never counted it is told which of the two it did.",
       "items": "One entry per item the shipped reader gives those bytes, in the order it gives them: the instant the source named by `sd` read for it, the digest of that item's bytes, and the bytes themselves so the digest is checkable rather than asserted. A row states `items` exactly where its document carries the list. Where a refusal is about the list, the row states the list as the bytes hold it, which is the whole of what the reader compares.",
       "sd": "The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source's statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.",
+      "tok": "The metering pair the payload carries: the two figures the serving stack reported, or two `null`s that it reported none. `0` is a reading of none and `null` is no reading, which is the same pair `sd` states one member away, and the pair is all-or-nothing because the usage event an upstream emits carries the two figures together: one count beside one absence is no third state, the writer refuses to sign it and the reader refuses to parse it, each naming both positions in one sentence. A row states this column where the pair is the point the row was published to state, which is the absence over the response its reported twin attests and the half pair refused beside it; every other row carries the counts the envelope states and says nothing of them here, the way no row states a `mk` for a marking nothing moved. A refusal row states the pair as its own bytes hold it, so the answer these bytes get is checkable against what they carry.",
       "cva": "The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.",
       "enc": "The arm of `enc` the payload carries: the label that decides which member list stands behind the map, and the key spelled in unpadded base64url only on the arm that names one. A row states this column exactly where its bytes carry the member, which is every row at the newer version except the one published to state that the member is missing, and the row at the older number that carries it anyway. A refusal row states the arm its own bytes hold, label and all, so the answer these bytes get is checkable against what they carry rather than against what a reader would have written.",
       "challenge": "The attestation challenge this document states, as the document itself states it: which rule the `enc` arm selects, the parts it reads out of the signed payload in the order they are concatenated, the pre-image those bytes give, and the digest that pre-image hashes to. A receipt that names a session key binds that key to the measurement its own evidence quotes, because the value the platform was asked to attest is sha256(nce || pk || keyId(pk) || req) with every part read out of this document, and keyId(pk) is the sha256 of that public key, the same 32 bytes the protected header states as kid and a deployment manifest states as epk; a receipt that states the plain arm names no key and the value stays sha256(nce || req), which is what shipped before a key existed to fold. What the identifier inside the digest establishes is that the machine which sealed the quote held that key at that moment, and it establishes no more than that: that the key was generated inside that machine is not a claim this value supports. The column is stated on the rows whose arm decides a challenge and on no others, and `data/challenge-v1.json` publishes the same arithmetic beside the refusals a reader owes it: this file writes it out again rather than calling that suite, because two publications that share a helper cannot disagree, and a cross-check that cannot fail checks nothing.",

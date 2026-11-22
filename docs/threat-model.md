@@ -477,10 +477,12 @@ What is still true, in both modes:
   `decodeClosedDocument` is also how an export's header and manifest and a sealed deployment manifest's
   header are read, so a float standing where a label belongs is a malformed document in any of them.
   It reaches the payload's numbers as well,
-  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk`, `tok.p`, `tok.c` and
+  and the format says which ones. The positions are `v`, `iat`, `att.ts`, `epk` and
   `itm.t`,
   each read as the integer `receipt.cddl` types it, so a `128.0` written as a float is a malformed
-  payload rather than 128 taken on trust. The writer that issues a receipt holds the same line from its
+  payload rather than 128 taken on trust. Three further positions take `null` beside an integer, `sd.unc`
+  and each figure of `tok`, and the decode refuses a float at those too: `null` is a value the format
+  names there, not an open door. The writer that issues a receipt holds the same line from its
   own side and spells negative zero as the integer zero, so a float standing at one of these positions
   is a document another implementation wrote, not one this package signed and could not read back. So
   no field of a

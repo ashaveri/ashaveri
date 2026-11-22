@@ -548,6 +548,28 @@ describe('ashaveri verify-handover', () => {
     });
   });
 
+  it('renders an unreported metering pair as the stack reporting none, and a reported one as counts', () => {
+    // Two spellings of the pair reach this one row and no third can, because a count beside an absence is
+    // refused before a report is written. The word `null` in the human row would print a statement about
+    // the serving stack as a member of a document, and a figure would print a zero nobody reported, so both
+    // arms are held to their words over the bytes the published corpus issues them in.
+    const UNREPORTED_PATH = `${DATA}receipts/receipt-metering-unreported-v1.cbor`;
+    const reported = verdictOf(runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    expect((reported.document as Record<string, unknown>).tokens).toMatchObject({ prompt: 128, completion: 64 });
+    expect(runCli(['verify-handover', RECEIPT_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`]).stdout).toContain(
+      '128 prompt, 64 completion',
+    );
+
+    const absence = verdictOf(runCli(['verify-handover', UNREPORTED_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`, '--json']));
+    expect(absence.ok, JSON.stringify(absence)).toBe(true);
+    expect((absence.document as Record<string, unknown>).tokens).toMatchObject({ prompt: null, completion: null });
+    const human = runCli(['verify-handover', UNREPORTED_PATH, `--key=${RECEIPT_PUBLIC_B64URL}`]);
+    expect(human.stdout, human.stdout).toContain(
+      'the serving stack reported neither figure, which is not a count of zero',
+    );
+    expect(human.stdout).not.toMatch(/null prompt|null completion/u);
+  });
+
   it('names the demand beside every disclosure row it quotes, and disclaims every instant it prints', () => {
     // One rule for the three rosters that print what the sealed receipts disclose: a report that quotes
     // a source's bound has to say whether a policy demanded anything of it, and a report that prints an

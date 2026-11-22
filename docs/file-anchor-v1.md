@@ -98,7 +98,8 @@ and why there is none here.
 What the deployment then hands its upstream is one of two things, and they differ, so both are stated.
 A buffered request goes on as the bytes that arrived, member and all. A streamed request goes through a
 metering rewrite first: `gateway/src/upstream.ts` parses the body, adds a `stream_options` member asking
-for a usage frame, and re-serializes, unless the request already asked for that frame. The claim
+for a usage frame, and re-serializes, unless the request already asked for that frame or the body is past
+the metering bound `STREAM_USAGE_INJECTION_MAX_BYTES`, whose copy this gateway declines to pay. The claim
 survives that rewrite, because the rewrite carries every member it did not read, but the text the
 provider parses is no longer the text `req` digests, which is a fact about the whole streamed body and
 not about this field. The same sentence the stripping case earns is the one that covers it: where a

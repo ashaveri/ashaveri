@@ -79,8 +79,8 @@ interface ReaderCase {
   readonly items: readonly string[] | null;
   /** Reader 2, the usage scan: the 1-based indices of frames whose payload reaches `JSON.parse`. */
   readonly parsed: readonly number[];
-  /** Reader 2's settled `completion_tokens`: the position of the first frame it metered, or 0 for none. */
-  readonly metered: number;
+  /** Reader 2's settled `completion_tokens`: the position of the first frame it metered, or null for none. */
+  readonly metered: number | null;
   /** Reader 2 again: whether consuming the body as written threw, which is what a sentinel must never do. */
   readonly scanThrows: boolean;
   /** Reader 3, the extraction rule: how many marking-shaped `data:` lines the body holds. */
@@ -163,7 +163,8 @@ function meteringPayloads(caseItem: ReaderCase): string[] {
 
 interface ScanOutcome {
   readonly threw: boolean;
-  readonly completionTokens: number;
+  /** What the scan settled: a reported count, or null where no frame carried usage at all. */
+  readonly completionTokens: number | null;
   readonly forwardedWholeBody: boolean;
 }
 
@@ -188,7 +189,7 @@ async function runUpstream(body: string, writes: readonly Uint8Array[]): Promise
     const usage = await response.usage;
     return { threw: false, completionTokens: usage.completionTokens, forwardedWholeBody: decoder.decode(seen) === body };
   } catch {
-    return { threw: true, completionTokens: 0, forwardedWholeBody: false };
+    return { threw: true, completionTokens: null, forwardedWholeBody: false };
   }
 }
 
@@ -304,7 +305,7 @@ const ROWS: readonly ReaderCase[] = [
     ],
     items: ['{"a":1}', '{"b":2}'],
     parsed: [],
-    metered: 0,
+    metered: null,
     scanThrows: false,
     markLines: 2,
     markAt: 30,
@@ -320,7 +321,7 @@ const ROWS: readonly ReaderCase[] = [
     ],
     items: ['{"a":1}', '{"b":2}'],
     parsed: [],
-    metered: 0,
+    metered: null,
     scanThrows: false,
     markLines: 2,
     markAt: 30,
@@ -398,7 +399,7 @@ const ROWS: readonly ReaderCase[] = [
     ],
     items: ['{"a":1}'],
     parsed: [],
-    metered: 0,
+    metered: null,
     scanThrows: false,
     markLines: 1,
     markAt: 16,
@@ -410,7 +411,7 @@ const ROWS: readonly ReaderCase[] = [
     frames: [{ payload: DONE, sep: `${LF}${LF}` }],
     items: null,
     parsed: [1],
-    metered: 0,
+    metered: null,
     scanThrows: false,
     markLines: 0,
     markAt: 0,
@@ -526,9 +527,10 @@ describe('four readers of one response body, on the same bytes', () => {
       expect(caseItem.parsed.length, `${caseItem.name}: reader 2 parses no phantom frame}`).toBeLessThanOrEqual(
         caseItem.frames.length,
       );
-      expect(caseItem.metered === 0 || caseItem.parsed.length > 0, `${caseItem.name}: a metered frame is a parsed one`).toBe(
-        true,
-      );
+      expect(
+        caseItem.metered === null || caseItem.parsed.length > 0,
+        `${caseItem.name}: a metered frame is a parsed one`,
+      ).toBe(true);
       expect(caseItem.markLines, `${caseItem.name}: reader 3 counts no line the body does not hold}`).toBeLessThanOrEqual(
         dataFrames(caseItem),
       );
