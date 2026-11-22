@@ -334,9 +334,10 @@ process is willing to take in rather than what it is willing to admit, so a requ
 code on this union and writes nothing to the access log's `deny` field: the pipeline never reached the point of
 deciding anything about a credential. The response bound is met behind the whole line of them and behind the
 inference itself, because what it decides is what this process will hand back rather than what it will take in:
-it is the answer a completion whose collected body passes `MAX_BUFFERED_BODY` is given, the access log carries
-the status it answered with and nothing in `deny`, since the refusal says something about this build's bound and
-nothing about a credential, and it is not the answer for an upstream that failed, which keeps `upstream_error`
+it is the answer a completion whose collected body passes `MAX_BUFFERED_BODY` is given, and the answer as well
+when the bytes past the bound were the upstream's own failure, whose body this route collects on either arm,
+the access log carrying the status it answered with and nothing in `deny`, since the refusal says something about
+this build's bound and nothing about a credential. A failure that stays inside the bound keeps `upstream_error`
 with no code beside it. Codes after the first three are 401, 403, 409, 413 or 429 on the request that
 earned them; the credential-file codes are 500s no request receives, because what is broken is the
 file the operator installed and no header a client sends can fix it.
