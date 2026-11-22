@@ -179,8 +179,11 @@ All three are computed over raw bytes on the wire, before any decoding:
   the gateway adds one metering member to the body before forwarding it, unless the caller asked
   for it first, so the provider is handed a re-serialised body carrying that member while `req`
   names the caller's own bytes; the rewritten body carries every other member of the caller's
-  request, in the gateway's own spelling of them. A reader comparing a receipt against a
-  provider's request log accounts for that added member and for the spelling, not for the content.
+  request, in the gateway's own spelling of them. A streamed body past the metering bound
+  `STREAM_USAGE_INJECTION_MAX_BYTES`, stated in [configured-values.md](configured-values.md), is
+  forwarded as it arrived and carries no added member, because the copy the ask costs is what that
+  bound declines. A reader comparing a receipt against a provider's request log accounts for that
+  added member and for the spelling, not for the content.
 - `res` = sha256 of the response body exactly as transmitted. For streaming responses this
   includes every SSE frame, separator, and terminator, not only the concatenated `data:`
   payloads.

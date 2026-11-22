@@ -26,6 +26,17 @@ export interface BackendResponse {
   readonly chunks: AsyncIterable<Uint8Array>;
   /** Resolves after `chunks` is exhausted. Rejected only if the exchange failed mid-body. */
   readonly usage: Promise<CompletionUsage>;
+  /**
+   * Set by a backend that gave up on metering this exchange rather than pay for it, and by nothing else.
+   *
+   * Absent means the figures were asked for, which is what a hand-written backend that never considered
+   * the question does. The member exists because the receipt cannot say any of this itself: `tok` is a
+   * required map of two non-negative integers in the published format, so a completion whose token figures
+   * were never obtained still has to state two of them, and a reader left with `0` and `0` cannot tell a
+   * measured nothing from an unmeasured something. This is the half the response can carry, and the route
+   * writes it as `x-ashaveri-metering`.
+   */
+  readonly meteringDeclined?: boolean;
 }
 
 export interface CompletionBackend {

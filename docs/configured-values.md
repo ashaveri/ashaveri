@@ -138,8 +138,9 @@ change to it is a change here too.
 
 Bounds shipped in the same source, and holding whatever the operator named, are not fallbacks and so
 are not rows above: `MAX_CREDENTIALS`, `MAX_TRACKED_PEERS`, `MAX_BUFFERED_BODY`,
-`MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES` and `FIRST_EVENT_TIMEOUT_MS` each bound one behaviour
-that no flag reaches. `MINIMUM_RETENTION_SECONDS` is the same kind of shipped number and the store
+`MAX_CACHED_EVIDENCE`, `MAX_REPORT_DATA_BYTES`, `STREAM_USAGE_INJECTION_MAX_BYTES` and
+`FIRST_EVENT_TIMEOUT_MS` each bound one behaviour that no flag reaches.
+`MINIMUM_RETENTION_SECONDS` is the same kind of shipped number and the store
 package's own age bound, 184 days stated in seconds: it is the window a run ages by when `--receipts-days`
 names nothing, because that flag's default is the same 184 days held in whole days and converted to
 seconds at `gateway/src/duty-window.ts`. The receipts period is therefore a duration a deployment chooses
@@ -156,6 +157,21 @@ interval it re-reads on, which the bound the document states picks between, and
 own claim at the one moment the two are weighed against each other. `--time-source-state` names a path and
 nothing else, so no flag reaches these four, and none of them is a bound anybody may set on a source: the
 bound belongs to the document, and these are what the reader does with it.
+
+One of the bounds above decides what a completion states about its own cost. A streamed request past
+`STREAM_USAGE_INJECTION_MAX_BYTES` of wire, one mebibyte, is forwarded to the inference server as it
+arrived, and this gateway asks for no usage figures, because the ask is a parse and a re-serialisation of
+the caller's body held for the life of the completion and what it buys is a count. A request under it is
+asked, as it always was, and a buffered request is never copied for the ask at any size, because its
+figures ride in its body. What the large arm gives up is stated and not left to be inferred: `tok` is a
+required map of two integers the reader refuses negative in the published receipt format, so a completion
+whose figures were never obtained still states two of them, and the response carries
+`x-ashaveri-metering: declined` beside them. The header names what this gateway did rather than what
+arrived: an inference server that reports usage without being asked is still read, and the header still
+says this gateway did not ask. It cannot say more than that, because the headers are written before the
+body ends, and whether a figure an upstream was asked for arrives is not known until after they have.
+Which figures a deployment would rather have, the copy or the count, is the reason the bound is a number
+in the source rather than a rule in the prose.
 
 ## 3. Environment settings the operator declares
 

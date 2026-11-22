@@ -1318,6 +1318,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       'content-type': response.contentType,
       'x-ashaveri-receipt-id': id,
       'cache-control': 'no-cache',
+      // A stream this gateway declined to copy is a stream whose token figures were never asked for. The
+      // receipt it goes on to sign still has to state two of them, so this is where the answer that they
+      // are not a measurement is written, in the one place a caller reads before it holds the receipt.
+      ...(response.meteringDeclined === true ? { 'x-ashaveri-metering': 'declined' } : {}),
     });
     // A property keeps callback state visible to the write loop's narrowing.
     const client = { aborted: false };
