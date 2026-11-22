@@ -28,17 +28,26 @@ export function readSourceFile(specifier: string): string {
   return readFileSync(fileURLToPath(new URL(specifier, import.meta.url)), 'utf8');
 }
 
-/** The members of `export type <union> = ... ;`, in declaration order. */
+/**
+ * The members of `export type <union> = ... ;`, in declaration order. Comments come out before the
+ * terminating semicolon is looked for: a sentence inside a union explains a member, and its own
+ * punctuation is not the end of the type. A reader that stopped at a semicolon in a comment loses
+ * every member written after it, and the loss surfaces somewhere else as codes a document names and
+ * no registry declares.
+ */
 export function unionMembers(union: string, file: string): string[] {
   const source = readSourceFile(file);
   const marker = `export type ${union} =`;
   const start = source.indexOf(marker);
   if (start < 0) throw new Error(`${union} is not declared in ${file}`);
-  const rest = source.slice(start + marker.length);
-  const end = rest.indexOf(';');
+  const body = source
+    .slice(start + marker.length)
+    .replace(/\/\*[\s\S]*?\*\//gu, '')
+    .replace(/\/\/[^\n]*/gu, '');
+  const end = body.indexOf(';');
   if (end < 0) throw new Error(`${union} in ${file} has no terminating semicolon`);
   // The pattern carries exactly one capture group, so group 1 is present in every match it yields.
-  return [...rest.slice(0, end).matchAll(/'([A-Z0-9_]+)'/gu)].map((found) => found[1]!);
+  return [...body.slice(0, end).matchAll(/'([A-Z0-9_]+)'/gu)].map((found) => found[1]!);
 }
 
 export interface LiteralEntry {
