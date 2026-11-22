@@ -184,6 +184,108 @@ const CORPUS: readonly (readonly [string, string])[] = [
   ],
 ];
 
+/**
+ * One body whose message content holds exactly the token bytes given. The body is written rather than
+ * serialised, so a cell can put a backslash anywhere inside a token and know what bytes the reader is handed.
+ */
+function contentBody(token: string): string {
+  return `{"model":"${M}","messages":[{"role":"user","content":"${token}"}],"stream":true}`;
+}
+
+/** The same, with the bytes in a message's role rather than in its content. */
+function roleBody(token: string): string {
+  return `{"model":"${M}","messages":[{"role":"${token}","content":"hi"}],"stream":true}`;
+}
+
+/**
+ * The escape sequences a JSON document is allowed to hold inside a string token, one per spelling, as the
+ * bytes of a token carrying each. Every one of these decodes to text rather than to a refusal, and a scan
+ * that bounded a token without reading its escapes would take the closing quote of a text saying `a"b`.
+ */
+const VALID_ESCAPES: readonly (readonly [string, string])[] = [
+  ['an escaped quotation mark', 'a\\"b'],
+  ['an escaped reverse solidus', 'a\\\\b'],
+  ['an escaped solidus', 'a\\/b'],
+  ['an escaped backspace', 'a\\bb'],
+  ['an escaped form feed', 'a\\fb'],
+  ['an escaped newline', 'a\\nb'],
+  ['an escaped carriage return', 'a\\rb'],
+  ['an escaped tab', 'a\\tb'],
+  ['a \\u naming a character of the basic plane', 'a\\u00e9b'],
+  ['a \\u naming the nul character', 'a\\u0000b'],
+  ['a \\u naming a quotation mark', 'a\\u0022b'],
+  ['a \\u naming an astral character as a surrogate pair', '\\ud83d\\ude00'],
+];
+
+/**
+ * The escapes a caller can write inside a string token, and the shapes that show whether the scan read them.
+ *
+ * `JSON.stringify` never writes an escape its own reader refuses, so a body built by serialising a graph
+ * carries only the escapes the grammar allows, and no corpus of such bodies reaches this defect class. The
+ * rows below are bytes. The invalid ones sit in the spans a scan weighs by length and never decodes (a
+ * content token, a role, a member this route reads nothing of), which is where the scan has to state the
+ * refusal itself rather than leave it to the parse that runs behind it, and in the spans it does decode,
+ * where the two readers are asked to agree either way. The valid ones are here so that a scanner refusing
+ * too much fails in this same file rather than in a deployment that refused a well-formed caller.
+ */
+const ESCAPE_BODIES: readonly (readonly [string, string])[] = [
+  ['a content holding an invalid escape letter', contentBody('a\\zb')],
+  ['a content holding an invalid escape letter beside a digit', contentBody('a\\1b')],
+  ['a content holding an invalid escape letter that is a brace', contentBody('a\\{b')],
+  ['a content holding an escape letter outside ASCII', contentBody('a\\ég')],
+  ['a content holding a backslash before a raw tab', contentBody('a\\\tb')],
+  ['a content holding a backslash before a raw line feed', contentBody('a\\\nb')],
+  ['a content holding a backslash before a raw nul', contentBody('a\\' + String.fromCharCode(0) + 'b')],
+  ['a role holding an invalid escape letter', roleBody('u\\xser')],
+  ['a role whose bytes are one backslash and nothing else', roleBody('\\')],
+  ['a member this route reads nothing of', `{"model":"${M}","messages":[{"role":"a","content":"b"}],` +
+    `"ashaveri":{"file":{"sha256":"ab\\zcd"}}}`],
+  ['a part member this route reads nothing of', `{"model":"${M}","messages":[{"role":"user",` +
+    `"content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,Q\\I=="}}]}]}`],
+  ['a member name holding an invalid escape letter', `{"mo\\odel":"${M}","messages":[{"role":"a","content":"b"}]}`],
+  ['a backslash before the closing quote', contentBody('ab\\')],
+  ['a backslash before the closing quote, with a member behind it', `{"model":"${M}","messages":` +
+    `[{"role":"user","content":"a\\"}],"stream":true}`],
+  ['a backslash closing the document', `{"model":"${M}","messages":[{"role":"a","content":"b"}],"x":"c\\`],
+  ['a \\u with no digits after it', contentBody('a\\u')],
+  ['a \\u with two hexadecimal digits', contentBody('a\\u12')],
+  ['a \\u with three hexadecimal digits', contentBody('a\\u12b')],
+  ['a \\u with a non-hexadecimal digit first', contentBody('a\\u0g12')],
+  ['a \\u whose fourth digit is the closing quote', contentBody('a\\u123')],
+  ['a \\u naming an unpaired surrogate', contentBody('\\ud83d')],
+  ...VALID_ESCAPES.map(([name, token]) => [`${name}, inside a content token`, contentBody(token)] as const),
+];
+
+describe('the escape grammar of one string token', () => {
+  for (const [name, body] of ESCAPE_BODIES) {
+    it(`answers the body holding ${name} the same way twice`, () => agree(body, name));
+  }
+
+  for (const [name, token] of VALID_ESCAPES) {
+    it(`admits a content holding ${name}`, () => {
+      const written = contentBody(token);
+      const served = `ok:${JSON.stringify({ model: M, stream: true })}`;
+      expect(scanAnswer(written), 'the scan reads the whole body').toBe(served);
+      expect(parseAnswer(written), 'and the parse reads it too').toBe(served);
+    });
+  }
+
+  it('bounds a token whose own closing quote a backslash has taken', () => {
+    // The disagreement this file exists for, spelled out on one body rather than left to the comparison:
+    // an escape is two bytes the token keeps, so `\"` is a character of the text and not the end of it, and
+    // a backslash before the last quote leaves the token open past the end of the document. Both readers
+    // answer that body as not-JSON; a scan that stopped at the escaped quote would read a message list the
+    // bytes never held.
+    expect(scanAnswer(contentBody('a\\"b')), 'a quote the caller escaped is text').toBe(
+      `ok:${JSON.stringify({ model: M, stream: true })}`,
+    );
+    expect(scanAnswer(contentBody('ab\\')), 'a backslash before the closing quote leaves the token open').toBe(
+      'invalid-json',
+    );
+    expect(parseAnswer(contentBody('ab\\')), 'and the parse says the same of those bytes').toBe('invalid-json');
+  });
+});
+
 describe('the request scan against the request parse', () => {
   it('answers every body the grammar has a sentence for the same way twice', () => {
     for (const [name, body] of CORPUS) agree(body, name);
@@ -221,6 +323,10 @@ describe('the request scan against the request parse', () => {
  * difference in the fixture and not in the grammar. Every member is optional and every member can hold
  * anything, because the scan is asked to settle a refusal for a body a caller wrote, not for one this file
  * chose.
+ *
+ * Half of the return is then handed through an injection that writes an escape sequence into one of the
+ * document's string tokens, because the bytes a serialiser emits are only ever the escapes it chose to
+ * write, and a corpus confined to them cannot reach the grammar's answer to an escape it refuses.
  */
 function requestBodies(): fc.Arbitrary<string> {
   const names = fc.constantFrom('model', 'messages', 'role', 'content', 'type', 'stream', 'x');
@@ -263,7 +369,88 @@ function requestBodies(): fc.Arbitrary<string> {
     stream: fc.option(fc.oneof(fc.boolean(), scalar), { nil: undefined }),
     ashaveri: fc.option(fc.record({ file: fc.record({ sha256: text, bytes: fc.nat(1_000_000) }) }), { nil: undefined }),
   });
-  return body.map((document) => JSON.stringify(document));
+  const serialised = body.map((document) => JSON.stringify(document));
+  return fc.oneof(
+    serialised,
+    fc.tuple(serialised, fc.nat(), fc.nat(), escapeSequences()).map(
+      ([document, tokenPick, offset, escape]) => injectedEscape(document, tokenPick, offset, escape),
+    ),
+  );
+}
+
+/**
+ * The escape sequences a caller can write inside a string token, as the bytes they put in the body.
+ *
+ * The valid ones travel with the invalid ones because an escape is read for its length as much as for its
+ * meaning: `\"` is two bytes of text and takes no quote off the token, so it moves the end of that token,
+ * and every member written behind it, to somewhere else in the document.
+ */
+function escapeSequences(): fc.Arbitrary<string> {
+  return fc.constantFrom(
+    '\\"',
+    '\\\\',
+    '\\/',
+    '\\b',
+    '\\f',
+    '\\n',
+    '\\r',
+    '\\t',
+    '\\u0075',
+    '\\u00e9',
+    '\\u0000',
+    '\\ud83d\\ude00',
+    '\\z',
+    '\\x',
+    '\\e',
+    '\\1',
+    '\\ ',
+    '\\u',
+    '\\u12',
+    '\\u12g4',
+  );
+}
+
+/** The half-open ranges of the string tokens in text that `JSON.stringify` wrote, quotes included. */
+function stringTokens(text: string): readonly { readonly start: number; readonly end: number }[] {
+  const found: { start: number; end: number }[] = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== '"') {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < text.length) {
+      if (text[j] === '\\') j += 2;
+      else if (text[j] === '"') break;
+      else j += 1;
+    }
+    found.push({ start: i, end: j + 1 });
+    i = j + 1;
+  }
+  return found;
+}
+
+/**
+ * The document with one escape sequence written inside one of its string tokens, which is what takes these
+ * bytes past anything a serialiser emits.
+ *
+ * A token of no payload is included, because an escape written into one is the case of a backslash standing
+ * where the closing quote was: the token stops being one, and what the readers then make of the rest of the
+ * document is the question. The cut never falls between the two halves of an astral character, for the same
+ * reason the strings above are grapheme clusters: a lone half encodes to a replacement character, and the
+ * two readers would be handed two documents instead of one document twice.
+ */
+function injectedEscape(document: string, tokenPick: number, offset: number, escape: string): string {
+  const tokens = stringTokens(document);
+  const token = tokens[tokenPick % Math.max(1, tokens.length)];
+  if (token === undefined) return document;
+  const room = token.end - token.start - 1;
+  let cut = token.start + 1 + (room <= 0 ? 0 : offset % room);
+  const lead = document.charCodeAt(cut - 1);
+  const trail = document.charCodeAt(cut);
+  if (lead >= 0xd800 && lead <= 0xdbff && trail >= 0xdc00 && trail <= 0xdfff) cut += 1;
+  return document.slice(0, cut) + escape + document.slice(cut);
 }
 
 /**
@@ -394,6 +581,36 @@ describe('the route over a body whose text names another route', () => {
       expect(JSON.parse(answer.body)).toMatchObject({
         error: { message: 'each message must have a non-empty string role', type: 'invalid_request_error' },
       });
+    } finally {
+      await h.app.close();
+    }
+  });
+
+  it('refuses a body whose message text holds an invalid escape, before the graph is asked for it', async () => {
+    // The scan bounds a content token and never decodes it, so the parse that builds the message graph is
+    // the only reader of the escapes inside one. When the scan admits an escape the grammar refuses, that
+    // parse throws while the backend reads `request.messages`, and the route answers with what it says
+    // about a failed upstream: a refusal of another kind, at another status, and in a deployment running a
+    // real inference server only after the body had been forwarded and the completion paid for.
+    const h = await session();
+    try {
+      const answer = await complete(h, contentBody('a\\zb'));
+      expect(answer.statusCode, 'an escape no reader can decode is not a completion').toBe(400);
+      expect(JSON.parse(answer.body)).toMatchObject({
+        error: { message: 'request body is not valid JSON', type: 'invalid_request_error' },
+      });
+    } finally {
+      await h.app.close();
+    }
+  });
+
+  it('serves a body whose message text holds the escapes the grammar writes', async () => {
+    const h = await session();
+    try {
+      for (const [name, token] of VALID_ESCAPES) {
+        const answer = await complete(h, contentBody(token));
+        expect(answer.statusCode, `a completion whose text holds ${name} is served`).toBe(200);
+      }
     } finally {
       await h.app.close();
     }

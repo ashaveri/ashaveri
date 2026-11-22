@@ -150,10 +150,26 @@ const SQUARE_CLOSE = 0x5d;
 const MINUS = 0x2d;
 const PLUS = 0x2b;
 const DOT = 0x2e;
+const SOLIDUS = 0x2f;
 const DIGIT_ZERO = 0x30;
 const DIGIT_NINE = 0x39;
+const UPPER_A = 0x41;
+const UPPER_F = 0x46;
 const LOWER_E = 0x65;
 const UPPER_E = 0x45;
+const LOWER_A = 0x61;
+const LOWER_B = 0x62;
+const LOWER_F = 0x66;
+const LOWER_N = 0x6e;
+const LOWER_R = 0x72;
+const LOWER_T = 0x74;
+const LOWER_U = 0x75;
+
+/**
+ * The escapes that state one character on their own: the two quotes a token can carry without ending, the
+ * solidus a caller may escape although it needs no escaping, and the four control characters JSON named.
+ */
+const SIMPLE_ESCAPES = new Set([QUOTE, BACKSLASH, SOLIDUS, LOWER_B, LOWER_F, LOWER_N, LOWER_R, LOWER_T]);
 const TRUE_LITER = Uint8Array.from([0x74, 0x72, 0x75, 0x65]);
 const FALSE_LITER = Uint8Array.from([0x66, 0x61, 0x6c, 0x73, 0x65]);
 const NULL_LITER = Uint8Array.from([0x6e, 0x75, 0x6c, 0x6c]);
@@ -179,6 +195,15 @@ function isDigit(byte: number | undefined): boolean {
   return byte !== undefined && byte >= DIGIT_ZERO && byte <= DIGIT_NINE;
 }
 
+function isHexDigit(byte: number | undefined): boolean {
+  if (byte === undefined) return false;
+  return (
+    isDigit(byte) ||
+    (byte >= LOWER_A && byte <= LOWER_F) ||
+    (byte >= UPPER_A && byte <= UPPER_F)
+  );
+}
+
 function pastSpace(bytes: Uint8Array, at: number): number {
   let i = at;
   while (isSpace(bytes[i])) i += 1;
@@ -197,7 +222,29 @@ function decodeToken(bytes: Uint8Array, span: Span): string {
   return JSON.parse(decoder.decode(bytes.subarray(span.start, span.end))) as string;
 }
 
-/** The byte just past a string token opening at `at`, or null when these bytes never close one. */
+/**
+ * The byte just past the escape sequence whose backslash sits at `at`, or null when these bytes do not hold
+ * one. A backslash states a character, and only the eight bytes `SIMPLE_ESCAPES` names and a `u` followed
+ * by four hexadecimal digits state one, so a backslash before anything else is not a token's character and
+ * not the end of the token either: the parse refuses it, and so does this.
+ */
+function pastEscape(bytes: Uint8Array, at: number): number | null {
+  const lead = bytes[at + 1];
+  if (lead === undefined) return null;
+  if (lead === LOWER_U) {
+    for (let digit = at + 2; digit <= at + 5; digit += 1) {
+      if (!isHexDigit(bytes[digit])) return null;
+    }
+    return at + 6;
+  }
+  return SIMPLE_ESCAPES.has(lead) ? at + 2 : null;
+}
+
+/**
+ * The byte just past a string token opening at `at`, or null when these bytes never close one. An escape is
+ * read rather than stepped over: the two bytes it is made of decide whether the token closes where the next
+ * quote sits, and a backslash the grammar does not know is a token that never closes.
+ */
 function pastString(bytes: Uint8Array, at: number): number | null {
   if (bytes[at] !== QUOTE) return null;
   let i = at + 1;
@@ -207,7 +254,9 @@ function pastString(bytes: Uint8Array, at: number): number | null {
     // A control byte inside a token is not what JSON writes there, and the parse refuses it; so does this.
     if (byte < SPACE) return null;
     if (byte === BACKSLASH) {
-      i += 2;
+      const escaped = pastEscape(bytes, i);
+      if (escaped === null) return null;
+      i = escaped;
       continue;
     }
     if (byte === QUOTE) return i + 1;
