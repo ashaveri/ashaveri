@@ -55,6 +55,16 @@ function streamEvents(withUsage: boolean): string[] {
 
 /** The same completion carrying the figures an upstream reported, which may be two of nothing. */
 function streamEventsReporting(usage: { prompt_tokens: number; completion_tokens: number } | null): string[] {
+  return streamEventsCarrying(
+    usage === null ? null : { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens },
+  );
+}
+
+/**
+ * The same completion carrying one usage event written by hand, so a cell can state one figure of the pair
+ * and leave the other out, which is what a serialiser of a typed pair never writes.
+ */
+function streamEventsCarrying(usage: Record<string, unknown> | null): string[] {
   const events = [
     event({
       id: 'chatcmpl-1',
@@ -79,7 +89,7 @@ function streamEventsReporting(usage: { prompt_tokens: number; completion_tokens
         created: 1_700_000_000,
         model: MODEL,
         choices: [],
-        usage: { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens },
+        usage,
       }),
     );
   }
@@ -306,6 +316,40 @@ describe('the metering bound on a streamed request', () => {
       'and this gateway asked, so it has no exception to name',
     ).toBeUndefined();
     await h.app.close();
+  });
+
+  it('signs a usage event carrying one figure of the pair as two absences, not as a count and an absence', async () => {
+    // `usageOf` reads the pair as one value or not at all, so an upstream that named one figure and left the
+    // other out is a report this gateway takes nothing from: the fold answers null, no usage is settled, and
+    // the completion is signed as having reported neither number. That is the all-or-nothing rule reaching
+    // the one state a producer can actually be in, and the alternative is worse than each half of it: the
+    // writer refuses a pair of one count and one absence outright, so a mixed reading would have to be
+    // minted here as something signed, and a zero stood in for the missing figure would be the measurement
+    // nobody took. The size is the one under the bound, so this is the arm that asked and was answered.
+    const arms: readonly (readonly [string, Record<string, unknown>, string])[] = [
+      ['prompt_tokens', { prompt_tokens: 9, total_tokens: 9 }, 'a26163f6617009'],
+      ['completion_tokens', { completion_tokens: 7, total_tokens: 7 }, 'a26163076170f6'],
+    ];
+    for (const [figure, usage, mixed] of arms) {
+      const sent = streamedBodyAt(UNDER);
+      const upstream = fakeUpstream(() => streamResponse(streamEventsCarrying(usage)));
+      const h = await servedBy(upstream);
+      const answer = await send(h, sent);
+      expect(answer.statusCode, `a stream whose usage named only ${figure} is served`).toBe(200);
+      const id = String(answer.headers['x-ashaveri-receipt-id']);
+      // A receipt is here to be read at all, and its bytes carry two nulls rather than the run this arm
+      // would have written had the half-figure travelled: `packages/receipt/test/receipt.test.ts` pins the
+      // writer's refusal of a mixed pair, so an issuance that had handed one over would have signed
+      // nothing, and no document would answer this lookup.
+      const signed = await signedPayloadHex(h, id);
+      expect(signed, `the pair reported by ${figure} alone went out as two absences`).toContain('a26163f66170f6');
+      expect(signed, `and not as a count beside an absence of ${figure}`).not.toContain(mixed);
+      expect((await receiptOf(h, id)).tok, `one figure named is neither figure measured`).toEqual({
+        p: null,
+        c: null,
+      });
+      await h.app.close();
+    }
   });
 
   it('reads figures that arrive unasked, and still says the gateway did not ask for them', async () => {
