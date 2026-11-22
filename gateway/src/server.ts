@@ -356,16 +356,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
  *
  * Both figures move together because the usage event that carries them does, which is the rule the format
  * states and the writer enforces: a count beside an absence is refused rather than signed. `CompletionUsage`
- * spells that same rule in the two arms it offers, so a half-reported pair has no spelling in what this
- * reads, and no runtime test written here could be reached by one. What is asked is which of the two arms
- * the pair is in, and the absence is matched for what it is: both figures null. Answering anything that is
- * not the reported pair with the absence would sign that nothing was reported behind a backend that had
- * reported one figure, which is the reading this function exists not to decide. A completion whose upstream
- * reported nothing therefore signs two nulls, and one that reported zero tokens signs two zeros.
+ * offers the same two arms and nothing between them, so a half-reported pair has no spelling in what this
+ * reads and no test written here could be reached by one. What remains is a projection: the guard settles
+ * which arm the checker is reading, and each arm hands over the pair as it was settled, so the answer to a
+ * pair this build cannot name is the pair that arrived rather than an absence decided here. Nothing about
+ * either reachable state moves: a completion whose upstream reported nothing signs two nulls, and one that
+ * reported zero tokens signs two zeros.
  */
 function meteringOf(usage: CompletionUsage): TokenMetering {
-  if (usage.promptTokens === null && usage.completionTokens === null) {
-    return { p: null, c: null };
+  if (usage.completionTokens === null) {
+    // The absence arm, and by the type the arm both figures are in.
+    return { p: usage.promptTokens, c: null };
   }
   return { p: usage.promptTokens, c: usage.completionTokens };
 }
