@@ -1271,11 +1271,13 @@ The SDK exposes three levels:
 | `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 8, step 5 only for a caller that hands the verifier a window). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
 | `strict` | As `receipt`, plus a required policy (step 2 and 9 with pins, and step 5's two freshness windows, which run at the SDK's shipped defaults unless the policy names its own numbers), an unreceipted response is an error, and the evidence behind step 10 is fetched and verified. |
 
-A body this client cannot read as text, which is what a `Request`, a stream or a form-data upload carries, gives
-the wrapper nothing to hash: no nonce of the caller's can be signed over it, and no receipt's `req` can be compared
-against it. `off` and `receipt` forward such a request and state nothing about it. `strict`, the level that answers
-for the request as well as for the answer, refuses it with `REQUEST_BODY_NOT_DIGESTIBLE` before anything goes on the
-wire.
+A body this client cannot name as bytes, which is what a `Request`, a stream, a form-data upload and a missing
+body are, gives the wrapper nothing to hash: no nonce of the caller's can be signed over it, and no receipt's
+`req` can be compared against it. A body handed over as text or as a byte buffer is not that case; both are
+digested and both travel. `off` and `receipt` forward an undigestible request and state nothing about it, unless
+the caller presents a proof-of-possession credential, whose signature is computed over the body and so answers
+`AUTH_CONFIG` at either level. `strict`, the level that answers for the request as well as for the answer, refuses
+it with `REQUEST_BODY_NOT_DIGESTIBLE` before anything goes on the wire.
 
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,

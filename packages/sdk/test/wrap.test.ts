@@ -194,6 +194,43 @@ describe('wrapOpenAI', () => {
     }
   });
 
+  // A byte buffer was refused by the wrapper while the proof-of-possession signer accepted it, which is the pair
+  // of answers a caller can least forgive: the same body attestable to one component and refused by another.
+  // The witness is the receipt itself, because a body the wrapper cannot name is never nonce-bound and never
+  // hashed into `req`.
+  it('digests a byte body the way it digests a text one', async () => {
+    const { gateway, client } = fakeOpenAiClient();
+    const wrapped = wrapOpenAI(client, { verify: 'receipt' });
+    const bytes = new TextEncoder().encode(REQUEST_BODY);
+    const response = await wrapped.fetch(CHAT_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: bytes,
+    });
+    expect(response.status).toBe(200);
+    const sent = gateway.requests.find((one) => one.url.endsWith('/chat/completions'));
+    expect(sent?.nonceHeader, 'a byte body is nonce-bound, so it was digested rather than refused').toBeDefined();
+    const receipt = await wrapped.ashaveri.getReceipt(FAKE_RECEIPT_ID);
+    expect(toHex(receipt.payload.req), 'the receipt names the digest of the bytes, not of a copy of them').toBe(
+      sha256Hex(bytes),
+    );
+  });
+
+  // The levels that forward an unnameable body do so only for a caller whose credential needs no bytes to sign.
+  // A form is the refused shape used here because a stream with no source never ends, so a forwarded stream hangs
+  // the transport instead of answering, and a hang cannot show whether a request went on the wire.
+  it('answers a proof-of-possession client with AUTH_CONFIG at both of those levels', async () => {
+    for (const mode of ['off', 'receipt'] as const) {
+      const { gateway, client } = fakeOpenAiClient();
+      const wrapped = wrapOpenAI(client, { verify: mode, credential: POP_CREDENTIAL });
+      await expect(
+        wrapped.fetch(CHAT_URL, { method: 'POST', body: new FormData() }),
+        `${mode}: the credential is what refuses, and it refuses before the wire`,
+      ).rejects.toMatchObject({ code: 'AUTH_CONFIG' });
+      expect(gateway.requests.filter((one) => one.url.endsWith('/chat/completions')), `${mode}: nothing went on the wire`).toEqual([]);
+    }
+  });
+
   it('rejects a client without a fetch property', () => {
     expect(() => wrapOpenAI({} as object)).toThrow(/no fetch function/);
   });
