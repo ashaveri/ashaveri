@@ -34,7 +34,14 @@ import { EpochJournalError, unsealedHistoryRefusal, type EpochJournal, type Epoc
 import { stampDisclosureOf } from './issuance-disclosure.js';
 import { StreamedItemStamps, boundStampsAt, stampedBufferedItem, type FramedItemStamps } from './item-stamps.js';
 import { markBufferedBody, markingFrame, unmarked } from './marking.js';
-import { parseChatCompletionRequest, RequestError } from './mock.js';
+import {
+  parseChatCompletionRequest,
+  readChatCompletionHead,
+  RequestError,
+  type ChatCompletionHead,
+  type ChatCompletionRequest,
+  type ChatMessage,
+} from './mock.js';
 import { AsyncMarkedStreamTail, StreamCompletionGate } from './stream-completion.js';
 import {
   HOST_CLOCK_SOURCE,
@@ -339,6 +346,28 @@ async function collect(response: BackendResponse): Promise<Buffer> {
     chunks.push(Buffer.from(chunk));
   }
   return Buffer.concat(chunks, size);
+}
+
+/**
+ * The request as a backend reads it.
+ *
+ * The scan above already settled the grammar and took the two fields this route weighs, so the message
+ * graph is built here only if the backend reaches for it: the one that forwards these bytes to an inference
+ * server asks the same two questions the scan answered and nothing else, and holding the graph of a body
+ * whose bulk is one inline file for the life of a completion is the cost the scan exists to remove. The
+ * backend that reads messages is the mock, whose answer is about them, and for it this costs exactly what
+ * the route paid before the scan existed.
+ */
+function requestForBackend(raw: Buffer, head: ChatCompletionHead): ChatCompletionRequest {
+  let messages: readonly ChatMessage[] | undefined;
+  return {
+    model: head.model,
+    stream: head.stream,
+    get messages(): readonly ChatMessage[] {
+      messages ??= parseChatCompletionRequest(JSON.parse(raw.toString('utf8'))).messages;
+      return messages;
+    },
+  };
 }
 
 /**
@@ -1121,18 +1150,23 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       return;
     }
     const raw = request.body;
-    let parsed;
+    // Read off the bytes the client sent, and read shallowly: which model this request is for and whether
+    // it asks for a stream are the only two things this route weighs, and a body whose bulk is one inline
+    // file is not worth a string of itself and a graph of it held until the completion is over. The
+    // grammar is still settled here, in full, so a shape this gateway has always refused is refused before
+    // an inference is paid for, whichever backend the deployment runs.
+    let head;
     try {
-      parsed = parseChatCompletionRequest(JSON.parse(raw.toString('utf8')));
+      head = readChatCompletionHead(raw);
     } catch (err) {
       const message = err instanceof RequestError ? err.message : 'request body is not valid JSON';
       await reply.code(400).send({ error: { message, type: 'invalid_request_error' } });
       return;
     }
-    const declared = deployment.models.find((model) => model.id === parsed.model);
+    const declared = deployment.models.find((model) => model.id === head.model);
     if (declared === undefined) {
       await reply.code(400).send({
-        error: { message: asOneLine(`model '${parsed.model}' is not served by this deployment`), type: 'invalid_request_error' },
+        error: { message: asOneLine(`model '${head.model}' is not served by this deployment`), type: 'invalid_request_error' },
       });
       return;
     }
@@ -1171,7 +1205,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
     let response: BackendResponse;
     try {
-      response = await backend.respond(raw, parsed);
+      response = await backend.respond(raw, requestForBackend(raw, head));
     } catch (err) {
       await upstreamError(reply, `inference upstream failed: ${errorMessage(err)}`);
       return;

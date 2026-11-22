@@ -39,36 +39,53 @@ export interface MockCompletion {
   readonly completionTokens: number;
 }
 
+/**
+ * The sentences a request body is refused with. Both readers below state them out of this one list: the
+ * parse that builds a message graph and the scan that reads a body's bytes answer one question about the
+ * same grammar, and two spellings of the answer would let a request be refused one way by the route and
+ * another by whoever later builds the graph the route did not need.
+ */
+const NOT_AN_OBJECT = 'request body must be a JSON object';
+const NO_MESSAGES = 'messages must be a non-empty array';
+const MESSAGE_NOT_OBJECT = 'each message must be an object';
+const NO_ROLE = 'each message must have a non-empty string role';
+const NO_CONTENT = 'each message must have a string content or an array of content parts';
+const EMPTY_CONTENT_ARRAY = 'a content array must hold at least one content part';
+const PART_NOT_OBJECT = 'each content part must be an object';
+const PART_NO_TYPE = 'each content part must have a string type';
+const BAD_MODEL = 'model must be a non-empty string';
+const BAD_STREAM = 'stream must be a boolean';
+
 export function parseChatCompletionRequest(raw: unknown): ChatCompletionRequest {
   if (typeof raw !== 'object' || raw === null) {
-    throw new RequestError('request body must be a JSON object');
+    throw new RequestError(NOT_AN_OBJECT);
   }
   const body = raw as Record<string, unknown>;
   const messagesRaw = body['messages'];
   if (!Array.isArray(messagesRaw) || messagesRaw.length === 0) {
-    throw new RequestError('messages must be a non-empty array');
+    throw new RequestError(NO_MESSAGES);
   }
   const messages: ChatMessage[] = [];
   for (const message of messagesRaw) {
     if (typeof message !== 'object' || message === null) {
-      throw new RequestError('each message must be an object');
+      throw new RequestError(MESSAGE_NOT_OBJECT);
     }
     const role = (message as Record<string, unknown>)['role'];
     const content = (message as Record<string, unknown>)['content'];
     if (typeof role !== 'string' || role.length === 0) {
-      throw new RequestError('each message must have a non-empty string role');
+      throw new RequestError(NO_ROLE);
     }
     messages.push({ role, content: parseContent(content) });
   }
   const modelRaw = body['model'];
   const model = modelRaw === undefined ? DEFAULT_MOCK_MODEL : modelRaw;
   if (typeof model !== 'string' || model.length === 0) {
-    throw new RequestError('model must be a non-empty string');
+    throw new RequestError(BAD_MODEL);
   }
   const streamRaw = body['stream'];
   const stream = streamRaw === undefined ? false : streamRaw;
   if (typeof stream !== 'boolean') {
-    throw new RequestError('stream must be a boolean');
+    throw new RequestError(BAD_STREAM);
   }
   return { model, messages, stream };
 }
@@ -84,24 +101,307 @@ function parseContent(raw: unknown): string | readonly ContentPart[] {
     return raw;
   }
   if (!Array.isArray(raw)) {
-    throw new RequestError('each message must have a string content or an array of content parts');
+    throw new RequestError(NO_CONTENT);
   }
   const listed = raw as readonly unknown[];
   if (listed.length === 0) {
-    throw new RequestError('a content array must hold at least one content part');
+    throw new RequestError(EMPTY_CONTENT_ARRAY);
   }
   const parts: ContentPart[] = [];
   for (const part of listed) {
     if (typeof part !== 'object' || part === null) {
-      throw new RequestError('each content part must be an object');
+      throw new RequestError(PART_NOT_OBJECT);
     }
     const type = (part as Record<string, unknown>)['type'];
     if (typeof type !== 'string') {
-      throw new RequestError('each content part must have a string type');
+      throw new RequestError(PART_NO_TYPE);
     }
     parts.push(part as ContentPart);
   }
   return parts;
+}
+
+/**
+ * The two members this gateway's routes read out of a request, and nothing else of it. `messages` is
+ * decided about but never carried: the backend that forwards these bytes to an inference server asks the
+ * same two questions of them, and a body whose bulk is one inline file would otherwise be held as a
+ * string, as a graph, and as the copy made to add one metering member, for the whole of one completion.
+ */
+export interface ChatCompletionHead {
+  readonly model: string;
+  readonly stream: boolean;
+}
+
+// A JSON structural byte is always ASCII, and every byte of a multi-byte UTF-8 sequence is at or above
+// 0x80, so a walk over the bytes settles on a quote, a comma or a brace without asking whether a
+// character is still being read. That is what lets the scan below bound a token rather than decode it.
+const SPACE = 0x20;
+const TAB = 0x09;
+const LINE_FEED = 0x0a;
+const CARRIAGE_RETURN = 0x0d;
+const QUOTE = 0x22;
+const BACKSLASH = 0x5c;
+const COLON = 0x3a;
+const COMMA = 0x2c;
+const CURLY_OPEN = 0x7b;
+const CURLY_CLOSE = 0x7d;
+const SQUARE_OPEN = 0x5b;
+const SQUARE_CLOSE = 0x5d;
+const MINUS = 0x2d;
+const PLUS = 0x2b;
+const DOT = 0x2e;
+const DIGIT_ZERO = 0x30;
+const DIGIT_NINE = 0x39;
+const LOWER_E = 0x65;
+const UPPER_E = 0x45;
+const TRUE_LITER = Uint8Array.from([0x74, 0x72, 0x75, 0x65]);
+const FALSE_LITER = Uint8Array.from([0x66, 0x61, 0x6c, 0x73, 0x65]);
+const NULL_LITER = Uint8Array.from([0x6e, 0x75, 0x6c, 0x6c]);
+
+const decoder = new TextDecoder();
+
+/** The half-open range of bytes one value, name or element holds. */
+interface Span {
+  readonly start: number;
+  readonly end: number;
+}
+
+/** One member of an object: the name it was written under, and the range of the value beside it. */
+interface MemberSpan extends Span {
+  readonly name: string;
+}
+
+function isSpace(byte: number | undefined): boolean {
+  return byte === SPACE || byte === TAB || byte === LINE_FEED || byte === CARRIAGE_RETURN;
+}
+
+function isDigit(byte: number | undefined): boolean {
+  return byte !== undefined && byte >= DIGIT_ZERO && byte <= DIGIT_NINE;
+}
+
+function pastSpace(bytes: Uint8Array, at: number): number {
+  let i = at;
+  while (isSpace(bytes[i])) i += 1;
+  return i;
+}
+
+function startsWith(bytes: Uint8Array, at: number, liter: Uint8Array): boolean {
+  for (let i = 0; i < liter.length; i += 1) {
+    if (bytes[at + i] !== liter[i]) return false;
+  }
+  return true;
+}
+
+/** The string one token holds, quotes and escapes taken off the way the parse takes them off. */
+function decodeToken(bytes: Uint8Array, span: Span): string {
+  return JSON.parse(decoder.decode(bytes.subarray(span.start, span.end))) as string;
+}
+
+/** The byte just past a string token opening at `at`, or null when these bytes never close one. */
+function pastString(bytes: Uint8Array, at: number): number | null {
+  if (bytes[at] !== QUOTE) return null;
+  let i = at + 1;
+  for (;;) {
+    const byte = bytes[i];
+    if (byte === undefined) return null;
+    // A control byte inside a token is not what JSON writes there, and the parse refuses it; so does this.
+    if (byte < SPACE) return null;
+    if (byte === BACKSLASH) {
+      i += 2;
+      continue;
+    }
+    if (byte === QUOTE) return i + 1;
+    i += 1;
+  }
+}
+
+/** The byte just past one number, or null when these bytes do not hold one. */
+function pastNumber(bytes: Uint8Array, at: number): number | null {
+  let i = bytes[at] === MINUS ? at + 1 : at;
+  const lead = bytes[i];
+  if (lead === DIGIT_ZERO) {
+    i += 1;
+  } else if (isDigit(lead)) {
+    do i += 1; while (isDigit(bytes[i]));
+  } else {
+    return null;
+  }
+  if (bytes[i] === DOT) {
+    i += 1;
+    if (!isDigit(bytes[i])) return null;
+    do i += 1; while (isDigit(bytes[i]));
+  }
+  if (bytes[i] === LOWER_E || bytes[i] === UPPER_E) {
+    i += 1;
+    if (bytes[i] === PLUS || bytes[i] === MINUS) i += 1;
+    if (!isDigit(bytes[i])) return null;
+    do i += 1; while (isDigit(bytes[i]));
+  }
+  return i;
+}
+
+/** The byte just past one value of any kind, or null when the bytes at `at` are not a value. */
+function pastValue(bytes: Uint8Array, at: number): number | null {
+  const start = pastSpace(bytes, at);
+  const byte = bytes[start];
+  if (byte === QUOTE) return pastString(bytes, start);
+  if (byte === MINUS || isDigit(byte)) return pastNumber(bytes, start);
+  if (byte === CURLY_OPEN) return readObject(bytes, start)?.end ?? null;
+  if (byte === SQUARE_OPEN) return readArray(bytes, start)?.end ?? null;
+  if (startsWith(bytes, start, TRUE_LITER)) return start + TRUE_LITER.length;
+  if (startsWith(bytes, start, FALSE_LITER)) return start + FALSE_LITER.length;
+  if (startsWith(bytes, start, NULL_LITER)) return start + NULL_LITER.length;
+  return null;
+}
+
+/** The members of the object whose `{` sits at `at`, and the byte past its `}`, or null if it is not one. */
+function readObject(bytes: Uint8Array, at: number): { readonly members: MemberSpan[]; readonly end: number } | null {
+  const opening = pastSpace(bytes, at);
+  if (bytes[opening] !== CURLY_OPEN) return null;
+  const members: MemberSpan[] = [];
+  let i = pastSpace(bytes, opening + 1);
+  if (bytes[i] === CURLY_CLOSE) return { members, end: i + 1 };
+  for (;;) {
+    const nameEnd = pastString(bytes, i);
+    if (nameEnd === null) return null;
+    const name = decodeToken(bytes, { start: i, end: nameEnd });
+    i = pastSpace(bytes, nameEnd);
+    if (bytes[i] !== COLON) return null;
+    const start = pastSpace(bytes, i + 1);
+    const end = pastValue(bytes, start);
+    if (end === null) return null;
+    members.push({ name, start, end });
+    i = pastSpace(bytes, end);
+    if (bytes[i] === COMMA) {
+      i = pastSpace(bytes, i + 1);
+      continue;
+    }
+    return bytes[i] === CURLY_CLOSE ? { members, end: i + 1 } : null;
+  }
+}
+
+/** The span of every element of the array whose `[` sits at `at`, and the byte past its `]`. */
+function readArray(bytes: Uint8Array, at: number): { readonly elements: Span[]; readonly end: number } | null {
+  const opening = pastSpace(bytes, at);
+  if (bytes[opening] !== SQUARE_OPEN) return null;
+  const elements: Span[] = [];
+  let i = pastSpace(bytes, opening + 1);
+  if (bytes[i] === SQUARE_CLOSE) return { elements, end: i + 1 };
+  for (;;) {
+    const start = pastSpace(bytes, i);
+    const end = pastValue(bytes, start);
+    if (end === null) return null;
+    elements.push({ start, end });
+    i = pastSpace(bytes, end);
+    if (bytes[i] === COMMA) {
+      i = pastSpace(bytes, i + 1);
+      continue;
+    }
+    return bytes[i] === SQUARE_CLOSE ? { elements, end: i + 1 } : null;
+  }
+}
+
+/** The last member written under `name`, because a document that repeats a key is read as its last value. */
+function lastNamed(members: readonly MemberSpan[], name: string): MemberSpan | undefined {
+  let found: MemberSpan | undefined;
+  for (const member of members) {
+    if (member.name === name) found = member;
+  }
+  return found;
+}
+
+/**
+ * The members of a value the walk over the whole body has already accepted. An array carries none, which is
+ * what the parse asks too: `typeof` answers the object question of a list, and the member the caller then
+ * looks for on it is absent, exactly as it was once a graph stood there.
+ */
+function membersOfValue(bytes: Uint8Array, span: Span): readonly MemberSpan[] {
+  if (bytes[span.start] === SQUARE_OPEN) return [];
+  const read = readObject(bytes, span.start);
+  if (read === null) throw new SyntaxError('an object the walk read is read again');
+  return read.members;
+}
+
+/**
+ * The spans of a content stated as parts, nothing for a content stated as text, and null for a value that
+ * is neither. Only the bytes of a part are bounded here: the media a part carries is the bulk of a large
+ * request, and it is read as a length rather than as a string, because nothing this gateway does with it
+ * needs its text.
+ */
+function partsOf(bytes: Uint8Array, content: Span): Span[] | null {
+  if (bytes[content.start] === QUOTE) return [];
+  const read = readArray(bytes, content.start);
+  if (read === null) return null;
+  if (read.elements.length === 0) throw new RequestError(EMPTY_CONTENT_ARRAY);
+  return read.elements;
+}
+
+/**
+ * The grammar a request body has to hold, read off its bytes.
+ *
+ * The refusals are the parse's own, in the parse's own order: the message list first, then `model`, then
+ * `stream`. A body that is not one JSON value is answered with a `SyntaxError`, which is what the route
+ * already turns into its sentence about invalid JSON, and a body that is one but shaped wrong is answered
+ * with the `RequestError` the route prints. `JSON.parse` is asked of a member's bytes only where the
+ * member's text is what is being weighed, so a token holding an inline file is bounded and never decoded.
+ */
+export function readChatCompletionHead(raw: Uint8Array): ChatCompletionHead {
+  const opening = pastSpace(raw, 0);
+  if (raw[opening] !== CURLY_OPEN) {
+    const end = pastValue(raw, opening);
+    if (end === null || pastSpace(raw, end) < raw.length) throw new SyntaxError('the request bytes are not one JSON value');
+    // A list is an object to `typeof` and holds no `messages` member, so it meets the sentence the member
+    // is refused with rather than the sentence a number or a bare word meets.
+    throw new RequestError(raw[opening] === SQUARE_OPEN ? NO_MESSAGES : NOT_AN_OBJECT);
+  }
+  const body = readObject(raw, opening);
+  if (body === null || pastSpace(raw, body.end) < raw.length) {
+    throw new SyntaxError('the request bytes are not one JSON object');
+  }
+
+  const messages = lastNamed(body.members, 'messages');
+  if (messages === undefined) throw new RequestError(NO_MESSAGES);
+  const list = readArray(raw, messages.start);
+  if (list === null || list.elements.length === 0) throw new RequestError(NO_MESSAGES);
+  for (const message of list.elements) {
+    const kind = raw[message.start];
+    if (kind !== CURLY_OPEN && kind !== SQUARE_OPEN) throw new RequestError(MESSAGE_NOT_OBJECT);
+    const fields = membersOfValue(raw, message);
+    const role = lastNamed(fields, 'role');
+    // An empty token is two bytes and nothing decodes to fewer, so the quotes settle whether a role was
+    // written without this line reaching for the text between them.
+    if (role === undefined || raw[role.start] !== QUOTE || role.end - role.start <= 2) {
+      throw new RequestError(NO_ROLE);
+    }
+    const content = lastNamed(fields, 'content');
+    if (content === undefined) throw new RequestError(NO_CONTENT);
+    const parts = partsOf(raw, content);
+    if (parts === null) throw new RequestError(NO_CONTENT);
+    for (const part of parts) {
+      const partKind = raw[part.start];
+      if (partKind !== CURLY_OPEN && partKind !== SQUARE_OPEN) throw new RequestError(PART_NOT_OBJECT);
+      const type = lastNamed(membersOfValue(raw, part), 'type');
+      if (type === undefined || raw[type.start] !== QUOTE) throw new RequestError(PART_NO_TYPE);
+    }
+  }
+
+  const model = lastNamed(body.members, 'model');
+  let modelName = DEFAULT_MOCK_MODEL;
+  if (model !== undefined) {
+    if (raw[model.start] !== QUOTE) throw new RequestError(BAD_MODEL);
+    modelName = decodeToken(raw, model);
+    if (modelName.length === 0) throw new RequestError(BAD_MODEL);
+  }
+
+  const stream = lastNamed(body.members, 'stream');
+  if (stream === undefined) return { model: modelName, stream: false };
+  if (stream.end - stream.start === TRUE_LITER.length && startsWith(raw, stream.start, TRUE_LITER)) {
+    return { model: modelName, stream: true };
+  }
+  if (stream.end - stream.start === FALSE_LITER.length && startsWith(raw, stream.start, FALSE_LITER)) {
+    return { model: modelName, stream: false };
+  }
+  throw new RequestError(BAD_STREAM);
 }
 
 function responseId(): string {
