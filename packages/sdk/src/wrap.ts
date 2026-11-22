@@ -28,6 +28,18 @@ export interface AshaveriTracker {
 const CHAT_COMPLETIONS_MARKER = '/chat/completions';
 
 /**
+ * The bytes a wrapper can put under a digest, spelled the way `auth.ts` spells the set a proof-of-possession
+ * signature accepts, so one body is never attestable to the signer and refused by the evidence. `undefined` is
+ * the answer only for what no caller hands over: a `Request`, a stream or a form.
+ */
+function digestibleBody(body: RequestInit['body']): Uint8Array | undefined {
+  if (typeof body === 'string') return new TextEncoder().encode(body);
+  if (body instanceof Uint8Array) return body;
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  return undefined;
+}
+
+/**
  * Wraps an official `openai` client (v4+) so every chat completion against an
  * Ashaveri gateway is receipted and verified. The client's `fetch` is replaced
  * with one that injects the nonce header, hashes the exact request and
@@ -35,6 +47,14 @@ const CHAT_COMPLETIONS_MARKER = '/chat/completions';
  * against the policy. With `verify: 'receipt'` or `'strict'`, a failed
  * verification rejects the completion promise (or errors the stream) instead
  * of silently returning the content.
+ *
+ * The digest is taken over bytes this call can name, which are a text body or a byte buffer, the same set a
+ * proof-of-possession signature will accept. A `Request`, a stream or a form carries bytes no caller hands over:
+ * `strict` refuses one before anything goes on the wire, because that level answers for the request as well as
+ * for the answer, and `receipt` and `off` forward it and attest nothing about it. A caller presenting a
+ * proof-of-possession credential meets `AUTH_CONFIG` at either of those two levels instead, because that
+ * signature is computed over the body and there is nothing to compute it from. Section 5.1 of
+ * `docs/receipt-spec.md` states the same rule where the three levels are defined.
  */
 export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {}): T & { readonly ashaveri: AshaveriTracker } {
   const mode = options.verify ?? 'receipt';
@@ -59,12 +79,25 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
       options.credential === undefined
         ? init
         : { ...init, headers: withoutAuthorization(init?.headers ?? (input instanceof Request ? input.headers : undefined)) };
-    if (mode === 'off' || prepared === undefined || typeof prepared.body !== 'string') {
+    // `off` asks nothing of a response, so it asks nothing of a request either: the caller's own bytes go
+    // out with the credential and no nonce, whatever the body carries.
+    if (mode === 'off') {
       return authed(input, prepared);
     }
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const baseUrl = chatCompletionsBase(url);
     if (baseUrl === undefined) {
+      return authed(input, prepared);
+    }
+    // Everything below digests bytes, and a body this call cannot name gives it nothing to digest. The readable
+    // set is spelled the way `auth.ts` spells it for a signature, so a body is never attestable to one and
+    // refused by the other. `strict` refuses the rest; `receipt` forwards it and claims nothing, unless the
+    // caller presents a proof-of-possession credential, whose signature step refuses the request first.
+    const digestBytes = prepared === undefined ? undefined : digestibleBody(prepared.body);
+    if (digestBytes === undefined || prepared === undefined) {
+      if (mode === 'strict') {
+        throw new SdkError('REQUEST_BODY_NOT_DIGESTIBLE', notDigestibleDetail(prepared));
+      }
       return authed(input, prepared);
     }
     const nonce = randomNonce();
@@ -81,7 +114,7 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     if (response.body === null) {
       return response;
     }
-    const requestHash = hashRequest(new TextEncoder().encode(prepared.body));
+    const requestHash = hashRequest(digestBytes);
     const session = sessionFor(baseUrl);
     const [toClient, toHasher] = response.body.tee();
     const verification: Promise<VerifiedReceipt> = (async () => {
@@ -140,6 +173,29 @@ export function wrapOpenAI<T extends object>(client: T, options: WrapOptions = {
     }
     return session;
   }
+}
+
+/**
+ * The refused request stated as what a caller can change: what this wrapper digests, which shapes give it
+ * nothing, which level refused, and the ways out. A sentence naming only the refusal would leave a caller
+ * sending the same request in the same shape.
+ */
+function notDigestibleDetail(prepared: RequestInit | undefined): string {
+  const carried =
+    prepared === undefined
+      ? 'no request init at all'
+      : prepared.body === null || prepared.body === undefined
+        ? `no body (${typeof prepared.body})`
+        : `a body this call cannot name (${Object.prototype.toString.call(prepared.body)})`;
+  return (
+    `this wrapper hashes the bytes it sends, and it cannot hash ${carried}: a Request, a stream, a form-data ` +
+      `body and a missing body are that shape, so no nonce could be signed over the request and no receipt's req ` +
+      `could be checked against it. verify is 'strict', the level that answers for the request it sends, so this ` +
+      `request was refused here and nothing went on the wire. Send the body as text or as bytes, which is what ` +
+      `the official client writes for a chat completion, or verify at 'receipt' or 'off', either of which ` +
+      `forwards such a request and attests nothing about it unless a proof-of-possession credential is in use, ` +
+      `whose signature is computed over the body and so refuses it either way`
+  );
 }
 
 function withoutAuthorization(headers: RequestInit['headers']): Headers {

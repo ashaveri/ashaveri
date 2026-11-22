@@ -175,7 +175,12 @@ Three spans of one response are digested, and a reader has to know which member 
 All three are computed over raw bytes on the wire, before any decoding:
 
 - `req` = sha256 of the request body exactly as transmitted. Two JSON bodies that parse to
-  the same object but differ by a byte produce different `req` values.
+  the same object but differ by a byte produce different `req` values. On a streamed completion
+  the gateway adds one metering member to the body before forwarding it, unless the caller asked
+  for it first, so the provider is handed a re-serialised body carrying that member while `req`
+  names the caller's own bytes; the rewritten body carries every other member of the caller's
+  request, in the gateway's own spelling of them. A reader comparing a receipt against a
+  provider's request log accounts for that added member and for the spelling, not for the content.
 - `res` = sha256 of the response body exactly as transmitted. For streaming responses this
   includes every SSE frame, separator, and terminator, not only the concatenated `data:`
   payloads.
@@ -1265,6 +1270,14 @@ The SDK exposes three levels:
 | `off` | No nonce of the client's own, no verification, receipts never fetched. It is not a claim about the wire: a proof-of-possession client still sends `x-ashaveri-nonce`, because the signing wrapper has to put a nonce under the signature and the gateway refuses a PoP request that carries none. |
 | `receipt` | Nonce injected, receipt fetched and verified (steps 1 through 8, step 5 only for a caller that hands the verifier a window). Key resolution uses the deployment manifest. An unreceipted response returns a `null` receipt instead of failing. |
 | `strict` | As `receipt`, plus a required policy (step 2 and 9 with pins, and step 5's two freshness windows, which run at the SDK's shipped defaults unless the policy names its own numbers), an unreceipted response is an error, and the evidence behind step 10 is fetched and verified. |
+
+A body this client cannot name as bytes, which is what a `Request`, a stream, a form-data upload and a missing
+body are, gives the wrapper nothing to hash: no nonce of the caller's can be signed over it, and no receipt's
+`req` can be compared against it. A body handed over as text or as a byte buffer is not that case; both are
+digested and both travel. `off` and `receipt` forward an undigestible request and state nothing about it, unless
+the caller presents a proof-of-possession credential, whose signature is computed over the body and so answers
+`AUTH_CONFIG` at either level. `strict`, the level that answers for the request as well as for the answer, refuses
+it with `REQUEST_BODY_NOT_DIGESTIBLE` before anything goes on the wire.
 
 `receipt` mode proves the response came from the deployment that controls the manifest's
 keys. `strict` mode additionally freezes the deployment's identity: keys, issuer, instance,

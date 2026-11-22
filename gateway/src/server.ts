@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
 import { evidenceReportData } from '@ashaveri/attest-core';
 import {
@@ -52,6 +52,30 @@ const NONCE_BYTES = 16;
 // A cold model load can hold back the first streamed event for minutes.
 const FIRST_EVENT_TIMEOUT_MS = 120_000;
 const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
+/**
+ * What a run that named no request body bound reads. This is the number the gateway has always read, and
+ * moving it is a decision of its own: making the bound readable changes what an operator can state, not what
+ * a process holds when nobody stated anything.
+ */
+const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+/**
+ * The bound this deployment's own environment states, or nothing where it states none. Read where the bound
+ * is read rather than at the command line, because it bounds the reader this process builds and a library
+ * caller that passed the option never has to know the variable exists. A value that is not a positive whole
+ * number of bytes stops the build: a bound the process could not state is not a bound it may serve on, and
+ * falling back to the shipped one here would run a deployment that believes it set another.
+ */
+function requestBodyLimitFromEnvironment(): number | undefined {
+  const stated = process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'];
+  if (stated === undefined || stated.length === 0) return undefined;
+  const parsed = Number(stated);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new RangeError(
+      `ASHAVERI_REQUEST_BODY_LIMIT_BYTES states '${stated}', and a request body bound is a positive whole number of bytes`,
+    );
+  }
+  return parsed;
+}
 /** Evidence is addressed by the digest it binds to, which is what its URL says. */
 const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
 /** A weights manifest is addressed by the digest a receipt's `wts` carries: 32 bytes, 64 hex characters. */
@@ -86,6 +110,15 @@ export interface GatewayOptions {
    * this the rate its `--completion-rate` flag names.
    */
   readonly completionBound?: DeploymentCompletionBound;
+  /**
+   * The largest request body this process reads, in bytes. It bounds the reader every route shares, so a body
+   * past it is answered before a route runs, with `BODY_TOO_LARGE` and the shape the route gives its own
+   * refusals, and it is a refusal rather than a truncation: nothing is forwarded and no receipt is issued for
+   * bytes this process would not read. Absent means the bound this deployment's environment states, and absent
+   * there too means `DEFAULT_REQUEST_BODY_LIMIT_BYTES`, so a run that set neither reads what it has always
+   * read.
+   */
+  readonly requestBodyLimitBytes?: number;
   /**
    * The pipeline every route runs through. Required: there is no gateway without it,
    * and a default that admits everything would be a floor that opts out.
@@ -562,6 +595,23 @@ function completionBoundDetail(rate: CredentialRate, retryAfterSeconds: number):
   );
 }
 
+/**
+ * The detail carried by `BODY_TOO_LARGE`: the bound this process reads, where a deployment states it, the
+ * number a run that stated nothing reads, and what the refusal left undone. A 413 that named no figure would
+ * send a caller back with slightly fewer bytes and no way to tell which number moved, which is the reading
+ * this code exists to make impossible.
+ */
+function requestBodyLimitDetail(limitBytes: number): string {
+  return (
+    `this gateway reads no request body past ${String(limitBytes)} bytes, and this one was refused while that ` +
+    `bound was being applied, before the route ran: nothing was sent to the upstream, no inference was paid ` +
+    `for and no receipt was issued. The bound is a setting of this process, stated by ` +
+    `ASHAVERI_REQUEST_BODY_LIMIT_BYTES or by the requestBodyLimitBytes option of buildGateway, and ` +
+    `${String(DEFAULT_REQUEST_BODY_LIMIT_BYTES)} bytes is what a run that stated neither reads. A caller ` +
+    `sends fewer bytes than the bound states, or asks whoever holds this deployment to state a larger one`
+  );
+}
+
 export function buildGateway(options: GatewayOptions): GatewayInstance {
   const { access, accessLog } = options;
   // The record stamp of this process: whole Unix seconds off the one source it was given, or off the
@@ -619,11 +669,41 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // make the fetch work: the id carries the tag of the credential that minted it.
   const receiptIds = new ReceiptNamespace(deployment.key);
 
-  const app = Fastify({ bodyLimit: 16 * 1024 * 1024, logger: false });
+  // The request body bound, read once like every other switch on this process, and read before the
+  // instance is built because it is the first thing the process does with a caller's bytes.
+  const requestBodyLimitBytes =
+    options.requestBodyLimitBytes ?? requestBodyLimitFromEnvironment() ?? DEFAULT_REQUEST_BODY_LIMIT_BYTES;
+  if (!Number.isInteger(requestBodyLimitBytes) || requestBodyLimitBytes < 1) {
+    throw new RangeError(
+      `requestBodyLimitBytes is ${String(requestBodyLimitBytes)}, and a request body bound is a positive whole number of bytes`,
+    );
+  }
+
+  const app = Fastify({ bodyLimit: requestBodyLimitBytes, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
   // instead of being parsed into a JS object first.
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, body, done) => {
     done(null, body);
+  });
+
+  // The bound above is enforced by the reader this instance was handed, and that reader's own answer for a
+  // body past it is a 413 shaped by nothing on this route: `{statusCode, error, code, message}`, while every
+  // other refusal these routes give is `{error:{message,type}}`. A caller branching on `error.type` would meet
+  // a refusal it could not name, so the one framework error that decides what this process reads is answered
+  // here, in the route's shape, with a code of its own and the bound in its sentence. Both of the two shapes
+  // a body arrives in reach this one answer: a declared `Content-Length` past the bound is refused before a
+  // byte is read, and a body that grows past it while being read is refused at the chunk that passes it.
+  // Anything else is handed back to the handler this one replaced, because this file writes no answer for a
+  // refusal it did not decide: a media type it does not parse, a body that disagrees with its own length, and
+  // a fault from inside a route keep the answer the reader gives them.
+  app.setErrorHandler((error: FastifyError, _request, reply) => {
+    if (error.code !== 'FST_ERR_CTP_BODY_TOO_LARGE') {
+      return reply.send(error);
+    }
+    const refusal = new AccessError('BODY_TOO_LARGE', { detail: requestBodyLimitDetail(requestBodyLimitBytes) });
+    return reply
+      .code(refusal.status)
+      .send({ error: { message: refusal.message, type: 'invalid_request_error', code: refusal.code } });
   });
 
   // requireRouteScope is where the refusal lives, so no try/catch belongs here: an undeclared route
