@@ -15,6 +15,7 @@ import {
   type ReceiptPayloadV2,
   type SigningKey,
   type TeeKind,
+  type TokenMetering,
 } from '@ashaveri/receipt';
 import type { AccessLog, AccessRecord } from './aclog.js';
 import {
@@ -345,6 +346,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
       },
     );
   });
+}
+
+/**
+ * The `tok` pair of a receipt, taken from the one value a backend settled.
+ *
+ * Both figures move together because the usage event that carries them does, which is the rule the format
+ * states and the writer enforces: a count beside an absence is refused rather than signed. Reading the pair
+ * as a pair here means the gateway states whatever the exchange produced and decides nothing of its own
+ * about it, so a completion whose upstream reported nothing signs two nulls and one that reported zero
+ * tokens signs two zeros.
+ */
+function meteringOf(usage: CompletionUsage): TokenMetering {
+  if (typeof usage.promptTokens === 'number' && typeof usage.completionTokens === 'number') {
+    return { p: usage.promptTokens, c: usage.completionTokens };
+  }
+  return { p: null, c: null };
 }
 
 async function collect(response: BackendResponse): Promise<Buffer> {
@@ -1071,7 +1088,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       meas: { tee: deployment.tee, m: deployment.measurement },
       att: { d: sha256(args.evidence.document), ts: args.evidence.timestamp, url: args.evidence.url },
       epk: deployment.epk,
-      tok: { p: args.usage.promptTokens, c: args.usage.completionTokens },
+      tok: meteringOf(args.usage),
       mk: args.marking,
       sd: stampDisclosureOf(time),
       cva,
@@ -1358,9 +1375,11 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       'content-type': response.contentType,
       'x-ashaveri-receipt-id': id,
       'cache-control': 'no-cache',
-      // A stream this gateway declined to copy is a stream whose token figures were never asked for. The
-      // receipt it goes on to sign still has to state two of them, so this is where the answer that they
-      // are not a measurement is written, in the one place a caller reads before it holds the receipt.
+      // A stream this gateway declined to copy is a stream whose token figures were never asked for, and its
+      // receipt says so itself: the pair it signs is two nulls, not two numbers nobody measured. This header
+      // is the same statement made where a signed document cannot make it, before the body ends and while
+      // the caller still has nothing to verify. What it cannot say is whether figures arrived, because the
+      // headers are written before the body does.
       ...(response.meteringDeclined === true ? { 'x-ashaveri-metering': 'declined' } : {}),
     });
     // A property keeps callback state visible to the write loop's narrowing.

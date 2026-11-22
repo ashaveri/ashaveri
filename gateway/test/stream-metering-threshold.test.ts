@@ -14,10 +14,15 @@ import { generated, harness, type Harness } from './helpers.js';
  * as about what it costs, so both arms are pinned here from either side of the number, and what the
  * declined arm gives up is pinned too.
  *
+ * What it gives up is a measurement, and the receipt says so in the bytes it signs: the pair of figures goes
+ * out as two absences where nothing was reported and as two counts where the upstream reported two counts,
+ * which is the shape `packages/receipt` widened `v: 1` to admit. The pins below read the signed document
+ * rather than `x-ashaveri-metering`, because a header stays with the response while a receipt is read long
+ * after it, and a decoded pair of nulls is no proof that nulls are what went out.
+ *
  * The size the existing witness in `gateway/test/upstream.test.ts` runs at is about two hundred bytes, far
  * under the bound, so that cell and these are the same arm; the cells below pin the boundary itself, the
- * byte for byte forwarding above it, and the header that names the exception rather than leaving a reader
- * to take two zeros for a measurement.
+ * byte for byte forwarding above it, and the two spellings the declined and the reported arms sign.
  */
 
 const MODEL = 'Qwen/Qwen2.5-0.5B-Instruct';
@@ -45,6 +50,11 @@ const DONE = 'data: [DONE]\n\n';
 
 /** One streamed completion, with or without the usage event a server only emits when it was asked. */
 function streamEvents(withUsage: boolean): string[] {
+  return streamEventsReporting(withUsage ? { prompt_tokens: 91, completion_tokens: 7 } : null);
+}
+
+/** The same completion carrying the figures an upstream reported, which may be two of nothing. */
+function streamEventsReporting(usage: { prompt_tokens: number; completion_tokens: number } | null): string[] {
   const events = [
     event({
       id: 'chatcmpl-1',
@@ -61,7 +71,7 @@ function streamEvents(withUsage: boolean): string[] {
       choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
     }),
   ];
-  if (withUsage) {
+  if (usage !== null) {
     events.push(
       event({
         id: 'chatcmpl-1',
@@ -69,7 +79,7 @@ function streamEvents(withUsage: boolean): string[] {
         created: 1_700_000_000,
         model: MODEL,
         choices: [],
-        usage: { prompt_tokens: 91, completion_tokens: 7, total_tokens: 98 },
+        usage: { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens },
       }),
     );
   }
@@ -159,7 +169,8 @@ async function send(h: Harness, body: string): Promise<{
   };
 }
 
-async function receiptOf(h: Harness, id: string) {
+/** The bytes a verifier is handed for this id: the document this issuance signed, as the store keeps it. */
+async function signedReceipt(h: Harness, id: string): Promise<Uint8Array> {
   const target = `/v1/receipts/${id}`;
   const method: HTTPMethods = 'GET';
   const answer = await h.app.inject({
@@ -168,7 +179,16 @@ async function receiptOf(h: Harness, id: string) {
     headers: h.signFor(CREDENTIAL, 'GET', target, null),
   });
   expect(answer.statusCode).toBe(200);
-  return decodeReceipt(new Uint8Array(answer.rawPayload)).payload;
+  return new Uint8Array(answer.rawPayload);
+}
+
+/** `toHex` of the signed document, for the pins that have to be about bytes rather than about a decode. */
+async function signedHex(h: Harness, id: string): Promise<string> {
+  return toHex(await signedReceipt(h, id));
+}
+
+async function receiptOf(h: Harness, id: string) {
+  return decodeReceipt(await signedReceipt(h, id)).payload;
 }
 
 describe('the metering bound on a streamed request', () => {
@@ -229,21 +249,51 @@ describe('the metering bound on a streamed request', () => {
     await h.app.close();
   });
 
-  it('states two zeros and says they are not a measurement, rather than stating nothing', async () => {
+  it('signs two absences where it asked for nothing, as absences and not as measurements', async () => {
     const sent = streamedBodyAt(OVER);
     const upstream = fakeUpstream(() => streamResponse(streamEvents(false)));
     const h = await servedBy(upstream);
     const answer = await send(h, sent);
-    const payload = await receiptOf(h, String(answer.headers['x-ashaveri-receipt-id']));
-    // `tok` is a required map of two non-negative integers in the published format, so a completion whose
-    // figures were never obtained cannot leave them out: it states them, and the response says what the
-    // two figures are not. Without the header the receipt would read as a measured nothing.
-    expect(payload.tok).toEqual({ p: 0, c: 0 });
-    expect(String(answer.headers['x-ashaveri-metering']), 'the absence is named, not inferred').toBe('declined');
+    const id = String(answer.headers['x-ashaveri-receipt-id']);
+    // The pin is on the bytes first, because a decoded pair of nulls is also what a document that rendered
+    // its zeros through one more round-trip hands back, and `x-ashaveri-metering` travels with no receipt.
+    // `a2` is a map of two, `c` sorts before `p` by the bytewise order of their one-byte text keys, `f6` is
+    // null and `00` the integer zero: the two runs `packages/receipt` proves distinct for this writer, read
+    // off the document this gateway signed for these bytes.
+    const signed = await signedHex(h, id);
+    expect(signed, 'the signed pair is two absences').toContain('a26163f66170f6');
+    expect(signed, 'and not two measurements of nothing').not.toContain('a2616300617000');
+    const payload = await receiptOf(h, id);
+    expect(payload.tok, 'the figures a declined copy left unasked are an absence').toEqual({ p: null, c: null });
     expect(
-      answer.raw.toString('utf8'),
-      'and the bytes of the stream are the upstream, comment lines and all',
-    ).toContain('data: [DONE]');
+      String(answer.headers['x-ashaveri-metering']),
+      'the header still names what this gateway did, and is no longer the only thing that says so',
+    ).toBe('declined');
+    // What this cell used to close with, a `data: [DONE]` test on the forwarded stream, was framing rather
+    // than metering: no value of the bound and no spelling of `tok` could have moved it. The framing is
+    // pinned where it belongs, by the `res` digest of the cell above and by `gateway/test/upstream.test.ts`.
+    await h.app.close();
+  });
+
+  it('signs two zeros where the upstream reported two zeros, because that is a reading', async () => {
+    const sent = streamedBodyAt(UNDER);
+    const upstream = fakeUpstream(() =>
+      streamResponse(streamEventsReporting({ prompt_tokens: 0, completion_tokens: 0 })),
+    );
+    const h = await servedBy(upstream);
+    const answer = await send(h, sent);
+    const id = String(answer.headers['x-ashaveri-receipt-id']);
+    // The other half of the widening, in the same bytes: a reported zero is not the shape an absence takes,
+    // so a producer that reached for the nulls by mistake would be caught here rather than in a decode that
+    // cannot tell the two renderings apart.
+    const signed = await signedHex(h, id);
+    expect(signed, 'the signed pair is two measurements of nothing').toContain('a2616300617000');
+    expect(signed, 'and not two absences').not.toContain('a26163f66170f6');
+    expect((await receiptOf(h, id)).tok, 'a stack that served nothing says nothing').toEqual({ p: 0, c: 0 });
+    expect(
+      answer.headers['x-ashaveri-metering'],
+      'and this gateway asked, so it has no exception to name',
+    ).toBeUndefined();
     await h.app.close();
   });
 
@@ -260,21 +310,54 @@ describe('the metering bound on a streamed request', () => {
     await h.app.close();
   });
 
-  it('reaches no buffered request, at a size past the bound', async () => {
-    // The figures of a buffered completion ride in its body, so there is nothing to ask for and no copy to
-    // decline: the bound is about an injection only a stream needs. The size is the one the streamed cells
-    // decline at, because a body under it would pass this cell whatever the code did with the arm.
-    const sent = bodyAt(OVER, false);
-    const upstream = fakeUpstream(() =>
-      jsonResponse(JSON.stringify({ usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 } })),
-    );
+  it('re-writes no buffered request at either side of the bound, and states what its body reported', async () => {
+    // The bound is consulted for a stream and for nothing else, so on this arm no reading of it changes an
+    // observable: a buffered body is forwarded as it arrived because the injection is gated on the request's
+    // own `stream` member, and its figures ride inside the answer. What can fail here is that gate, and it is
+    // pinned at both sizes because an injection that reached a buffered body only when it was worth copying
+    // would survive a cell that sent one size.
+    //
+    // The header this cell used to assert is gone rather than moved. It is written in the streamed branch of
+    // the route and nowhere else, so on a buffered answer no value of `meteringDeclined` could have put it
+    // on the response and its absence proved nothing. The figures below are the buffered arm's own statement.
+    for (const [name, size] of [
+      ['inside', UNDER],
+      ['past', OVER],
+    ] as const) {
+      const sent = bodyAt(size, false);
+      const upstream = fakeUpstream(() =>
+        jsonResponse(
+        JSON.stringify({ model: MODEL, usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 } }),
+      ),
+      );
+      const h = await servedBy(upstream);
+      const answer = await send(h, sent);
+      expect(answer.statusCode, `a buffered request ${name} the bound is served`).toBe(200);
+      expect(upstream.requests[0]?.raw, `the body ${name} the bound reaches the server as the caller wrote it`).toBe(
+        sent,
+      );
+      const payload = await receiptOf(h, String(answer.headers['x-ashaveri-receipt-id']));
+      expect(
+        payload.tok,
+        `and its figures are the reading its body carried, ${name} the bound`,
+      ).toEqual({ p: 3, c: 4 });
+      await h.app.close();
+    }
+  });
+
+  it('signs the absence of figures a buffered body never carried', async () => {
+    // The same producer decision on the arm that pays no copy for it: a 200 whose JSON held no usage member
+    // reported nothing, so its receipt states absence rather than two zeros that body never justified. The
+    // size is the one under the bound, because this is a statement about the report and not about the ask.
+    const sent = bodyAt(UNDER, false);
+    const upstream = fakeUpstream(() => jsonResponse(JSON.stringify({ model: MODEL, choices: [] })));
     const h = await servedBy(upstream);
     const answer = await send(h, sent);
-    expect(answer.statusCode).toBe(200);
-    expect(upstream.requests[0]?.raw, 'the buffered arm never re-writes a request at any size').toBe(sent);
-    expect(answer.headers['x-ashaveri-metering'], 'and it has no exception to name').toBeUndefined();
-    const payload = await receiptOf(h, String(answer.headers['x-ashaveri-receipt-id']));
-    expect(payload.tok).toEqual({ p: 3, c: 4 });
+    const id = String(answer.headers['x-ashaveri-receipt-id']);
+    const signed = await signedHex(h, id);
+    expect(signed, 'the pair went out as two absences').toContain('a26163f66170f6');
+    expect(signed, 'and not as two measurements of nothing').not.toContain('a2616300617000');
+    expect((await receiptOf(h, id)).tok, 'no figures in the answer, no figures claimed').toEqual({ p: null, c: null });
     await h.app.close();
   });
 });

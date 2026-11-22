@@ -29,9 +29,9 @@ function deferred<T>(): Deferred<T> {
  * Asking costs a serialised mutation of the caller's own request, which is about one further wire size
  * held for the duration of the completion, and what it buys is a usage count. Above this bound the copy is
  * declined and the bytes that arrived are forwarded untouched: a caller that sent a document is served, and
- * the metering figures its receipt states are the absence the `x-ashaveri-metering` header names rather
- * than a measurement. Under it, a body is small enough that the figures are worth the copy they cost, and
- * nothing about a streamed response changes.
+ * its receipt states the absence of the figures nobody reported rather than two numbers it never measured.
+ * Under it, a body is small enough that the figures are worth the copy they cost, and nothing about a
+ * streamed response changes.
  */
 export const STREAM_USAGE_INJECTION_MAX_BYTES = 1024 * 1024;
 
@@ -152,7 +152,11 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
           chunks: (async function* () {
             yield body;
           })(),
-          usage: Promise.resolve({ model: request.model, promptTokens: 0, completionTokens: 0 }),
+          // A refusal from the inference server reported no figures, and this gateway signs no receipt over
+          // it, so the pair states the absence it holds rather than a measurement of a completion that never
+          // existed. Nothing reads these two numbers as a count: the route answers a failed status from the
+          // body it forwarded and never awaits this.
+          usage: Promise.resolve({ model: request.model, promptTokens: null, completionTokens: null }),
         };
       }
 
@@ -222,10 +226,11 @@ export function upstreamBackend(options: UpstreamOptions): CompletionBackend {
             remember(toFields(JSON.parse(pending)) ?? {});
           }
           if (!seen.usage) {
-            // The format requires two figures, so this resolves the numbers rather than leaving the
-            // promise unsettled. What a caller reads the zeros as is decided beside them: where this
-            // gateway declined to ask, the response says so in `x-ashaveri-metering`.
-            usageSlot.resolve({ model, promptTokens: 0, completionTokens: 0 });
+            // Nothing reported either figure, and the format admits that as a value: the pair goes out as two
+            // nulls, because a zero is the stack claiming it served nothing and this is no such claim. Where
+            // this gateway declined the copy the ask costs, `x-ashaveri-metering` says so in the moment, and
+            // these two nulls are what the signed bytes say about it afterwards.
+            usageSlot.resolve({ model, promptTokens: null, completionTokens: null });
           }
         } catch (error) {
           if (!seen.usage) {
