@@ -43,6 +43,7 @@ import {
   type ChatCompletionRequest,
   type ChatMessage,
 } from './mock.js';
+import { ResidentBodyBudget, type ResidentBodyReservation } from './resident-body.js';
 import { AsyncMarkedStreamTail, StreamCompletionGate } from './stream-completion.js';
 import {
   HOST_CLOCK_SOURCE,
@@ -112,6 +113,43 @@ function requestBodyLimitFromEnvironment(): number | undefined {
   }
   return parsed;
 }
+/**
+ * What a run that named no resident request-body budget reads: 512 MiB of request bodies held at once, which is
+ * four of the largest bodies this gateway will read.
+ *
+ * The figure is arithmetic on the two numbers beside it and not a measurement. It says that one process will
+ * hold up to four bodies of `DEFAULT_REQUEST_BODY_LIMIT_BYTES` at once, and it keeps nothing outside that sum
+ * for the copies the serving path makes while it digests and forwards the bytes, nor for the answer coming back
+ * from the upstream, which `MAX_BUFFERED_BODY` bounds rather than this constant. What a held body really costs
+ * this process beyond its own bytes, and how many of them a process can hold before holding stops being what
+ * limits it, are a concurrency question, and no run of it is recorded in this repository: the memory one
+ * deployment is given is another, and the deployment text this repository publishes states neither.
+ *
+ * So an operator reads this as a ceiling on request bodies held, chosen so that a deployment knows what it has
+ * agreed to and can raise or lower it against the memory it actually has, and not as a capacity figure this
+ * build measured. A deployment with less memory than four such bodies and the copies they cost states a smaller
+ * budget, and the refusals move from the caller's wait to the operator's number, which is the point of the
+ * number existing at all.
+ */
+export const DEFAULT_REQUEST_BODY_BUDGET_BYTES = 512 * 1024 * 1024;
+/**
+ * The budget this deployment's own environment states, or nothing where it states none. Read the same three
+ * ways as the bound above it, for the same reasons: the option belongs to a library caller who knows what it
+ * wants, the variable belongs to a container that says nothing about itself at the command line, and a value
+ * that is not a positive whole number of bytes stops the build rather than falling back, because a deployment
+ * that believes it bounded its memory and is running on another bound is the configuration nobody wrote.
+ */
+function requestBodyBudgetFromEnvironment(): number | undefined {
+  const stated = process.env['ASHAVERI_REQUEST_BODY_BUDGET_BYTES'];
+  if (stated === undefined || stated.length === 0) return undefined;
+  const parsed = Number(stated);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new RangeError(
+      `ASHAVERI_REQUEST_BODY_BUDGET_BYTES states '${stated}', and a resident request-body budget is a positive whole number of bytes`,
+    );
+  }
+  return parsed;
+}
 /** Evidence is addressed by the digest it binds to, which is what its URL says. */
 const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
 /** A weights manifest is addressed by the digest a receipt's `wts` carries: 32 bytes, 64 hex characters. */
@@ -155,6 +193,22 @@ export interface GatewayOptions {
    * read.
    */
   readonly requestBodyLimitBytes?: number;
+  /**
+   * The request-body bytes this process will hold at once, summed across the requests in flight. Where
+   * `requestBodyLimitBytes` bounds one body, this bounds how many of them are resident together, and it exists
+   * because the bound above it says nothing about that sum: a body stays held for the whole life of its
+   * completion, since the receipt signs those bytes and the upstream is forwarded them, so a deployment that
+   * raised the one without stating the other would be sizing its memory against its busiest minute rather than
+   * against a number it chose.
+   *
+   * A caller is admitted while the bytes already resident plus this request's stay within the budget, and the
+   * refusal is `RESIDENT_BODY_BUDGET_EXCEEDED`, retryable, at the reader and ahead of every credential check
+   * for the reason `docs/access-control.md` section 1 states. Absent means the budget this deployment's
+   * environment states, and absent there too means `DEFAULT_REQUEST_BODY_BUDGET_BYTES`. There is no spelling
+   * that takes the budget off, and a large number is how a deployment says it does not want it: the bound is
+   * what makes a raised body limit safe, so the option that removes it would remove the reason for the raise.
+   */
+  readonly requestBodyBudgetBytes?: number;
   /**
    * The pipeline every route runs through. Required: there is no gateway without it,
    * and a default that admits everything would be a floor that opts out.
@@ -260,6 +314,20 @@ export type GatewayInstance = FastifyInstance & {
    * registered after the routes it should have inspected.
    */
   scopeCheckedRoutes(): string[];
+  /**
+   * What this process holds of the resident request-body budget right now, in bytes. The figure is the sum the
+   * refusals above are decided from, so this is the one way to ask a running gateway what it is holding rather
+   * than what it thinks it should be holding.
+   *
+   * It is on the instance for the same reason `scopeCheckedRoutes` is: the fact it reports is process state no
+   * response carries, and the cells that prove a charge was given back have to read the integer itself rather
+   * than infer it from whether some later request happened to be refused, which is an inference that goes green
+   * whenever a test's timing happens to work. Its only consumer today is `test/resident-body-budget.test.ts`:
+   * nothing this gateway ships reads the figure and no route answers with it, so this is a window onto the
+   * process opened for the suite that has to see inside it, not an observability surface a deployment is asked
+   * to rely on.
+   */
+  residentBodyBytes(): number;
 };
 
 /**
@@ -742,6 +810,47 @@ function requestBodyLimitDetail(limitBytes: number): string {
   );
 }
 
+/**
+ * The detail carried by `RESIDENT_BODY_BUDGET_EXCEEDED`: the budget, how much of it is resident at the instant
+ * the refusal was decided, what this request asked for, where the number comes from, and what a run that stated
+ * nothing reads. Those four are the whole of what an operator needs to move a figure, and the two arms a refusal
+ * is in have to be told apart in the sentence rather than left to the status, because one of them clears on a
+ * wait and the other never does, and a caller that retried the second one forever would be doing exactly what
+ * this answer exists to stop.
+ *
+ * The wait is a floor and the message says so. Nothing here can know when the bytes in flight are given back:
+ * that is other requests finishing, not a refill, and the honest alternative to a stated floor is the
+ * durability guard's silence, which this is not, because an empty process does hold these bytes.
+ */
+function requestBodyBudgetDetail(budget: ResidentBodyBudget, reservation: ResidentBodyReservation): string {
+  const held = budget.residentBytes;
+  const shared =
+    `this gateway holds no more than ${String(budget.limitBytes)} bytes of request bodies at once, ` +
+    `${String(held)} of them are resident now, and this request's ${String(reservation.bytes)} bytes do not fit ` +
+    `beside them, so it is refused at the reader before the route ran: nothing was sent to the upstream, no ` +
+    `inference was paid for and no receipt was issued. The budget is a setting of this process, stated by ` +
+    `ASHAVERI_REQUEST_BODY_BUDGET_BYTES or by the requestBodyBudgetBytes option of buildGateway, and ` +
+    `${String(DEFAULT_REQUEST_BODY_BUDGET_BYTES)} bytes is what a run that stated neither reads. `;
+  if (reservation.retryAfterSeconds === undefined) {
+    return (
+      shared +
+      `These bytes are past the whole budget on their own, so they would not be held by an empty process either ` +
+      `and no wait clears this refusal: a caller sends fewer bytes, and an operator states a budget that covers ` +
+      `the body bound this gateway reads, since a bound above the budget is a size this process refuses at any ` +
+      `traffic. The size bound itself was not passed over: this body is inside it, and it is the sum of what is ` +
+      `resident that decided this answer`
+    );
+  }
+  return (
+    shared +
+    `These bytes are inside the size bound this gateway reads, so nothing about this request is wrong and the ` +
+    `answer is a wait of ${String(reservation.retryAfterSeconds)} seconds, which is a floor rather than a ` +
+    `measurement: the budget frees bytes when the requests holding them finish, and this process cannot see when ` +
+    `that is. A caller waits and sends a new request; an operator moves the budget beside the memory this ` +
+    `deployment has, and reads which of the two numbers it should be from the size bound above it`
+  );
+}
+
 export function buildGateway(options: GatewayOptions): GatewayInstance {
   const { access, accessLog } = options;
   // The record stamp of this process: whole Unix seconds off the one source it was given, or off the
@@ -809,24 +918,93 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     );
   }
 
+  // The resident request-body budget, read the same three ways and validated the same way, and held on this
+  // process for the same reason the completion counter is: what is resident is a fact about one process's
+  // memory, so the bound on it is kept on nothing narrower than the process that holds it and on nothing wider
+  // than the counter one process can keep. It is read here, beside the bound above it and not behind the routes,
+  // because a budget that is consulted after the bytes arrived cannot bound their arrival, which is what it is
+  // for. See section 1 of `docs/access-control.md` for the placement and the reason it is lawful.
+  const requestBodyBudgetBytes =
+    options.requestBodyBudgetBytes ?? requestBodyBudgetFromEnvironment() ?? DEFAULT_REQUEST_BODY_BUDGET_BYTES;
+  const residentBodies = new ResidentBodyBudget(requestBodyBudgetBytes);
+
   const app = Fastify({ bodyLimit: requestBodyLimitBytes, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
   // instead of being parsed into a JS object first.
-  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, body, done) => {
+  //
+  // This is also where those bytes are charged to the budget, and the reason it happens here is the reason the
+  // charge is honest: this callback is handed the whole body as one buffer, after the reader has finished
+  // accumulating it, so `body.byteLength` is what this process now holds rather than what the caller declared
+  // it would send. A declared `Content-Length` is a caller's claim, and three of them are false in ways this
+  // process would pay for: a body that arrives with no length at all, under `Transfer-Encoding: chunked`, is
+  // as large as whoever sent it decides while it is sent; a length that disagrees with the bytes is refused by
+  // the HTTP parser before this callback runs, so nothing here can be charged by it; and the reader's own bound
+  // is applied to the bytes it accumulated rather than to the header, so a body reaching this line is a body
+  // this gateway agreed to read at exactly this width. Charging the header would let a caller reserve one byte
+  // and hold a hundred and twenty-eight megabytes, which is a budget that bounds nothing.
+  //
+  // What the charge therefore does not cover is stated rather than hidden: the bytes were already read to get
+  // here, so the peak of one request can stand one body above the budget, and that overshoot is bounded by
+  // `requestBodyLimitBytes`, the number an operator set on the line above. What a held body costs this process
+  // beside its own bytes is not measured here, so an operator sizing the budget against a container's memory
+  // has to leave that room themselves rather than trust this arithmetic to have left it.
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
+    // The width of the bytes in hand, whichever shape the reader was configured to hand them over in. The
+    // parser above asks for a buffer and the route below refuses anything else, so the string arm is a
+    // measurement taken from a state this build does not reach rather than a cast that would have to be right.
+    const bytes = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength;
+    const reservation = residentBodies.reserve(bytes);
+    if (!reservation.admitted) {
+      // Nothing was charged, so nothing is owed back: `reserve` decides and refuses in one step, which is what
+      // lets this arm be written without an undo. The refusal travels to the handler below as this process's own
+      // code rather than as the framework's, because the framework has no opinion about a sum of bytes.
+      done(new AccessError('RESIDENT_BODY_BUDGET_EXCEEDED', {
+        detail: requestBodyBudgetDetail(residentBodies, reservation),
+        retryAfterSeconds: reservation.retryAfterSeconds,
+      }), undefined);
+      return;
+    }
+    const state = stateOf(request);
+    if (state !== undefined) {
+      // The charge is recorded on the request rather than only in the integer, so the release has exactly one
+      // number to give back and can be asked for twice without moving it twice.
+      state.residentBytes = reservation.bytes;
+    }
     done(null, body);
   });
 
-  // The bound above is enforced by the reader this instance was handed, and that reader's own answer for a
-  // body past it is a 413 shaped by nothing on this route: `{statusCode, error, code, message}`, while every
-  // other refusal these routes give is `{error:{message,type}}`. A caller branching on `error.type` would meet
-  // a refusal it could not name, so the one framework error that decides what this process reads is answered
-  // here, in the route's shape, with a code of its own and the bound in its sentence. Both of the two shapes
-  // a body arrives in reach this one answer: a declared `Content-Length` past the bound is refused before a
-  // byte is read, and a body that grows past it while being read is refused at the chunk that passes it.
+  // Two refusals are decided at the reader rather than by a route, and both are answered here because neither
+  // can be answered anywhere else: by the time a route runs, the bytes are held and the sum is spent. The first
+  // arrives as the framework's own word for a body past the bound it was handed, and that word is a shape of
+  // nothing on this route, `{statusCode, error, code, message}`, while every other refusal these routes give is
+  // `{error:{message,type}}`. A caller branching on `error.type` would meet a refusal it could not name, so the
+  // framework's answer is rewritten here in the route's shape, with a code of its own and the bound in its
+  // sentence. Both of the two shapes a body arrives in reach that one answer: a declared `Content-Length` past
+  // the bound is refused before a byte is read, and a body that grows past it while being read is refused at the
+  // chunk that passes it.
+  //
+  // The second arrives as this file's own `AccessError`, from the charge above, and it keeps the shape the
+  // admission refusals give rather than the shape the size refusals give, which is the difference a caller acts
+  // on: `BODY_TOO_LARGE` says these bytes are wrong, and `RESIDENT_BODY_BUDGET_EXCEEDED` says these bytes are
+  // right and this moment is full. `authentication_error` is the type every refusal on this route that carries a
+  // `retry-after` already answers with, from the credential bucket and the connection's bound through the
+  // durability guard and the completion counter, and the code is what names which of them this is. It is not
+  // `invalid_request_error`, which would tell a caller to change a request that needed no changing, and no new
+  // type word is coined for one more refusal, because a caller that branches on `type` today would meet a literal
+  // it has never seen. `error.code` and the status are where this answer is distinguishable, and both are pinned.
+  //
   // Anything else is handed back to the handler this one replaced, because this file writes no answer for a
-  // refusal it did not decide: a media type it does not parse, a body that disagrees with its own length, and
-  // a fault from inside a route keep the answer the reader gives them.
+  // refusal it did not decide: a media type it does not parse, a body that disagrees with its own length, a
+  // credential file that failed to reload, and a fault from inside a route keep the answer the reader gives
+  // them. That last set is why this branch is keyed on the code rather than on `AccessError` at large, which is
+  // what a reload failure is, and why the two arms below build their envelopes separately.
   app.setErrorHandler((error: FastifyError, _request, reply) => {
+    if (error.code === 'RESIDENT_BODY_BUDGET_EXCEEDED' && error instanceof AccessError) {
+      const wait = error.retryAfterSeconds === undefined ? reply : reply.header('retry-after', String(error.retryAfterSeconds));
+      return wait
+        .code(error.status)
+        .send({ error: { message: error.message, type: 'authentication_error', code: error.code } });
+    }
     if (error.code !== 'FST_ERR_CTP_BODY_TOO_LARGE') {
       return reply.send(error);
     }
@@ -866,12 +1044,43 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     receiptId: string | null;
     deny: string | null;
     logging?: Promise<void>;
+    /**
+     * The request-body bytes this request holds on the process's budget, and zero once they have been given
+     * back. The charge is written by the reader and cleared by the release below, and holding the figure here
+     * rather than only in the budget is what makes the release exactly-once by construction: a second call sees
+     * zero and gives nothing back, so the arithmetic cannot be moved twice by the two events a response's death
+     * is announced with.
+     */
+    residentBytes: number;
   }
 
   const states = new WeakMap<FastifyRequest, RequestState>();
 
   function stateOf(request: FastifyRequest): RequestState | undefined {
     return states.get(request);
+  }
+
+  /**
+   * Give back whatever this request still holds of the budget, if it holds anything.
+   *
+   * One site, because the defect class this is written against is a leak: a charge released on the paths a
+   * reviewer thought of and not on the others leaves the resident figure higher than the process is holding,
+   * every request adds to it, and the deployment reaches a state where a budget refuses everything while the
+   * traffic looks merely heavy. So the release is attached to the two events a response's death is announced
+   * with, the same pair the access line is flushed on for the same reason, and the request's own charge is
+   * cleared as it is handed back, which makes the second call give nothing.
+   *
+   * Both events are needed and neither covers the other. `finish` says this process wrote a whole answer, which
+   * is every completion, every refusal after the charge, and every upstream failure; `close` says the connection
+   * is done with, which is a client that went away mid-request, a stream that ended early, and a reply that was
+   * hijacked past `onSend`. A request that was never charged reaches this and gives back zero.
+   */
+  function releaseResidentBytes(request: FastifyRequest): void {
+    const state = stateOf(request);
+    if (state === undefined || state.residentBytes === 0) return;
+    const bytes = state.residentBytes;
+    state.residentBytes = 0;
+    residentBodies.release(bytes);
   }
 
   async function flush(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -917,12 +1126,17 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       nonce: null,
       receiptId: null,
       deny: null,
+      residentBytes: 0,
     });
-    // Hijacked replies bypass onSend, so close and finish join the shared append.
+    // Hijacked replies bypass onSend, so close and finish join the shared append. The same two events end a
+    // request's hold on the budget, and the release goes first: a writer that throws or rejects has to leave
+    // this process's arithmetic settled, and the line it failed to write is reported by the warning below.
     reply.raw.once('finish', () => {
+      releaseResidentBytes(request);
       flush(request, reply).catch(() => undefined);
     });
     reply.raw.once('close', () => {
+      releaseResidentBytes(request);
       flush(request, reply).catch(() => undefined);
     });
   });
@@ -1549,5 +1763,8 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
 
   // Assigned rather than decorated, so the method's type lives on GatewayInstance and nowhere in
   // Fastify's own interface.
-  return Object.assign(app, { scopeCheckedRoutes: (): string[] => [...checkedPaths].sort() });
+  return Object.assign(app, {
+    scopeCheckedRoutes: (): string[] => [...checkedPaths].sort(),
+    residentBodyBytes: (): number => residentBodies.residentBytes,
+  });
 }
