@@ -166,8 +166,9 @@ const LOWER_T = 0x74;
 const LOWER_U = 0x75;
 
 /**
- * The escapes that state one character on their own: the two quotes a token can carry without ending, the
- * solidus a caller may escape although it needs no escaping, and the four control characters JSON named.
+ * The eight escapes that state one character on their own: the quotation mark and the reverse solidus a
+ * token cannot carry unescaped, the solidus a caller may escape although it needs no escaping, and the five
+ * control characters JSON named. Everything else the grammar writes is `u` followed by four hex digits.
  */
 const SIMPLE_ESCAPES = new Set([QUOTE, BACKSLASH, SOLIDUS, LOWER_B, LOWER_F, LOWER_N, LOWER_R, LOWER_T]);
 const TRUE_LITER = Uint8Array.from([0x74, 0x72, 0x75, 0x65]);
