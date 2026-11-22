@@ -1,13 +1,19 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_REQUEST_BODY_LIMIT_BYTES } from '../src/server.js';
 import { generated, harness, type Harness } from './helpers.js';
 
 const CREDENTIAL = 'oversize';
 const MODEL = 'mock-model-1';
 /** The bound these two cells state, held small so a case about the bound costs kilobytes and not megabytes. */
 const LIMIT_BYTES = 4096;
-/** What a run that states no bound reads, repeated here as the number the refusal has to print. */
-const SHIPPED_LIMIT_BYTES = 16 * 1024 * 1024;
+/**
+ * What a run that states no bound reads. Read off the constant rather than repeated as a figure: the cell
+ * below asks what number this process holds when nobody named one, and a literal here would answer its own
+ * question. A rename or a raise of the shipped bound has to move the expectation with it, and this is the
+ * only way that shows up rather than passing quietly.
+ */
+const SHIPPED_LIMIT_BYTES = DEFAULT_REQUEST_BODY_LIMIT_BYTES;
 
 /** A body of whole bytes, long enough to be a request rather than a header: only its length is read. */
 function requestBody(bytes: number): string {
@@ -105,7 +111,7 @@ describe('an oversize request body', () => {
       headers: {
         'content-type': 'application/json',
         // The header is the whole of the request this cell needs: a declared length past the bound is
-        // refused before a byte is read, so the shipped figure is proved without sending sixteen megabytes.
+        // refused before a byte is read, so the shipped figure is proved without sending it.
         'content-length': String(SHIPPED_LIMIT_BYTES + 1),
         ...h.signFor(CREDENTIAL, 'POST', '/v1/chat/completions', null),
       },

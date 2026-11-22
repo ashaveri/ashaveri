@@ -76,11 +76,24 @@ const FIRST_EVENT_TIMEOUT_MS = 120_000;
  */
 export const MAX_BUFFERED_BODY = 32 * 1024 * 1024;
 /**
- * What a run that named no request body bound reads. This is the number the gateway has always read, and
- * moving it is a decision of its own: making the bound readable changes what an operator can state, not what
- * a process holds when nobody stated anything.
+ * What a run that named no request body bound reads: 128 MiB, and exported for the reason
+ * `MAX_BUFFERED_BODY` is, so the cell that proves the shipped figure reads it off this line rather than
+ * repeating a literal that can drift from it.
+ *
+ * The number was 16 MiB, and that default was the reason a customer's own payload could be refused by this
+ * gateway rather than by the inference server they chose: the bound is a ceiling on what this process takes
+ * in, so a body past it never reaches that server, and the answer it gets is a 413 about a number nobody
+ * serving them picked. The standing condition for this area is that a gateway must not be the tightest
+ * constraint on a request it serves, and 128 MiB is what the estate reads as clearing the asks its customers
+ * send today with room to spare.
+ *
+ * What makes the raised figure affordable is a different number, and it is not this one: this bound says how
+ * large one body may be, and the resident request-body budget beside it says how many such bodies one process
+ * will hold at once. A deployment that raised this bound and ran no budget would be holding a customer's
+ * whole payload in memory for the life of the request and shedding on the first out-of-memory kill rather
+ * than on a refusal an operator chose.
  */
-const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 16 * 1024 * 1024;
+export const DEFAULT_REQUEST_BODY_LIMIT_BYTES = 128 * 1024 * 1024;
 /**
  * The bound this deployment's own environment states, or nothing where it states none. Read where the bound
  * is read rather than at the command line, because it bounds the reader this process builds and a library
