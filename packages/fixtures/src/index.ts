@@ -51,6 +51,13 @@ export interface ReceiptFixtureRow {
   responseByteLength?: number;
   items?: ReceiptItemColumn[];
   sd?: { name: string; unc?: number | null };
+  /**
+   * The metering pair the document carries: the two figures the serving stack reported, or two `null`s that
+   * it reported none. Present on the rows published to state a metering state of their own, which is the
+   * absence beside the row that reports the same response and the half pair refused beside both, and on no
+   * row whose metering is the pair every row of this suite began by carrying.
+   */
+  tok?: { p: number | null; c: number | null };
   cva?: { col: ReceiptAnchorSlotColumn; val: ReceiptAnchorSlotColumn };
   /**
    * The arm of `enc` the document carries: the label that decides which member list stands behind the map,

@@ -19,6 +19,7 @@ import {
   type ReceiptPayloadV1,
   type ReceiptPayloadV2,
   type StampDisclosure,
+  type TokenMetering,
 } from '@ashaveri/receipt';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -32,7 +33,7 @@ import {
   unmarkedResponse,
   unmarkedStream,
 } from './marking-shapes.ts';
-import { FIXED_IAT, FIXTURE_RESPONSE, fixtureKey, fixturePayload } from './receipt-envelope.ts';
+import { FIXED_IAT, FIXTURE_RESPONSE, REPORTED_METERING, fixtureKey, fixturePayload } from './receipt-envelope.ts';
 
 const DATA = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
@@ -136,6 +137,23 @@ const SHAPES: Record<string, ResponseShape> = {
  */
 const MEASURED_SOURCE: StampDisclosure = { name: 'ptp-disciplined host clock', uncertaintySeconds: 1 };
 const UNMEASURED_SOURCE: StampDisclosure = { name: 'host clock', uncertaintySeconds: null };
+
+/**
+ * The two figures of `tok` in the state that is not a reading.
+ *
+ * `0` is the serving stack saying there were none and `null` is that nothing was reported, which is the
+ * same pair `sd.unc` keeps apart one position away: an absence stated as a value rather than left as a
+ * silence the document cannot explain. The pair is all-or-nothing, because the usage event an upstream
+ * emits carries the two figures together, so a document holding one of each states a metering state no
+ * producer can justify, and this corpus publishes that document because no writer makes one.
+ */
+const UNREPORTED_METERING: TokenMetering = { p: null, c: null };
+
+/** The half pair: the figure the envelope states kept, and the one beside it replaced with the absence. */
+const HALF_REPORTED_METERING: { readonly p: number | null; readonly c: number | null } = {
+  p: REPORTED_METERING.p,
+  c: null,
+};
 
 const HELD_COLLATERAL: CollateralSlot = { presence: 'held', sha256: labeled('ashaveri-fixtures/collateral/v1') };
 const HELD_VALIDITY: CollateralSlot = {
@@ -309,11 +327,12 @@ function itemStamps(shape: ResponseShape): ItemStamp[] {
  * shared fields over these bytes, and the four members a receipt states about itself. `mk` is read off the
  * response shape, because which marking these bytes came off is a fact of the bytes; the disclosure, the
  * anchor and the item list are what the row names, because a document that left one of them out is one the
- * writer refuses to make and the reader refuses to open.
+ * writer refuses to make and the reader refuses to open. `tok` is named only by the rows published to state
+ * a metering state of their own, and every other row carries the pair the envelope states.
  */
 function payloadFor(
   shape: ResponseShape,
-  over: { sd: StampDisclosure; cva: CollateralValidityAnchor; itm: readonly ItemStamp[] },
+  over: { sd: StampDisclosure; cva: CollateralValidityAnchor; itm: readonly ItemStamp[]; tok?: TokenMetering },
 ): ReceiptPayloadV1 {
   return {
     ...fixturePayload({ res: sha256(shape.bytes) }),
@@ -322,6 +341,7 @@ function payloadFor(
     sd: over.sd,
     cva: over.cva,
     itm: over.itm,
+    ...(over.tok === undefined ? {} : { tok: over.tok }),
   };
 }
 
@@ -391,6 +411,7 @@ interface RowColumns {
   readonly responseByteLength: number;
   readonly items?: Array<{ t: number; d: string; bytesBase64Url: string; byteLength: number }>;
   readonly sd?: { name: string; unc?: number | null };
+  readonly tok?: { p: number | null; c: number | null };
   readonly cva?: { col: { p: string; d?: string; r?: string }; val: { p: string; d?: string; r?: string } };
   readonly enc?: { sch: string; pkBase64Url?: string };
   readonly challenge?: { rule: string; parts: string[]; preImageBase64Url: string; digestHex: string };
@@ -434,13 +455,16 @@ function encColumn(enc: { readonly sch: string; readonly pk?: Uint8Array }): Row
  * A column is stated exactly where the document carries the member it describes, which is what makes a
  * row naming no `items` states that its payload names no item list. A refusal row overrides the columns
  * its fault reaches with what the bytes actually hold, so the withheld member is absent from the column as
- * it is absent from the document.
+ * it is absent from the document. Where every row of this suite carries a member and only some rows were
+ * published to state a fact about it, the column arrives with the row that states it, which is how `tok`
+ * is written: the two metering rows name their pair and the rows whose metering nothing moved do not.
  */
 function columnsOf(
   shape: ResponseShape,
   over: {
     v: 1 | 2;
     sd?: StampDisclosure;
+    tok?: { readonly p: number | null; readonly c: number | null };
     cva?: CollateralValidityAnchor;
     stamps?: readonly ItemStamp[];
     enc?: { readonly sch: string; readonly pk?: Uint8Array };
@@ -459,6 +483,7 @@ function columnsOf(
     responseByteLength: shape.bytes.length,
     ...(over.stamps === undefined ? {} : { items: itemColumns(shape, over.stamps) }),
     ...(over.sd === undefined ? {} : { sd: { name: over.sd.name, unc: over.sd.uncertaintySeconds } }),
+    ...(over.tok === undefined ? {} : { tok: { p: over.tok.p, c: over.tok.c } }),
     ...(over.cva === undefined ? {} : { cva: { col: slotColumn(over.cva.collateral), val: slotColumn(over.cva.validity) } }),
     ...(over.enc === undefined ? {} : { enc: encColumn(over.enc) }),
     ...(over.fault === undefined ? {} : { fault: over.fault }),
@@ -658,6 +683,30 @@ function main(): void {
         },
       },
       payload: payloadFor(stream, { sd: MEASURED_SOURCE, cva: ANCHOR_HELD_BOTH, itm: streamStamps }),
+    },
+    {
+      row: {
+        name: 'receipt-metering-unreported-v1',
+        expected: 'verify-ok',
+        note: 'A receipt over the four items a streamed completion frames whose serving stack reported neither figure: `tok` is `{ null, null }`, which is that nothing was reported, and not the `{ 0, 0 }` a stack that counted none would state. This is the state a large streamed request leaves the issuance in, where the body goes forward without the metering ask and no usage event reaches it, and the state of any completion whose upstream sent no usage event at all, so one document answers both and no header rides beside it. `receipt-stream-v1` is the same response, disclosure and anchor with the pair read, so the two rows move at one member and a reader that flattened the absence into a zero would answer them alike. Its anchor holds both halves and its source declares a bound of one second, which is why the postures this row states are that row\'s: what the metering moved is a figure, not a demand.',
+        columns: {
+          ...columnsOf(stream, {
+            v: 1,
+            sd: MEASURED_SOURCE,
+            tok: UNREPORTED_METERING,
+            cva: ANCHOR_HELD_BOTH,
+            stamps: streamStamps,
+          }),
+          handover: handoverFor(['verify-ok', 'verify-ok', 'verify-ok']),
+          stampSource: stampPostureFor({ none: 'verify-ok', zero: 'STAMP_SOURCE_TOO_UNCERTAIN', one: 'verify-ok' }),
+        },
+      },
+      payload: payloadFor(stream, {
+        sd: MEASURED_SOURCE,
+        cva: ANCHOR_HELD_BOTH,
+        itm: streamStamps,
+        tok: UNREPORTED_METERING,
+      }),
     },
     {
       row: {
@@ -902,6 +951,27 @@ function main(): void {
       }),
     },
     {
+      name: 'receipt-metering-half-reported-v1',
+      expected: 'BAD_PAYLOAD',
+      twin: false,
+      note: 'A document holding one figure read and the other reported none: `tok.p` is the count the envelope states for every row of this suite and `tok.c` is `null` beside it. The usage event an upstream emits carries the two figures together, so this pair states a metering state no producer can justify, and the writer refuses to sign it while the reader refuses to open it, each naming the pair in its sentence rather than the half that disagrees with the other. `receipt-metering-unreported-v1` and `receipt-stream-v1` are the two shapes the member admits; a count beside an absence is neither, and a reader that resolved the pair to whichever half it liked would be answering a question the document never coherently asked. The signature is the published key\'s, so nothing here refuses for authenticity, and the column states the pair as these bytes hold it.',
+      columns: columnsOf(markedStream, {
+        v: 1,
+        sd: MEASURED_SOURCE,
+        tok: HALF_REPORTED_METERING,
+        cva: ANCHOR_ONE_OF_EACH,
+        stamps: markedStreamStamps,
+        keyless: 'BAD_PAYLOAD',
+        fault: {
+          at: 'tok.p and tok.c',
+          states: 'the pair the member is one statement of, split between one count and one absence',
+        },
+      }),
+      bytes: signedEditedDocument(encodePayload(refusalBase), (payload) => {
+        asMapOf(payload, 'tok').set('c', null);
+      }),
+    },
+    {
       name: 'receipt-retired-shape-v1',
       expected: 'BAD_PAYLOAD',
       twin: false,
@@ -1085,6 +1155,7 @@ function main(): void {
             items:
               'One entry per item the shipped reader gives those bytes, in the order it gives them: the instant the source named by `sd` read for it, the digest of that item\'s bytes, and the bytes themselves so the digest is checkable rather than asserted. A row states `items` exactly where its document carries the list. Where a refusal is about the list, the row states the list as the bytes hold it, which is the whole of what the reader compares.',
             sd: 'The disclosure the payload carries: the source `iat` was read from, and the bound that source declares, where `null` is that source\'s statement that nobody measured it. A row stating no `unc` is a document that withheld the member, which is a refusal and not the same sentence.',
+            tok: 'The metering pair the payload carries: the two figures the serving stack reported, or two `null`s that it reported none. `0` is a reading of none and `null` is no reading, which is the same pair `sd` states one member away, and the pair is all-or-nothing because the usage event an upstream emits carries the two figures together: one count beside one absence is no third state, the writer refuses to sign it and the reader refuses to parse it, each naming both positions in one sentence. A row states this column where the pair is the point the row was published to state, which is the absence over the response its reported twin attests and the half pair refused beside it; every other row carries the counts the envelope states and says nothing of them here, the way no row states a `mk` for a marking nothing moved. A refusal row states the pair as its own bytes hold it, so the answer these bytes get is checkable against what they carry.',
             cva: 'The anchor the payload carries, each slot one of the three presence labels with the digest or the reason that label selects. A slot stating `held` with an empty `d` is a claim with no material behind it, which is a refusal.',
             enc: 'The arm of `enc` the payload carries: the label that decides which member list stands behind the map, and the key spelled in unpadded base64url only on the arm that names one. A row states this column exactly where its bytes carry the member, which is every row at the newer version except the one published to state that the member is missing, and the row at the older number that carries it anyway. A refusal row states the arm its own bytes hold, label and all, so the answer these bytes get is checkable against what they carry rather than against what a reader would have written.',
             challenge:

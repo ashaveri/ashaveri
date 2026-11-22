@@ -1,7 +1,7 @@
 import { ed25519 } from '@noble/curves/ed25519';
 import { sha256, sha384 } from '@noble/hashes/sha2.js';
 import { labeled } from './seed.ts';
-import { emptyRegion, hashRequest, type ReceiptPayloadV1, type SigningKey } from '@ashaveri/receipt';
+import { emptyRegion, hashRequest, type ReceiptPayloadV1, type SigningKey, type TokenMetering } from '@ashaveri/receipt';
 
 /**
  * The receipt document every published vector that needs one is built from, held beside the fixtures
@@ -27,6 +27,15 @@ export const FIXED_IAT = 1_772_000_000;
  * body whose content is a label is a fixture, and this corpus publishes no real traffic.
  */
 export const FIXTURE_RESPONSE = new TextEncoder().encode('ashaveri-fixtures/response/v1');
+
+/**
+ * The two figures every published receipt that reports carries.
+ *
+ * The pair is stated once because a row's `tok` column and the document beside it are one fact: the counts
+ * a suite states beside a refusal are the counts the envelope wrote into those bytes, and two literals
+ * written apart drift the moment one of them moves.
+ */
+export const REPORTED_METERING: TokenMetering = { p: 128, c: 64 };
 
 /** The fixture signing key, derived from its seed the way `generate.ts` derives the committed one. */
 export function fixtureKey(): SigningKey {
@@ -62,7 +71,7 @@ export function fixturePayload(overrides: Partial<ReceiptPayloadV1> = {}): Recei
       url: 'https://inference.ashaveri.com/v1/attestation',
     },
     epk: 1,
-    tok: { p: 128, c: 64 },
+    tok: REPORTED_METERING,
     mk: { sch: 'none', d: sha256(emptyRegion()) },
     sd: { name: 'host clock', uncertaintySeconds: null },
     cva: {
