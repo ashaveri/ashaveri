@@ -428,3 +428,30 @@ describe('a multimodal request through the completion route', () => {
     }
   });
 });
+/**
+ * The join of two changes made apart: one branch admits a content stated as parts, the other lets a
+ * client's file claim ride in a top-level member nothing here reads. Neither suite shows the route
+ * accepting both in one request, and the claim is only evidence if the digest covers the bytes that
+ * carry the media and the claim together.
+ */
+describe('a parts request that also states a file claim', () => {
+  const CLAIM_SHA256 = 'ab'.repeat(32);
+  const ANCHORED_PARTS_BODY =
+    `{"model":"${MODEL}","messages":[{"role":"user","content":[` +
+    `{"type":"text","text":"what is in this image?"},` +
+    `{"type":"image_url","image_url":{"url":"${IMAGE_DATA_URL}"}}]}],` +
+    `"ashaveri":{"file":{"sha256":"${CLAIM_SHA256}","bytes":${String(INLINE_DATA.length)},"media_type":"image/png"}}}`;
+
+  it('is admitted, and its receipt digests the bytes carrying both the media and the claim', async () => {
+    const h = await session();
+    try {
+      const completion = await send(h, 'POST', '/v1/chat/completions', ANCHORED_PARTS_BODY, nonceAt(1, MARKER));
+      expect(completion.statusCode).toBe(200);
+      const completionId = completion.headers['x-ashaveri-receipt-id'] as string;
+      const receipt = await receiptBytesOf(h, completionId);
+      expect(toHex(decodeReceipt(receipt).payload.req)).toBe(digestOf(ANCHORED_PARTS_BODY));
+    } finally {
+      await h.app.close();
+    }
+  });
+});
