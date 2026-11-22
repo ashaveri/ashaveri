@@ -130,8 +130,32 @@ describe('an oversize request body', () => {
     }
   });
 
-  it('refuses to build on a bound the environment states badly, rather than serving the shipped one', async () => {
-    process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'] = 'not-a-bound';
+  // Precedence is documented in `docs/configured-values.md`, so the order has to be asserted and not assumed:
+  // swapping the two reads in `server.ts` would otherwise leave every other cell here green.
+  it('keeps the bound the option states when the environment states another', async () => {
+    process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'] = String(LIMIT_BYTES);
+    try {
+      const h = await harness({
+        credentials: [generated(CREDENTIAL, ['complete', 'read'])],
+        gateway: { requestBodyLimitBytes: LIMIT_BYTES * 4 },
+      });
+      try {
+        const inside = await send(h, requestBody(LIMIT_BYTES + 512));
+        expect(inside.statusCode, 'a body past the environment number but inside the option is read').not.toBe(413);
+        const over = await send(h, requestBody(LIMIT_BYTES * 4 + 512));
+        expect(over.statusCode, 'the option is the bound this process holds').toBe(413);
+        expect(refusalOf(over)?.message, 'and the refusal prints the option, never the environment').toContain(
+          String(LIMIT_BYTES * 4),
+        );
+      } finally {
+        await h.app.close();
+      }
+    } finally {
+      delete process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'];
+    }
+  });
+
+  it('refuses to build on a bound the environment states badly, rather than serving the shipped one', async () => {    process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'] = 'not-a-bound';
     try {
       await expect(
         harness({ credentials: [generated(CREDENTIAL, ['complete', 'read'])] }),
