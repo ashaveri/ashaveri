@@ -511,19 +511,15 @@ describe('the bounds the prose states in mebibytes', () => {
     // Both sentences the refusal is built from speak the same bound twice, once as bytes and once as
     // mebibytes. The byte figure has always come from the constant; this holds the second one to the same
     // rule, so a value that moves cannot leave a caller reading a number this build no longer ships. The
-    // figure a caller actually reads is pinned against the constant in
-    // `gateway/test/oversize-response-refusal.test.ts`, where the refusal is rendered.
+    // declaration spells that second figure through `mebibytes(MAX_BUFFERED_BODY)`, so it carries no digit
+    // for a scan of this text to weigh. The rendered figure is pinned beside the constant in
+    // `gateway/test/oversize-response-refusal.test.ts`, in the cell `refuses the byte past the bound by
+    // name, and issues nothing for it`, which reads the number off the message a refusal answers with.
     const refusal = bufferingRefusalText();
     expect(
       refusal,
       'the refusal spells its mebibyte bound from MAX_BUFFERED_BODY, not as a digit copied beside the byte count',
     ).toMatch(/\$\{[^}]*MAX_BUFFERED_BODY[^}]*\} MiB/u);
-    for (const [stated] of [...refusal.matchAll(/(\d+) MiB/gu)]) {
-      expect(
-        Number(stated),
-        'a mebibyte figure written as digits in the refusal is the constant the sentence names',
-      ).toBe(bytesDeclaredAs('MAX_BUFFERED_BODY', SERVER_SOURCE) / MEBIBYTE);
-    }
   });
 });
 
