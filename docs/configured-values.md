@@ -164,8 +164,9 @@ arrived, and this gateway asks for no usage figures, because the ask is a parse 
 the caller's body held for the life of the completion and what it buys is a count. A request under it is
 asked, as it always was, and a buffered request is never copied for the ask at any size, because its
 figures ride in its body. What the large arm gives up is stated and not left to be inferred: `tok` is a
-required map of two integers the reader refuses negative in the published receipt format, so a completion
-whose figures were never obtained still states two of them, and the response carries
+required map of two figures that are each an integer or an absence, the reader refuses a negative and refuses
+a pair split between one count and one absence, so a completion whose figures were never obtained states two
+absences where a stack that counted none would state two zeros, and the response carries
 `x-ashaveri-metering: declined` beside them. The header names what this gateway did rather than what
 arrived: an inference server that reports usage without being asked is still read, and the header still
 says this gateway did not ask. It cannot say more than that, because the headers are written before the

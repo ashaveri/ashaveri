@@ -79,7 +79,9 @@ specific to that case.
   since names the payload version its bytes
   claim in `v`, the marking setting its response came off in `marking`, the response bytes themselves, and
   the item list as the shipped reader of a response body gives them, and a row whose document carries `enc`
-  states which arm of it its bytes hold, the key in unpadded base64url only on the arm that names one.
+  states which arm of it its bytes hold, the key in unpadded base64url only on the arm that names one, and a
+  row whose metering is not the pair every other row takes from the generator states its two figures in `tok`
+  as the document holds them, so an unreported figure is a published value rather than a column no row spells.
   Which versions those rows name, and
   how many of them state none, is the `layout` block's business and the tests' arithmetic, not this
   sentence's. Every row states its response bytes because every payload this format reads names a

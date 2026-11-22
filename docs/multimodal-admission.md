@@ -104,7 +104,9 @@ name no text at all meters at zero, and the receipt format carries a zero.
 The completion sentence names both figures rather than one, so the number's scope travels with it: a
 parts message is answered as `with N characters in X text part(s) beside Y part(s) naming something
 else`, where N is the count above. A string content is answered as `with N characters`. The figure
-a receipt carries in `tok.p` is the same `promptTokens` the completion's `usage` states.
+a receipt carries in `tok.p` is the same `promptTokens` the completion's `usage` states, and where this
+gateway asks for no usage at all the receipt states that nothing was reported, which is not a figure the
+count above has to answer for.
 
 ## 5. What a receipt binds
 
