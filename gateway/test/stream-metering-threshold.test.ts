@@ -16,7 +16,7 @@ import { generated, harness, type Harness } from './helpers.js';
  *
  * What it gives up is a measurement, and the receipt says so in the bytes it signs: the pair of figures goes
  * out as two absences where nothing was reported and as two counts where the upstream reported two counts,
- * which is the shape `packages/receipt` widened `v: 1` to admit. The pins below read the signed document
+ * which is the shape `packages/receipt` widened `v: 1` to admit. The pins below read the signed payload
  * rather than `x-ashaveri-metering`, because a header stays with the response while a receipt is read long
  * after it, and a decoded pair of nulls is no proof that nulls are what went out.
  *
@@ -182,9 +182,16 @@ async function signedReceipt(h: Harness, id: string): Promise<Uint8Array> {
   return new Uint8Array(answer.rawPayload);
 }
 
-/** `toHex` of the signed document, for the pins that have to be about bytes rather than about a decode. */
-async function signedHex(h: Harness, id: string): Promise<string> {
-  return toHex(await signedReceipt(h, id));
+/**
+ * `toHex` of the payload this issuance signed, for the pins that weigh where a pair of figures sits.
+ *
+ * The pair is a member of the payload, so the bytes a claim about it is made against are the payload's and
+ * not the whole document's: a run searched out of the document can be matched in a signature or in the
+ * protected header as readily as in a statement, which would leave a pin proving that some bytes were
+ * present while it claims to prove where the figures were written.
+ */
+async function signedPayloadHex(h: Harness, id: string): Promise<string> {
+  return toHex(decodeReceipt(await signedReceipt(h, id)).cose.payloadBytes);
 }
 
 async function receiptOf(h: Harness, id: string) {
@@ -259,8 +266,8 @@ describe('the metering bound on a streamed request', () => {
     // its zeros through one more round-trip hands back, and `x-ashaveri-metering` travels with no receipt.
     // `a2` is a map of two, `c` sorts before `p` by the bytewise order of their one-byte text keys, `f6` is
     // null and `00` the integer zero: the two runs `packages/receipt` proves distinct for this writer, read
-    // off the document this gateway signed for these bytes.
-    const signed = await signedHex(h, id);
+    // off the payload this gateway signed for these bytes, where the pair is a member and not a rumour.
+    const signed = await signedPayloadHex(h, id);
     expect(signed, 'the signed pair is two absences').toContain('a26163f66170f6');
     expect(signed, 'and not two measurements of nothing').not.toContain('a2616300617000');
     const payload = await receiptOf(h, id);
@@ -290,7 +297,7 @@ describe('the metering bound on a streamed request', () => {
     // The other half of the widening, in the same bytes: a reported zero is not the shape an absence takes,
     // so a producer that reached for the nulls by mistake would be caught here rather than in a decode that
     // cannot tell the two renderings apart.
-    const signed = await signedHex(h, id);
+    const signed = await signedPayloadHex(h, id);
     expect(signed, 'the signed pair is two measurements of nothing').toContain('a2616300617000');
     expect(signed, 'and not two absences').not.toContain('a26163f66170f6');
     expect((await receiptOf(h, id)).tok, 'a stack that served nothing says nothing').toEqual({ p: 0, c: 0 });
@@ -358,7 +365,7 @@ describe('the metering bound on a streamed request', () => {
     const h = await servedBy(upstream);
     const answer = await send(h, sent);
     const id = String(answer.headers['x-ashaveri-receipt-id']);
-    const signed = await signedHex(h, id);
+    const signed = await signedPayloadHex(h, id);
     expect(signed, 'the pair went out as two absences').toContain('a26163f66170f6');
     expect(signed, 'and not as two measurements of nothing').not.toContain('a2616300617000');
     expect((await receiptOf(h, id)).tok, 'no figures in the answer, no figures claimed').toEqual({ p: null, c: null });
