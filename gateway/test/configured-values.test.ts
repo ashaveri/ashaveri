@@ -39,6 +39,25 @@ const CLI_SOURCE = '../../../gateway/src/cli.ts';
 const COMPOSE = '../../../enclave/docker-compose.yaml';
 const ENTRYPOINT = '../../../enclave/docker-entrypoint.sh';
 const SDK_AUTH = '../../../packages/sdk/src/auth.ts';
+/** Where the two bounds stated in mebibytes by prose are declared. */
+const UPSTREAM_SOURCE = '../../../gateway/src/upstream.ts';
+const SERVER_SOURCE = '../../../gateway/src/server.ts';
+/** One mebibyte: the unit both of those sentences state a bound in. */
+const MEBIBYTE = 1024 * 1024;
+/** The numerals the inventory uses for a mebibyte count, indexed by the count itself. */
+const MEBIBYTE_WORDS: readonly string[] = [
+  'no',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+];
 /** The gateway's own source directory, from which the fallback sites are read file by file. */
 const GATEWAY_SRC = new URL('../src/', import.meta.url);
 /** How a workspace path in a table cell becomes a specifier `readSourceFile` takes. */
@@ -427,6 +446,83 @@ describe('the shipped defaults against the source that declares them', () => {
         }).length,
         `${name} is declared at module level in exactly one gateway source file`,
       ).toBe(1);
+    }
+  });
+});
+
+/**
+ * The whole-byte value of a bound the source declares as a product of integers.
+ *
+ * Both bounds the prose states in mebibytes are written that way, and reading the declaration rather than
+ * importing the value is what makes a rename show up here: the name is part of the sentence, so a constant
+ * that moves or goes by another name leaves the prose stating a figure nothing declares.
+ */
+function bytesDeclaredAs(name: string, specifier: string): number {
+  const declared = valueDeclaredIn(name, specifier);
+  const parts = declared.split('*').map((part) => part.trim());
+  if (parts.length < 2 || parts.some((part) => !/^\d+(?:_\d+)*$/u.test(part))) {
+    throw new Error(`${name} in ${specifier} is not written as a product of whole byte counts: ${declared}`);
+  }
+  return parts.reduce((total, part) => total * Number(part.replace(/_/gu, '')), 1);
+}
+
+/** The refusal text `collect` answers with, as the source spells it, both arms together. */
+function bufferingRefusalText(): string {
+  const source = readSourceFile(SERVER_SOURCE);
+  const start = source.indexOf('function bufferedResponseTooLarge');
+  if (start < 0) {
+    throw new Error(`${SERVER_SOURCE} builds no buffered-response refusal for the prose to be read against`);
+  }
+  const end = source.indexOf('\n}', start);
+  if (end < 0) throw new Error('the buffered-response refusal does not close where it opened');
+  return source.slice(start, end);
+}
+
+describe('the bounds the prose states in mebibytes', () => {
+  it('spells the metering bound in words at the number the constant holds', () => {
+    const bytes = bytesDeclaredAs('STREAM_USAGE_INJECTION_MAX_BYTES', UPSTREAM_SOURCE);
+    expect(bytes % MEBIBYTE, 'the metering bound is a whole number of mebibytes').toBe(0);
+    const word = MEBIBYTE_WORDS[bytes / MEBIBYTE];
+    if (word === undefined) {
+      throw new Error(
+        `the document spells mebibyte bounds in words to ${String(MEBIBYTE_WORDS.length - 1)}, and this one is ${String(
+          bytes / MEBIBYTE,
+        )}`,
+      );
+    }
+    const prose = documentText().replace(/\s+/gu, ' ');
+    expect(
+      prose,
+      `the inventory spells \`STREAM_USAGE_INJECTION_MAX_BYTES\` as ${word} mebibyte of wire`,
+    ).toContain(`\`STREAM_USAGE_INJECTION_MAX_BYTES\` of wire, ${word} mebibyte`);
+  });
+
+  it('states the buffering bound in figures at the number the constant holds', () => {
+    const bytes = bytesDeclaredAs('MAX_BUFFERED_BODY', SERVER_SOURCE);
+    expect(bytes % MEBIBYTE, 'the buffering bound is a whole number of mebibytes').toBe(0);
+    const prose = documentText().replace(/\s+/gu, ' ');
+    expect(
+      prose,
+      `the inventory says \`${String(bytes / MEBIBYTE)} MiB\` beside \`MAX_BUFFERED_BODY\``,
+    ).toContain(`\`MAX_BUFFERED_BODY\`, ${String(bytes / MEBIBYTE)} MiB,`);
+  });
+
+  it('derives the mebibyte figure of its refusal from the bound rather than from a copied number', () => {
+    // Both sentences the refusal is built from speak the same bound twice, once as bytes and once as
+    // mebibytes. The byte figure has always come from the constant; this holds the second one to the same
+    // rule, so a value that moves cannot leave a caller reading a number this build no longer ships. The
+    // figure a caller actually reads is pinned against the constant in
+    // `gateway/test/oversize-response-refusal.test.ts`, where the refusal is rendered.
+    const refusal = bufferingRefusalText();
+    expect(
+      refusal,
+      'the refusal spells its mebibyte bound from MAX_BUFFERED_BODY, not as a digit copied beside the byte count',
+    ).toMatch(/\$\{[^}]*MAX_BUFFERED_BODY[^}]*\} MiB/u);
+    for (const [stated] of [...refusal.matchAll(/(\d+) MiB/gu)]) {
+      expect(
+        Number(stated),
+        'a mebibyte figure written as digits in the refusal is the constant the sentence names',
+      ).toBe(bytesDeclaredAs('MAX_BUFFERED_BODY', SERVER_SOURCE) / MEBIBYTE);
     }
   });
 });
