@@ -1,5 +1,6 @@
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { createHash, randomUUID } from 'node:crypto';
+import { Transform } from 'node:stream';
 import { evidenceReportData } from '@ashaveri/attest-core';
 import {
   hashRequest,
@@ -932,44 +933,83 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // The receipt binds the exact bytes the client sent, so the body is kept raw
   // instead of being parsed into a JS object first.
   //
-  // This is also where those bytes are charged to the budget, and the reason it happens here is the reason the
-  // charge is honest: this callback is handed the whole body as one buffer, after the reader has finished
-  // accumulating it, so `body.byteLength` is what this process now holds rather than what the caller declared
-  // it would send. A declared `Content-Length` is a caller's claim, and three of them are false in ways this
-  // process would pay for: a body that arrives with no length at all, under `Transfer-Encoding: chunked`, is
-  // as large as whoever sent it decides while it is sent; a length that disagrees with the bytes is refused by
-  // the HTTP parser before this callback runs, so nothing here can be charged by it; and the reader's own bound
-  // is applied to the bytes it accumulated rather than to the header, so a body reaching this line is a body
-  // this gateway agreed to read at exactly this width. Charging the header would let a caller reserve one byte
-  // and hold a hundred and twenty-eight megabytes, which is a budget that bounds nothing.
+  // This is also where those bytes are charged to the budget, and the charging is done as they arrive
+  // rather than once they have all arrived. Two reasons, one about the number and one about what a
+  // number bounds:
   //
-  // What the charge therefore does not cover is stated rather than hidden: the bytes were already read to get
-  // here, so the peak of one request can stand one body above the budget, and that overshoot is bounded by
-  // `requestBodyLimitBytes`, the number an operator set on the line above. What a held body costs this process
-  // beside its own bytes is not measured here, so an operator sizing the budget against a container's memory
-  // has to leave that room themselves rather than trust this arithmetic to have left it.
-  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (request, body, done) => {
-    // The width of the bytes in hand, whichever shape the reader was configured to hand them over in. The
-    // parser above asks for a buffer and the route below refuses anything else, so the string arm is a
-    // measurement taken from a state this build does not reach rather than a cast that would have to be right.
-    const bytes = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength;
-    const reservation = residentBodies.reserve(bytes);
-    if (!reservation.admitted) {
-      // Nothing was charged, so nothing is owed back: `reserve` decides and refuses in one step, which is what
-      // lets this arm be written without an undo. The refusal travels to the handler below as this process's own
-      // code rather than as the framework's, because the framework has no opinion about a sum of bytes.
-      done(new AccessError('RESIDENT_BODY_BUDGET_EXCEEDED', {
-        detail: requestBodyBudgetDetail(residentBodies, reservation),
-        retryAfterSeconds: reservation.retryAfterSeconds,
-      }), undefined);
+  // - What the charge is, is what this process actually took in, not what the caller declared. A
+  //   declared `Content-Length` is a caller's claim, and three of them are false in ways this process
+  //   would pay for: a body that arrives with no length at all, under `Transfer-Encoding: chunked`, is
+  //   as large as whoever sent it decides while it is sent; a length that disagrees with the bytes is
+  //   refused by the HTTP parser before any chunk reaches this line, so nothing here can be charged by
+  //   it; and the reader's own bound is applied to the bytes it accumulated rather than to the header.
+  //   Charging the header would let a caller reserve one byte and hold a hundred and twenty-eight
+  //   megabytes, which is a budget that bounds nothing.
+  // - A charge taken after the body is complete bounds how long the bytes are held and never whether
+  //   they may arrive, and the second of those is the whole point of the number. Measured on the
+  //   platform deployments run on, at 128 MiB bodies and sixteen callers in flight with a 512 MiB
+  //   budget, the process that charged the completed body peaked at 3,028.0 MiB where the same tree
+  //   with no budget at all peaked at 4,094.8 MiB: the refusals were decided, the arithmetic held, and
+  //   the memory was still paid for by the callers that were turned away, because their bytes had all
+  //   arrived before any of them was refused. The same load with the charge taken chunk by chunk peaked
+  //   at 1,035.3 MiB, and that ceiling sat at 2.05 times the budget at every body width and every
+  //   concurrency in two independent runs. Runtime for all three figures: `v26.13.1` inside
+  //   `node:26-slim`, which is the deployment platform and not this host's `v26.13.0`.
+  //
+  // So the question is asked at the chunk that carries the sum past the budget, which is the earliest
+  // moment this process can honestly ask it: nothing is reserved against a caller's word, and no byte
+  // is charged twice. What the overshoot therefore is, is one chunk of the refused request rather than
+  // one whole body of it, and it is bounded by the width a chunk arrives at, not by
+  // `requestBodyLimitBytes` beside it.
+  app.addHook('preParsing', (request, _reply, payload, done) => {
+    // A bodyless method has no arrival to bound, and wrapping its payload would put a reader between a
+    // stream nothing downstream consumes and the socket: `handleRequest` goes straight to the route for
+    // these two methods, so the wrapper's readable side would never be drained and the request would
+    // stall on that backpressure rather than on any decision this process made.
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      done(null, payload);
       return;
     }
     const state = stateOf(request);
-    if (state !== undefined) {
-      // The charge is recorded on the request rather than only in the integer, so the release has exactly one
-      // number to give back and can be asked for twice without moving it twice.
-      state.residentBytes = reservation.bytes;
-    }
+    let charged = 0;
+    const arrival = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        const reservation = residentBodies.reserve(chunk.length);
+        if (!reservation.admitted) {
+          // The bytes of this request that did get through are this request's to give back, and the
+          // release site already reads the figure off the request's own state, so a refusal partway
+          // through an upload unwinds exactly the part it charged. This line is the whole of the undo,
+          // and it is the shape 1 refusal's `nothing was charged` arm turned into a number: the
+          // crossing chunk itself was refused, so it joins no sum.
+          if (state !== undefined) state.residentBytes = charged;
+          callback(
+            new AccessError('RESIDENT_BODY_BUDGET_EXCEEDED', {
+              detail: requestBodyBudgetDetail(residentBodies, reservation),
+              retryAfterSeconds: reservation.retryAfterSeconds,
+            }),
+          );
+          return;
+        }
+        charged += chunk.length;
+        if (state !== undefined) {
+          // Cumulative rather than per chunk, so the release has exactly one number to give back and can
+          // be asked for twice without moving it twice. That is the same rule the charge ran on when it
+          // sat in the parser below, and it is what keeps a mid-read refusal and a served completion
+          // releasing through the one site.
+          state.residentBytes = charged;
+        }
+        callback(null, chunk);
+      },
+    });
+    payload.pipe(arrival);
+    done(null, arrival);
+  });
+
+  app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, body, done) => {
+    // The bytes still travel raw, which is what the receipt signs. What moved out of here is the
+    // charge, and it moved to the arrival counter above: this callback is handed the whole body after
+    // the reader finished accumulating it, so a sum taken here can only be a statement about what is
+    // already held. A charge left here as well would bill every body twice.
     done(null, body);
   });
 

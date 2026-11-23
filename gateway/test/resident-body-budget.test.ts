@@ -27,6 +27,13 @@ import { generated, harness, type Harness } from './helpers.js';
  * mebibyte: the shipped budget is proved by what a run reads when it states nothing (the cell that compares
  * the two shipped numbers, computed from the constants rather than repeating them) and by the inventory
  * reader in `test/configured-values.test.ts`, which is what pins the fallback site itself.
+ *
+ * A second family, `where in the arrival the budget is decided`, is written against the *moment* the question
+ * is asked rather than the sum it is asked about. The charge is taken datum by datum as an upload arrives, so
+ * those cells read this process's own accounting while a caller is still writing, and read the answer off a
+ * real socket rather than off the injector: what a refused upload was told, and whether it was told at all, is
+ * not observable from a payload handed to the route, and the one defect this branch exists to close was found
+ * on a platform and not in a build.
  */
 
 const CREDENTIAL = 'resident';
@@ -40,6 +47,11 @@ const SIZE_BOUND = 64 * 1024;
 const FITS = 1_500;
 /** A second body that fits the process but not the budget beside `FITS`, so the sum is what refuses. */
 const DOES_NOT_FIT = 3_000;
+/**
+ * The width one datum of a chunked upload arrives at. Three of these past `FITS` cross `BUDGET` on the
+ * third, so a cell about *where* the decision is taken has room to say which datum took it.
+ */
+const CHUNK = 1_000;
 /** The wait this budget may state, read out of the answer rather than repeated here; see the cell that pins it. */
 interface Refusal {
   readonly statusCode: number;
@@ -240,6 +252,99 @@ function refusalOf(answer: Refusal): Refusal['error'] {
 function waitOf(answer: Refusal): string | undefined {
   const raw = answer.headers['retry-after'];
   return Array.isArray(raw) ? raw[0] : raw;
+}
+
+/**
+ * What a caller on the other end of a real socket actually received.
+ *
+ * This is a different thing from `Refusal`, which is what the in-process injector reports: an injector can
+ * never see the half of the failure this record exists for, because it hands the bytes to the route instead
+ * of to a socket. Over a socket, an answer that never arrives is not a status code of its own: it is the
+ * connection dying while the caller is still writing. So a cell about what a refused upload was *told* has
+ * to carry both halves, which status came back and whether the socket had already gone by the time it did.
+ * The measurement this suite was written after found the two shapes of answer differing by platform and by
+ * nothing in the build, which is exactly the difference an injector hides.
+ */
+interface WireAnswer {
+  /** The status line's number, or nothing where no status line ever arrived. */
+  readonly status: number | undefined;
+  /** The refusal code inside a whole envelope, or nothing where the envelope never completed. */
+  readonly code: string | undefined;
+  /** The `retry-after` on the head, read the same way `waitOf` reads it off an injected answer. */
+  readonly wait: string | undefined;
+  /** True where the socket died, or closed, with no whole answer ever having arrived. */
+  readonly reset: boolean;
+  /** Every byte that did arrive, for a cell that has to say what the caller was given. */
+  readonly raw: string;
+}
+
+/** One `Transfer-Encoding: chunked` datum, framed the way the reader on the other end expects it. */
+function chunkFrame(data: string): string {
+  return `${Buffer.byteLength(data, 'utf8').toString(16)}\r\n${data}\r\n`;
+}
+
+/** The zero-length datum that ends a chunked body, and so ends the upload. */
+const FINAL_CHUNK = '0\r\n\r\n';
+
+/**
+ * What the socket read until it saw a whole answer or died.
+ *
+ * Resolution is on whichever of those comes first, and that is the point: an answer that arrived and was
+ * followed by a reset is a caller that was told, and an answer that never arrived is a caller that was
+ * not, which are two different outcomes a status-only report would fold into one.
+ */
+function collectAnswer(socket: net.Socket): Promise<WireAnswer> {
+  return new Promise((resolve) => {
+    let got = '';
+    let settled = false;
+    const read = (died: boolean): void => {
+      if (settled) return;
+      const head = got.split('\r\n\r\n')[0] ?? '';
+      const status = Number(/^HTTP\/1\.[01] (\d{3})/u.exec(head)?.[1]);
+      const declared = Number(/content-length: (\d+)/iu.exec(head)?.[1]);
+      const body = got.slice(head.length + 4);
+      let code: string | undefined;
+      try {
+        code = (JSON.parse(body) as { error?: { code?: string } }).error?.code;
+      } catch {
+        code = undefined;
+      }
+      const complete = Number.isFinite(status) && Number.isFinite(declared) && code !== undefined &&
+        Buffer.byteLength(body, 'utf8') >= declared;
+      // Not a whole answer yet, and the socket is still up: keep reading. A caller refused mid-write must
+      // not be reported as refused by an envelope that has not finished arriving, and a caller whose
+      // socket is gone must not be reported as waiting for one that never will.
+      if (!complete && !died) return;
+      settled = true;
+      resolve({
+        status: Number.isFinite(status) ? status : undefined,
+        code,
+        wait: /retry-after: ([^\r]*)/iu.exec(head)?.[1],
+        reset: !complete,
+        raw: got,
+      });
+    };
+    socket.on('data', (chunk: Buffer) => {
+      got += chunk.toString('utf8');
+      read(false);
+    });
+    socket.on('end', () => read(true));
+    socket.on('close', () => read(true));
+    socket.on('error', () => read(true));
+  });
+}
+
+
+/** The request head of a chunked upload: no `content-length`, because the body is arriving as it is read. */
+function uploadHead(headers: Record<string, string>): string {
+  return (
+    `POST ${TARGET} HTTP/1.1\r\n` +
+    `host: 127.0.0.1\r\n` +
+    `content-type: application/json\r\n` +
+    `transfer-encoding: chunked\r\n` +
+    `authorization: ${headers['authorization']}\r\n` +
+    `x-ashaveri-nonce: ${headers['x-ashaveri-nonce']}\r\n\r\n`
+  );
 }
 
 describe('the arithmetic on the one integer', () => {
@@ -562,14 +667,21 @@ describe('the refusal the budget answers with', () => {
     }
   });
 
-  it('leaves an oversize body to the size bound, which is read first and charges nothing', async () => {
+  it('leaves an oversize body to the size bound, and gives back what the arrival charged before it answered', async () => {
     const s = await serving(BUDGET, { limit: 2_048 });
     try {
       const answer = await s.send(requestBody(4_000));
       expect(answer.statusCode, 'a body past the bound this process reads is a 413').toBe(413);
       expect(refusalOf(answer)?.code, 'and the size code, not the budget one').toBe('BODY_TOO_LARGE');
       expect(s.upstream.calls(), 'nothing reached the upstream').toBe(0);
-      expect(s.resident(), 'and the budget was never touched, because the bytes were never held').toBe(0);
+      // This cell used to end by asserting that the budget was never touched, because the charge was taken
+      // from a completed body and a body the size bound refused never completed. That sentence is not true
+      // of an arrival bound and the cell is not relaxed to keep it saying so: the datum that crossed the
+      // size bound is charged as it arrives, because arriving is what the bound is read against, and what
+      // the size bound decides is only that the request is not served. So what this pairing holds is the
+      // 413 *and* the charge given back, which is the same leak class every other cell in this file is
+      // written against, and the reason the wait is a wait rather than a read.
+      await s.waitForResident(0, 'the bytes the size bound refused are given back with the answer');
     } finally {
       await s.close();
     }
@@ -844,3 +956,66 @@ describe('the budget a deployment states, three ways', () => {
     ).toBe(true);
   });
 });
+
+describe('where in the arrival the budget is decided', () => {
+  /**
+   * The one cell family that cannot be run through the injector.
+   *
+   * `send` hands the route a body; these cells are about the bytes between the socket and the route, and
+   * about what the caller on the far end of that socket was told. So the arrival is written datum by datum
+   * over a real connection, and every figure is read off the gateway's own accounting while the upload is
+   * still open, which is the state a charge taken after the body completed never reaches.
+   */
+  it('charges each datum as it arrives and refuses the one that crosses, before the upload ends', async () => {
+    const s = await serving(BUDGET);
+    const socket = new net.Socket();
+    try {
+      const address = await s.h.app.listen({ port: 0, host: '127.0.0.1' });
+      const port = Number(new URL(address).port);
+      // One body held open at the upstream, so the sum the upload joins is a known 1,500 and not a race
+      // with whatever else this process happens to be serving.
+      const held = s.send(requestBody(FITS));
+      await s.waitFor(() => s.upstream.calls() === 1, 'one body is resident');
+
+      const body = 'x'.repeat(CHUNK * 4);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body)));
+      const reading = collectAnswer(socket);
+
+      socket.write(chunkFrame(body.slice(0, CHUNK)));
+      await s.waitFor(() => s.resident() === FITS + CHUNK, 'the first datum is charged as it arrives');
+      socket.write(chunkFrame(body.slice(CHUNK, CHUNK * 2)));
+      await s.waitFor(() => s.resident() === FITS + CHUNK * 2, 'and so is the second');
+      expect(s.upstream.calls(), 'none of this upload has reached the inference server').toBe(1);
+
+      // The third datum takes the sum past 4,096 and is the one the refusal is decided at. The fourth and
+      // the terminator go out behind it because a caller that was refused mid-upload is not a caller that
+      // stopped writing, and what the cell is about is the difference between those two.
+      socket.write(chunkFrame(body.slice(CHUNK * 2, CHUNK * 3)));
+      socket.write(chunkFrame(body.slice(CHUNK * 3)));
+      socket.write(FINAL_CHUNK);
+      const answer = await reading;
+      expect(answer.status, 'the crossing datum is refused').toBe(429);
+      expect(answer.code, 'and by name').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      expect(answer.reset, 'the caller was given the answer over the socket that asked').toBe(false);
+
+      // Only the held body is left in the sum once the refused upload's own bytes are given back: the two
+      // datums that were admitted are released with the request that carried them, and the crossing datum
+      // and everything written behind it joined no sum at any point.
+      await s.waitFor(() => s.resident() === FITS, 'the refused upload gives back the datums it had charged');
+      expect(s.upstream.calls(), 'and nothing of the refused upload was forwarded').toBe(1);
+
+      s.upstream.release();
+      await held;
+      await s.waitForResident(0, 'and the served request gives its own bytes back beside them');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+});
+
