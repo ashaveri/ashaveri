@@ -6,6 +6,7 @@ import { mockBackend } from '../src/backend.js';
 import { ResidentBodyBudget } from '../src/resident-body.js';
 import {
   DEFAULT_REQUEST_BODY_BUDGET_BYTES,
+  DEFAULT_REQUEST_BODY_DRAIN_TIMEOUT_MS,
   DEFAULT_REQUEST_BODY_LIMIT_BYTES,
   type GatewayInstance,
 } from '../src/server.js';
@@ -52,6 +53,26 @@ const DOES_NOT_FIT = 3_000;
  * third, so a cell about *where* the decision is taken has room to say which datum took it.
  */
 const CHUNK = 1_000;
+/** One mebibyte: the unit the arrival cells state a budget in, so the crossing is a whole number of datums. */
+const MEBIBYTE = 1024 * 1024;
+/**
+ * The width a datum of a real upload arrives at, which is the reader's own buffer rather than a fixture's
+ * convenience. Sixteen of these are exactly `MEBIBYTE`, so a 1 MiB budget crosses on the seventeenth.
+ */
+const DATUM = 64 * 1024;
+/** An upload wide enough to outgrow the socket's buffers, so the crossing is not near its end. */
+const UPLOAD = 8 * MEBIBYTE;
+/**
+ * The upload the answer claim is written against: eight times `UPLOAD`, so that what stands between the
+ * crossing datum and the end of the body is 63 MiB of bytes no socket pair on this host holds. Measured, not
+ * assumed: the cell below was first run at `UPLOAD`, and at that width it passed against a build with the drain
+ * disabled, because the whole over-run fitted into the buffers between the two sockets and the caller finished
+ * writing before the answer went out. The failure this cell exists to catch is the one the sweep measured,
+ * where the caller is still writing when the connection goes, and that needs an upload wider than the pipe.
+ */
+const REFUSED_UPLOAD = 64 * MEBIBYTE;
+/** A drain bound short enough for a cell to wait on and long enough to tell apart from an instant answer. */
+const DRAIN_MS = 250;
 /** The wait this budget may state, read out of the answer rather than repeated here; see the cell that pins it. */
 interface Refusal {
   readonly statusCode: number;
@@ -177,15 +198,21 @@ interface Serving {
 /**
  * A gateway with the budget and the size bound both stated, so a case decides nothing about which number was
  * met: the bound is far above every body here, and only the sum ever refuses. Hand `budget` nothing to leave
- * the option off, which is how the two cells about what a run states at the shell read the environment.
+ * the option off, which is how the two cells about what a run states at the shell read the environment. Hand
+ * `drain` a number to state the bound on the drain of an upload that was refused partway through, which is
+ * the third of the three settings this file reads and the one the arrival cells below are written against.
  */
-async function serving(budget: number | undefined, options: { limit?: number } = {}): Promise<Serving> {
+async function serving(
+  budget: number | undefined,
+  options: { limit?: number; drain?: number } = {},
+): Promise<Serving> {
   const upstream = gatedBackend();
   const h = await harness({
     credentials: [generated(CREDENTIAL, ['complete', 'read'])],
     gateway: {
       ...(budget === undefined ? {} : { requestBodyBudgetBytes: budget }),
       requestBodyLimitBytes: options.limit ?? SIZE_BOUND,
+      ...(options.drain === undefined ? {} : { requestBodyDrainTimeoutMs: options.drain }),
       backend: upstream.backend,
     },
   });
@@ -1015,6 +1042,242 @@ describe('where in the arrival the budget is decided', () => {
     } finally {
       socket.destroy();
       await s.close();
+    }
+  });
+
+  it('answers a caller that is still writing when the decision is taken, on this platform', async () => {
+    // The shape the sweep found the answer dividing over: a 64 MiB chunked upload against a 1 MiB budget, so
+    // the crossing is the seventeenth datum of 64 KiB and 63 MiB of body is still behind it. The widths are
+    // chosen so that the bytes behind the crossing cannot be absorbed between the two sockets, which is what
+    // made the answer platform-dependent where it was measured: 56 of 56 refused callers were answered on
+    // Linux and 28 of 32 were not on this platform, in the same build with the same bodies. It divides on the
+    // platform and not in the build, so the cell has to be run here rather than argued from a Linux column.
+    const s = await serving(MEBIBYTE, { limit: REFUSED_UPLOAD + 4 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const address = await s.h.app.listen({ port: 0, host: '127.0.0.1' });
+      const port = Number(new URL(address).port);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      const datum = 'x'.repeat(DATUM);
+      const body = datum.repeat(REFUSED_UPLOAD / DATUM);
+      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body)));
+      const reading = collectAnswer(socket);
+      // Written as fast as the socket will take it and never paused, because the thing being proved is that
+      // a caller does not have to stop being a caller just because this process decided it would not serve
+      // it: the writes behind the crossing are the same writes a client that knew nothing would be making.
+      // One datum is repeated rather than one body sliced, so the loop measures the pipe and not a copy.
+      let fullest = 0;
+      for (let index = 0; index < REFUSED_UPLOAD / DATUM; index += 1) {
+        if (!socket.write(chunkFrame(datum))) fullest += 1;
+      }
+      socket.write(FINAL_CHUNK);
+      const answer = await reading;
+      expect(answer.raw.slice(0, 40), 'what came back on the socket').toContain('HTTP/1.1');
+      expect(answer.reset, 'the upload was not cut off from its answer by its own size').toBe(false);
+      expect(answer.status, 'the refused caller is answered with a status').toBe(429);
+      expect(answer.code, 'and with the name this gateway defined').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      expect(
+        fullest,
+        'the socket filled while the caller was writing, so this upload reached the caller only because this process went on reading it',
+      ).toBeGreaterThan(0);
+      expect(s.upstream.calls(), 'nothing of it was forwarded').toBe(0);
+      await s.waitForResident(0, 'and the bytes the refusal turned away are not left on the budget');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+});
+
+describe('the drain of an upload the budget refused', () => {
+  /**
+   * Connect, write `datums` datums of a chunked upload, and then say nothing more.
+   *
+   * The silence is the cell: a caller that has stopped sending gives the drain no end to wait for, so what
+   * answers it can only be the bound, and how long it takes to answer is the figure under test.
+   */
+  async function stallAnUpload(
+    s: Serving,
+    datums: number,
+  ): Promise<{ readonly socket: net.Socket; readonly reading: Promise<WireAnswer>; readonly body: string }> {
+    const address = await s.h.app.listen({ port: 0, host: '127.0.0.1' });
+    const port = Number(new URL(address).port);
+    const socket = new net.Socket();
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve);
+      socket.once('error', reject);
+      socket.connect(port, '127.0.0.1');
+    });
+    // Wider than the crossing by design, so the caller could have gone on: what stops the arrival here is
+    // the caller deciding to, and not the body having run out.
+    const body = 'x'.repeat(DATUM * (datums + 8));
+    socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body)));
+    const reading = collectAnswer(socket);
+    for (let index = 0; index < datums; index += 1) {
+      socket.write(chunkFrame(body.slice(index * DATUM, (index + 1) * DATUM)));
+    }
+    return { socket, reading, body };
+  }
+
+  it('writes the answer for a caller that stops sending, on the bound the environment states', async () => {
+    process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'] = String(DRAIN_MS);
+    const s = await serving(MEBIBYTE, { limit: UPLOAD + 4 * MEBIBYTE });
+    let socket: net.Socket | undefined;
+    try {
+      // Sixteen datums of a 1 MiB budget is exactly the budget, so the seventeenth is the crossing and the
+      // caller falling silent after the twentieth leaves the drain with an end that will never come.
+      const stalled = await stallAnUpload(s, 20);
+      socket = stalled.socket;
+      const before = Date.now();
+      const answer = await stalled.reading;
+      const elapsed = Date.now() - before;
+      expect(answer.status, 'a caller that stopped sending is still answered').toBe(429);
+      expect(answer.code, 'by name').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      expect(answer.reset, 'and the answer reaches it whole rather than as a dead socket').toBe(false);
+      expect(elapsed, 'the answer came from the bound expiring, not from a body that finished').toBeGreaterThanOrEqual(
+        DRAIN_MS / 2,
+      );
+      expect(elapsed, 'and the bound this process waited on is the one the shell stated').toBeLessThan(5_000);
+      await s.waitForResident(0, 'the part of a stalled upload that was charged goes back with the answer');
+    } finally {
+      socket?.destroy();
+      await s.close();
+      delete process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'];
+    }
+  });
+
+  it('keeps the drain bound the option states when the environment states another', async () => {
+    // The swapped read in `server.ts` is the failure this pairing exists for: with the two reads in the wrong
+    // order, the answer arrives at the environment's figure and the elapsed claim below is the one that says
+    // so, because the option's bound is the shorter of the two and the cell would otherwise sit out eight
+    // seconds of a patience nobody configured.
+    process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'] = '8000';
+    const s = await serving(MEBIBYTE, { limit: UPLOAD + 4 * MEBIBYTE, drain: DRAIN_MS });
+    let socket: net.Socket | undefined;
+    try {
+      const stalled = await stallAnUpload(s, 20);
+      socket = stalled.socket;
+      const before = Date.now();
+      const answer = await stalled.reading;
+      const elapsed = Date.now() - before;
+      expect(answer.status, 'the refused caller is answered').toBe(429);
+      expect(elapsed, 'the option is the bound this process waited on, not the environment').toBeLessThan(2_000);
+      expect(elapsed, 'and it is still a wait rather than an immediate hang-up').toBeGreaterThanOrEqual(DRAIN_MS / 2);
+    } finally {
+      socket?.destroy();
+      await s.close();
+      delete process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'];
+    }
+  });
+
+  it('is the shipped bound when neither the option nor the environment states one', async () => {
+    // The cheap half of proving a shipped default is to read it out of a sentence, and the honest half is to
+    // show the process waiting on it. This cell asserts the second: two seconds of a stalled upload is a
+    // seventh of the shipped bound and a hundred times any figure these cells state, so a build that read a
+    // smaller number, or the test's own number, answers inside the window and reddens here.
+    const s = await serving(MEBIBYTE, { limit: UPLOAD + 4 * MEBIBYTE });
+    let socket: net.Socket | undefined;
+    try {
+      const stalled = await stallAnUpload(s, 20);
+      socket = stalled.socket;
+      const early = await Promise.race([
+        stalled.reading.then(() => 'answered' as const),
+        new Promise((resolve) => setTimeout(() => resolve('waiting'), 2_000)).then(() => 'waiting' as const),
+      ]);
+      expect(early, `a run that stated neither number waits on ${String(DEFAULT_REQUEST_BODY_DRAIN_TIMEOUT_MS)} ms`).toBe(
+        'waiting',
+      );
+      await s.waitFor(
+        () => s.resident() > 0,
+        'the stalled upload still holds the datums it was charged while the bound runs',
+      );
+    } finally {
+      socket?.destroy();
+      await s.close();
+    }
+  });
+
+  it('drains the rest of a refused upload without holding or charging a byte of it', async () => {
+    // The size bound is set *below* the width of this upload, which is what gives the drain a witness: a build
+    // that read the over-run and handed it on instead of dropping it would meet the framework's own refusal at
+    // the bound and answer 413 `BODY_TOO_LARGE`, and the code asserted below would not be this gateway's word.
+    // With the datum dropped where it is read, the budget's refusal is the only answer this request can get.
+    const s = await serving(MEBIBYTE, { limit: 2 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const address = await s.h.app.listen({ port: 0, host: '127.0.0.1' });
+      const port = Number(new URL(address).port);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      const datum = 'x'.repeat(DATUM);
+      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, datum.repeat(UPLOAD / DATUM))));
+      const reading = collectAnswer(socket);
+      // Sixteen datums of a 1 MiB budget fill it exactly, so the seventeenth is the crossing and the figure
+      // the reads below are taken against is a known one before any of the over-run is written.
+      for (let index = 0; index < MEBIBYTE / DATUM; index += 1) {
+        socket.write(chunkFrame(datum));
+      }
+      socket.write(chunkFrame(datum));
+      await s.waitFor(() => s.resident() === MEBIBYTE, 'the budget is filled exactly at the crossing datum');
+
+      // Read after every batch rather than on a timer: the drain of seven and a half megabytes over loopback
+      // is over in tens of milliseconds, and a sampler on an interval measured here to fire at a quarter of
+      // the figure it was watching. The waits below are what give the reads a window inside the drain, and
+      // the claim stays an equality for the same reason it always was: a ceiling test that had read nothing
+      // would pass, and this one cannot. Both edges are read, because a build that handed the drained bytes
+      // back as it went would sit under the figure just as wrongly as one that charged them sits over it.
+      let highest = s.resident();
+      let lowest = s.resident();
+      for (let start = MEBIBYTE + DATUM; start < UPLOAD; start += DATUM * 8) {
+        for (let index = 0; index < 8; index += 1) {
+          if (start + index * DATUM >= UPLOAD) break;
+          socket.write(chunkFrame(datum));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const seen = s.resident();
+        highest = Math.max(highest, seen);
+        lowest = Math.min(lowest, seen);
+      }
+      socket.write(FINAL_CHUNK);
+      const answer = await reading;
+      expect(answer.code, 'the upload was refused by the budget, and not by the size bound under it').toBe(
+        'RESIDENT_BODY_BUDGET_EXCEEDED',
+      );
+      expect(answer.reset, 'and it was answered').toBe(false);
+      expect(highest, 'and the seven and a half megabytes of discarded datum behind the crossing joined no sum').toBe(
+        MEBIBYTE,
+      );
+      expect(lowest, 'and none of them was handed back early either, which is the same figure held whole').toBe(
+        MEBIBYTE,
+      );
+      await s.waitForResident(0, 'the accounting is back at its pre-request figure once the answer is written');
+      expect(s.resident(), 'which is the same zero the cell started from').toBe(0);
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  it('refuses to build on a drain bound the environment states badly, rather than serving the shipped one', async () => {
+    for (const stated of ['not-a-bound', '0', '-1', '1024.5']) {
+      process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'] = stated;
+      try {
+        await expect(
+          harness({ credentials: [generated(CREDENTIAL, ['complete', 'read'])] }),
+          `a deployment that believes it set ${stated} is not run on another bound`,
+        ).rejects.toThrow(
+          /ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS states '[^']*', and a request-body drain bound is a positive whole number of milliseconds/u,
+        );
+      } finally {
+        delete process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'];
+      }
     }
   });
 });

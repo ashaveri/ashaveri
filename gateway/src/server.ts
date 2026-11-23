@@ -151,6 +151,64 @@ function requestBodyBudgetFromEnvironment(): number | undefined {
   }
   return parsed;
 }
+/**
+ * How long this process keeps reading a body it has already refused, and the three figures the shipped
+ * number is taken from rather than one of them.
+ *
+ * A refusal decided partway through an upload leaves the rest of that upload still to come, and what this
+ * process does with those bytes decides what the caller is told. Answering at the crossing datum is the fast
+ * answer and the one this gateway must not give: measured on Windows, 28 of 32 refused callers got no status
+ * at all from it, only a reset, because the client was still writing when the socket went, while the same
+ * build with the same bodies answered 56 of 56 on Linux because the kernel there had already taken the whole
+ * upload. An answer that depends on which platform a pod landed on is not an answer a client can branch on,
+ * so the refusal is written after the body is drained to its end, each further datum read and dropped rather
+ * than held.
+ *
+ * A caller can also stop sending, and then the drain needs a bound of its own or the answer never goes out
+ * and one socket is held for nothing. The shipped bound is 60,000 ms, from three numbers:
+ *
+ * - the whole of the widest body this gateway admits, 128 MiB, arriving over loopback on this host took
+ *   155.6 ms, 163.0 ms and 182.8 ms in three runs, which is what a drain costs when nothing about the link is
+ *   slow (`v26.13.0` on `win32 x64`, a read-and-discard socket and no gateway in the measurement);
+ * - the same 128 MiB over a 20 Mbit/s uplink is 53.7 s of arithmetic, 1,073,741,824 bits at 20,000,000 a
+ *   second, and a bound shorter than the remainder of an upload that is still progressing is the thing that
+ *   truncates the drain and brings the reset back;
+ * - what this process already tolerates, read off an instance built the way this file builds one:
+ *   `server.timeout` 0, `server.requestTimeout` 0, `server.headersTimeout` 60,000 ms and
+ *   `server.keepAliveTimeout` 72,000 ms, so nothing in the socket layer bounds how long a body may take to
+ *   arrive today at all, and 60,000 ms is a bound where there was none rather than a tightening of one a
+ *   deployment was already running under.
+ *
+ * What this bound is paid for is carried as a case rather than as a figure: a 64 MiB chunked upload against a
+ * 1 MiB budget, so 63 MiB of body is still behind the crossing datum and no socket pair here holds it. With
+ * the answer moved back to the crossing datum that caller is read nothing at all, not a status and not an
+ * envelope, and with the drain it is read the `429` in full.
+ *
+ * What the figure can afford to be generous is what it costs: one socket and no budget bytes, because the
+ * drain charges nothing, so a caller that stalls holds a connection for at most this long and holds no part
+ * of the resident sum while it does. When the bound expires the answer is still written before the socket
+ * goes, which is the whole of the point of writing it at all. `ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS` or the
+ * `requestBodyDrainTimeoutMs` option of `buildGateway` states another for a deployment whose callers arrive
+ * more slowly or whose operator wants the sockets gone sooner, and a bound low enough to cut a progressing
+ * upload short replaces the named refusal with the socket failure this bound exists to prevent.
+ */
+export const DEFAULT_REQUEST_BODY_DRAIN_TIMEOUT_MS = 60_000;
+/**
+ * The drain bound this deployment's own environment states, or nothing where it states none. Read the same
+ * three ways as the budget above it and validated the same way, for the same reason: a deployment that
+ * believes it set a bound and is served another is running a configuration nobody wrote.
+ */
+function requestBodyDrainTimeoutFromEnvironment(): number | undefined {
+  const stated = process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'];
+  if (stated === undefined || stated.length === 0) return undefined;
+  const parsed = Number(stated);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new RangeError(
+      `ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS states '${stated}', and a request-body drain bound is a positive whole number of milliseconds`,
+    );
+  }
+  return parsed;
+}
 /** Evidence is addressed by the digest it binds to, which is what its URL says. */
 const REPORT_DATA_HEX = /^[0-9a-fA-F]{64}$/;
 /** A weights manifest is addressed by the digest a receipt's `wts` carries: 32 bytes, 64 hex characters. */
@@ -202,14 +260,31 @@ export interface GatewayOptions {
    * raised the one without stating the other would be sizing its memory against its busiest minute rather than
    * against a number it chose.
    *
-   * A caller is admitted while the bytes already resident plus this request's stay within the budget, and the
-   * refusal is `RESIDENT_BODY_BUDGET_EXCEEDED`, retryable, at the reader and ahead of every credential check
-   * for the reason `docs/access-control.md` section 1 states. Absent means the budget this deployment's
-   * environment states, and absent there too means `DEFAULT_REQUEST_BODY_BUDGET_BYTES`. There is no spelling
-   * that takes the budget off, and a large number is how a deployment says it does not want it: the bound is
-   * what makes a raised body limit safe, so the option that removes it would remove the reason for the raise.
+   * A caller is admitted while the bytes already resident plus the bytes of this request that have arrived
+   * stay within the budget, which is the same question asked of a smaller number at a moment that is earlier:
+   * the charge is taken datum by datum as the upload arrives, so a caller the budget turns away is turned away
+   * partway through its upload rather than after the whole of it has been paid for. The refusal is
+   * `RESIDENT_BODY_BUDGET_EXCEEDED`, retryable, at the reader and ahead of every credential check for the
+   * reason `docs/access-control.md` section 1 states, and the rest of the refused upload is drained and
+   * dropped before the answer is written, which is what `requestBodyDrainTimeoutMs` bounds. Absent means the
+   * budget this deployment's environment states, and absent there too means
+   * `DEFAULT_REQUEST_BODY_BUDGET_BYTES`. There is no spelling that takes the budget off, and a large number is
+   * how a deployment says it does not want it: the bound is what makes a raised body limit safe, so the option
+   * that removes it would remove the reason for the raise.
    */
   readonly requestBodyBudgetBytes?: number;
+  /**
+   * How long this process keeps reading the part of a request body it has already refused, in milliseconds,
+   * before it writes the refusal anyway and ends the connection. It exists because the arrival bound means a
+   * refusal is decided while the caller is still writing, and a caller that is refused mid-upload and then
+   * handed a dead socket has been told nothing it can name: the answer is written after the body is drained
+   * instead, and this number is the bound on a drain that a caller which stopped sending would otherwise run
+   * forever. Absent means the bound this deployment's environment states, and absent there too means
+   * `DEFAULT_REQUEST_BODY_DRAIN_TIMEOUT_MS`, whose row states the three figures it is taken from. There is no
+   * spelling that turns the bound off, because the state it bounds is a socket left open by a caller that is
+   * not going to finish.
+   */
+  readonly requestBodyDrainTimeoutMs?: number;
   /**
    * The pipeline every route runs through. Required: there is no gateway without it,
    * and a default that admits everything would be a floor that opts out.
@@ -929,6 +1004,21 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     options.requestBodyBudgetBytes ?? requestBodyBudgetFromEnvironment() ?? DEFAULT_REQUEST_BODY_BUDGET_BYTES;
   const residentBodies = new ResidentBodyBudget(requestBodyBudgetBytes);
 
+  // The bound on how long this process waits out an upload it has already refused, read the same three ways.
+  // It belongs beside the budget rather than behind either of them because it is what makes the arrival bound
+  // safe to hold a caller at all: the drain is the answer's cost, and an unbounded one is a socket this
+  // process keeps for a client that has stopped talking. Validated here rather than at first use for the
+  // reason the two bounds above are: a bound the process could not state is not a bound it may serve on.
+  const requestBodyDrainTimeoutMs =
+    options.requestBodyDrainTimeoutMs ??
+    requestBodyDrainTimeoutFromEnvironment() ??
+    DEFAULT_REQUEST_BODY_DRAIN_TIMEOUT_MS;
+  if (!Number.isInteger(requestBodyDrainTimeoutMs) || requestBodyDrainTimeoutMs < 1) {
+    throw new RangeError(
+      `requestBodyDrainTimeoutMs is ${String(requestBodyDrainTimeoutMs)}, and a request-body drain bound is a positive whole number of milliseconds`,
+    );
+  }
+
   const app = Fastify({ bodyLimit: requestBodyLimitBytes, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
   // instead of being parsed into a JS object first.
@@ -972,34 +1062,64 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     }
     const state = stateOf(request);
     let charged = 0;
+    // The refusal this stream is waiting to answer, and the bound on how long it waits for the rest of the
+    // body before answering anyway. Both sit outside the transform because the drain has to outlive the datum
+    // that decided it, and because the answer is owed exactly once on either of the two ways the wait ends:
+    // the body reaching its own end, or the bound expiring.
+    let refusal: AccessError | undefined;
+    let drainBound: ReturnType<typeof setTimeout> | undefined;
     const arrival = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
+        if (refusal !== undefined) {
+          // Read and drop. Nothing is forwarded downstream, so the rest of an upload this process has already
+          // refused becomes neither a held buffer nor a charged byte, and all it costs is the read that lets
+          // the caller finish writing into a socket that is still being listened to. That is the whole of the
+          // difference between answering a refused caller and cutting it off.
+          callback(null);
+          return;
+        }
         const reservation = residentBodies.reserve(chunk.length);
         if (!reservation.admitted) {
-          // The bytes of this request that did get through are this request's to give back, and the
-          // release site already reads the figure off the request's own state, so a refusal partway
-          // through an upload unwinds exactly the part it charged. This line is the whole of the undo,
-          // and it is the shape 1 refusal's `nothing was charged` arm turned into a number: the
-          // crossing chunk itself was refused, so it joins no sum.
+          // The bytes of this request that did get through are this request's to give back, and the release
+          // site already reads the figure off the request's own state, so a refusal partway through an upload
+          // unwinds exactly the part it charged. This line is the whole of the undo, and it is the arm of a
+          // refusal that charges nothing turned into a number: the crossing datum itself was refused, so it
+          // joins no sum, and every datum behind it is dropped above rather than held here.
           if (state !== undefined) state.residentBytes = charged;
-          callback(
-            new AccessError('RESIDENT_BODY_BUDGET_EXCEEDED', {
-              detail: requestBodyBudgetDetail(residentBodies, reservation),
-              retryAfterSeconds: reservation.retryAfterSeconds,
-            }),
-          );
+          refusal = new AccessError('RESIDENT_BODY_BUDGET_EXCEEDED', {
+            detail: requestBodyBudgetDetail(residentBodies, reservation),
+            retryAfterSeconds: reservation.retryAfterSeconds,
+          });
+          drainBound = setTimeout(() => {
+            // The caller stopped sending. The answer goes out anyway, which is the only reason the bound
+            // exists, and it goes out over a stream this process is holding rather than one it has already
+            // dropped: what the bound ends is the waiting, not the obligation to answer.
+            arrival.destroy(refusal);
+          }, requestBodyDrainTimeoutMs).unref();
+          callback(null);
           return;
         }
         charged += chunk.length;
         if (state !== undefined) {
-          // Cumulative rather than per chunk, so the release has exactly one number to give back and can
-          // be asked for twice without moving it twice. That is the same rule the charge ran on when it
-          // sat in the parser below, and it is what keeps a mid-read refusal and a served completion
-          // releasing through the one site.
+          // Cumulative rather than per chunk, so the release has exactly one number to give back and can be
+          // asked for twice without moving it twice. That is the same rule the charge ran on when it sat in
+          // the parser below, and it is what keeps a refusal partway through an upload and a served
+          // completion releasing through the one site.
           state.residentBytes = charged;
         }
         callback(null, chunk);
       },
+      flush(callback) {
+        // The body reached its end, so the drain did what it was for: every byte the caller sent has been
+        // read, and the answer goes out to a connection the caller has finished writing to. The bound is
+        // cleared here and on the stream's own close, because a timer that outlived the request it was armed
+        // for would destroy a stream that belongs to nothing.
+        if (drainBound !== undefined) clearTimeout(drainBound);
+        callback(refusal ?? null);
+      },
+    });
+    arrival.once('close', () => {
+      if (drainBound !== undefined) clearTimeout(drainBound);
     });
     payload.pipe(arrival);
     done(null, arrival);
