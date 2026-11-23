@@ -887,43 +887,100 @@ function requestBodyLimitDetail(limitBytes: number): string {
 }
 
 /**
+ * What this process knows of the size of the request it is refusing, which is two numbers and not one, because
+ * the charge is taken as the bytes arrive and the caller's word about them is read ahead of them.
+ *
+ * `declaredLength` is the `Content-Length` the caller sent, as a figure, or nothing where no length was declared.
+ * `arrivedBytes` is what this process has actually read for this request at the instant the refusal was decided,
+ * the datum that crossed the budget included in it because reading it is what decided the crossing. The two are
+ * not the same figure and neither is the whole of the request: a declared length is a promise this gateway charges
+ * itself nothing against, and an upload that declared nothing has no end this process can see from where it
+ * stands.
+ *
+ * `declaredLength` is decimal digits and nothing else, which is what lets it be printed as a figure without
+ * qualification. The HTTP parser ahead of this hook admits only that shape and refuses every other one before a
+ * byte of the body reaches it: a second `Content-Length`, whether it agrees with the first or not, is answered
+ * `HPE_UNEXPECTED_CONTENT_LENGTH`; a value that is empty, signed, decimal, exponential, hexadecimal, suffixed, or
+ * wide enough to overflow 64 bits is answered `HPE_INVALID_CONTENT_LENGTH`; a `Content-Length` beside any
+ * `Transfer-Encoding`, in either order and including the spellings whose coding token is not `chunked`, is
+ * answered `HPE_INVALID_TRANSFER_ENCODING` or `HPE_INVALID_CONTENT_LENGTH`, which is the parser refusing the
+ * pair rather than applying the rule that says which of the two would win; and any surrounding whitespace the
+ * parser trims is gone from the value before this hook sees it. What survives is a run of digits, so the parse
+ * below has no third outcome to speak of, and `undefined` here means no length was declared at all.
+ *
+ * The digits are echoed with their leading zeros dropped and are never passed through a floating-point number,
+ * because a length above 2^53 is a figure a JavaScript number cannot hold: a caller that declared
+ * `9007199254740993` bytes would be told back `9007199254740992` by a message that converted first, and the
+ * point of naming a declaration is to name the one the caller actually made. Dropping leading zeros is not such a
+ * loss, since the parser itself reads `00131072` as the same width it reads `131072`, and it is what keeps the
+ * sentence short for a caller that padded its declaration.
+ */
+interface RefusedArrival {
+  readonly declaredLength: string | undefined;
+  readonly arrivedBytes: number;
+}
+
+/**
  * The detail carried by `RESIDENT_BODY_BUDGET_EXCEEDED`: the budget, how much of it is resident at the instant
- * the refusal was decided, what this request asked for, where the number comes from, and what a run that stated
- * nothing reads. Those four are the whole of what an operator needs to move a figure, and the two arms a refusal
- * is in have to be told apart in the sentence rather than left to the status, because one of them clears on a
- * wait and the other never does, and a caller that retried the second one forever would be doing exactly what
- * this answer exists to stop.
+ * the refusal was decided, how big the request is as far as this process knows it, where the number comes from,
+ * and what a run that stated nothing reads. Those four are the whole of what an operator needs to move a figure,
+ * and the two arms a refusal is in have to be told apart in the sentence rather than left to the status, because
+ * one of them clears on a wait and the other never does, and a caller that retried the second one forever would
+ * be doing exactly what this answer exists to stop.
+ *
+ * The size is stated as the two numbers above and not as one of them. A sentence naming only the declared length
+ * would be a promise repeated back to the process that made it, which is the thing the charge was moved off
+ * precisely so that no answer would depend on; a sentence naming only the datum that crossed would tell a caller
+ * on a chunked upload that its request was 65,536 bytes when it was sending 128 MiB of it, which is what the
+ * first measurement of this arm found the message had become. Neither number alone is what the request asked
+ * for, so the message gives both and says which of them this process read.
+ *
+ * The two arms the type declares are the only two there are, for the reason its docstring gives: this hook is
+ * handed either a run of decimal digits or nothing at all, so the sentence never has to describe a declaration it
+ * could not read, and it never has to guess whether an absent figure means a caller that said nothing or a caller
+ * that said something this file could not parse.
  *
  * The wait is a floor and the message says so. Nothing here can know when the bytes in flight are given back:
  * that is other requests finishing, not a refill, and the honest alternative to a stated floor is the
  * durability guard's silence, which this is not, because an empty process does hold these bytes.
  */
-function requestBodyBudgetDetail(budget: ResidentBodyBudget, reservation: ResidentBodyReservation): string {
+function requestBodyBudgetDetail(
+  budget: ResidentBodyBudget,
+  reservation: ResidentBodyReservation,
+  arrival: RefusedArrival,
+): string {
   const held = budget.residentBytes;
+  const size =
+    arrival.declaredLength === undefined
+      ? `it declared no length, and this process had read ${String(arrival.arrivedBytes)} bytes of it when the ` +
+        `answer was decided`
+      : `it declared ${arrival.declaredLength} bytes, and this process had read ` +
+        `${String(arrival.arrivedBytes)} bytes of it when the answer was decided`;
   const shared =
     `this gateway holds no more than ${String(budget.limitBytes)} bytes of request bodies at once, ` +
-    `${String(held)} of them are resident now, and this request's ${String(reservation.bytes)} bytes do not fit ` +
-    `beside them, so it is refused at the reader before the route ran: nothing was sent to the upstream, no ` +
-    `inference was paid for and no receipt was issued. The budget is a setting of this process, stated by ` +
+    `${String(held)} of them are resident now, and this request cannot be held beside them: ${size}. It is ` +
+    `refused at the reader before the route ran: nothing was sent to the upstream, no inference was paid for ` +
+    `and no receipt was issued. The budget is a setting of this process, stated by ` +
     `ASHAVERI_REQUEST_BODY_BUDGET_BYTES or by the requestBodyBudgetBytes option of buildGateway, and ` +
     `${String(DEFAULT_REQUEST_BODY_BUDGET_BYTES)} bytes is what a run that stated neither reads. `;
   if (reservation.retryAfterSeconds === undefined) {
     return (
       shared +
-      `These bytes are past the whole budget on their own, so they would not be held by an empty process either ` +
-      `and no wait clears this refusal: a caller sends fewer bytes, and an operator states a budget that covers ` +
-      `the body bound this gateway reads, since a bound above the budget is a size this process refuses at any ` +
-      `traffic. The size bound itself was not passed over: this body is inside it, and it is the sum of what is ` +
-      `resident that decided this answer`
+      `${String(reservation.bytes)} bytes of it arrived in one datum, which is past the whole budget on its own, ` +
+      `so an empty process could not hold this request either and no wait clears this refusal: a caller sends ` +
+      `fewer bytes, and an operator states a budget that covers the body bound this gateway reads, since a bound ` +
+      `above the budget is a size this process refuses at any traffic. Nothing that had arrived was past the size ` +
+      `bound either: it is this datum beside the whole budget that decided this answer`
     );
   }
   return (
     shared +
-    `These bytes are inside the size bound this gateway reads, so nothing about this request is wrong and the ` +
-    `answer is a wait of ${String(reservation.retryAfterSeconds)} seconds, which is a floor rather than a ` +
-    `measurement: the budget frees bytes when the requests holding them finish, and this process cannot see when ` +
-    `that is. A caller waits and sends a new request; an operator moves the budget beside the memory this ` +
-    `deployment has, and reads which of the two numbers it should be from the size bound above it`
+    `What had arrived of this request was inside the size bound this gateway reads, so no bound on the width of a ` +
+    `body is what this request met, and the answer is a wait of ${String(reservation.retryAfterSeconds)} ` +
+    `seconds, which is a floor rather than a measurement: the budget frees bytes when the requests holding them ` +
+    `finish, and this process cannot see when that is. A caller waits and sends a new request; an operator moves ` +
+    `the budget beside the memory this deployment has, and reads which of the two numbers it should be from the ` +
+    `size bound above it`
   );
 }
 
@@ -1061,6 +1118,27 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
       return;
     }
     const state = stateOf(request);
+    // The caller's own word about the size of this body, read only so that the refusal can say which kind of
+    // number it is quoting. Nothing here is charged against it: a declaration is what the caller said, and the
+    // sum is what this process read, which is the difference the charge was moved to the arrival to keep.
+    //
+    // The two arms this covers are exhaustive because of what the parser ahead of this line refuses, which is
+    // spelled out on `RefusedArrival` and held by the cells in `resident-body-budget.test.ts` that send the
+    // refused spellings down a real socket: a duplicated `Content-Length` is answered `Duplicate
+    // Content-Length`, a `Content-Length` beside a `Transfer-Encoding` is answered `Transfer-Encoding can't be
+    // present with Content-Length` whichever order the two lines are sent in, and a length that is not a run of
+    // digits is answered `Invalid character in Content-Length` or `Empty Content-Length`. Each of those is a 400
+    // that never reaches a budget question, so `undefined` below means that no length was declared rather than
+    // that one was declared in a form this file did not think of.
+    //
+    // The digits are kept as the caller wrote them, minus any leading zeros, and are not run through `Number()`:
+    // a declaration above 2^53 is a figure a floating-point number would round, and a message that rounded the
+    // caller's own promise before quoting it back would be naming a length no one sent.
+    const declaredHeader = request.headers['content-length'];
+    const declaredLength =
+      typeof declaredHeader === 'string' && /^\d+$/u.test(declaredHeader)
+        ? declaredHeader.replace(/^0+(?=\d)/u, '')
+        : undefined;
     let charged = 0;
     // The refusal this stream is waiting to answer, and the bound on how long it waits for the rest of the
     // body before answering anyway. Both sit outside the transform because the drain has to outlive the datum
@@ -1087,7 +1165,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
           // joins no sum, and every datum behind it is dropped above rather than held here.
           if (state !== undefined) state.residentBytes = charged;
           refusal = new AccessError('RESIDENT_BODY_BUDGET_EXCEEDED', {
-            detail: requestBodyBudgetDetail(residentBodies, reservation),
+            detail: requestBodyBudgetDetail(residentBodies, reservation, {
+              // What the caller declared, if it declared anything, and what this process has read including the
+              // datum that crossed: the second number is the only size of this request that is not a promise.
+              declaredLength,
+              arrivedBytes: charged + chunk.length,
+            }),
             retryAfterSeconds: reservation.retryAfterSeconds,
           });
           drainBound = setTimeout(() => {

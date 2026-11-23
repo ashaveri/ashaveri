@@ -374,6 +374,40 @@ function uploadHead(headers: Record<string, string>): string {
   );
 }
 
+/**
+ * The request head of an upload that declares its length: the same route and the same credential as `uploadHead`
+ * carries, but a `content-length` for the whole body and no `transfer-encoding`. The two heads are the pair the
+ * refusal's sentence is written against, because a declared length is a figure this gateway is told and an
+ * arriving datum is a figure this gateway finds, and the message has to say which of them it is printing.
+ */
+function declaredHead(headers: Record<string, string>, bytes: number): string {
+  return declaredHeadSpelled(headers, String(bytes));
+}
+
+/**
+ * The same head with the declaration written exactly as the caller would write it, which is the half the two
+ * cells below need: a padded figure and a figure past what a JavaScript number holds exactly are both legal
+ * spellings of a declared length, and what a refusal may quote back is the declaration, not a reading of it.
+ */
+function declaredHeadSpelled(headers: Record<string, string>, figure: string): string {
+  return (
+    `POST ${TARGET} HTTP/1.1\r\n` +
+    `host: 127.0.0.1\r\n` +
+    `content-type: application/json\r\n` +
+    `content-length: ${figure}\r\n` +
+    `authorization: ${headers['authorization']}\r\n` +
+    `x-ashaveri-nonce: ${headers['x-ashaveri-nonce']}\r\n\r\n`
+  );
+}
+
+/** A declared-length head carrying a second header line of the caller's choosing, for the refused spellings. */
+function declaredHeadWithExtra(headers: Record<string, string>, figure: string, extra: string): string {
+  return declaredHeadSpelled(headers, figure).replace(
+    `content-length: ${figure}\r\n`,
+    `content-length: ${figure}\r\n${extra}\r\n`,
+  );
+}
+
 describe('the arithmetic on the one integer', () => {
   it('admits a charge that empties the budget exactly, and refuses the byte past it', () => {
     const budget = new ResidentBodyBudget(4_000);
@@ -1278,6 +1312,340 @@ describe('the drain of an upload the budget refused', () => {
       } finally {
         delete process.env['ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS'];
       }
+    }
+  });
+});
+
+describe('the size the refusal names of the request it refused', () => {
+  /**
+   * The refusal's own sentence, read out of the envelope a caller on a socket received.
+   *
+   * `collectAnswer` reports the code, which is what a caller branches on; the claim these cells make is about the
+   * prose a caller reads, and the prose lives in the body of the envelope rather than in the head. An envelope
+   * that never completed gives nothing here, so a caller that was told nothing fails the cell as the empty
+   * sentence it is rather than as a pass.
+   */
+  function sentenceOf(answer: WireAnswer): string {
+    const head = answer.raw.split('\r\n\r\n')[0] ?? '';
+    try {
+      return (JSON.parse(answer.raw.slice(head.length + 4)) as { error?: { message?: string } }).error?.message ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** Connect a raw socket to a serving gateway, which is the only way a caller gets to be mid-upload. */
+  async function connect(s: Serving): Promise<number> {
+    const address = await s.h.app.listen({ port: 0, host: '127.0.0.1' });
+    return Number(new URL(address).port);
+  }
+
+  /**
+   * Send a body of `datums` copies of one `DATUM`-byte datum over a real socket, chunked where `chunked` says
+   * so and with a declared `Content-Length` otherwise, and hand back the caller's whole answer.
+   *
+   * Both arms write the same datums, because the two heads differ and nothing else about the request does: a
+   * cell that compared a declared-length upload against a chunked one and found the sentence differing would
+   * not know whether the difference came from the head or from the write pattern.
+   *
+   * `figure` is the declaration as the caller wrote it, for the cells that ask whether the message quotes the
+   * caller's own figure rather than a reading of it. Hand it nothing and the declaration is the byte count of
+   * what this helper is about to write, which is the ordinary case.
+   */
+  async function upload(
+    s: Serving,
+    socket: net.Socket,
+    port: number,
+    datums: number,
+    chunked: boolean,
+    figure?: string,
+  ): Promise<WireAnswer> {
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve);
+      socket.once('error', reject);
+      socket.connect(port, '127.0.0.1');
+    });
+    const datum = 'x'.repeat(DATUM);
+    const body = datum.repeat(datums);
+    const headers = s.h.signFor(CREDENTIAL, 'POST', TARGET, body);
+    socket.write(
+      chunked
+        ? uploadHead(headers)
+        : figure === undefined
+          ? declaredHead(headers, Buffer.byteLength(body, 'utf8'))
+          : declaredHeadSpelled(headers, figure),
+    );
+    const reading = collectAnswer(socket);
+    for (let index = 0; index < datums; index += 1) {
+      socket.write(chunked ? chunkFrame(datum) : datum);
+    }
+    if (chunked) socket.write(FINAL_CHUNK);
+    return await reading;
+  }
+
+  it('names the declared length and the bytes read as the two figures they are, for a body that declared one', async () => {
+    // The size bound sits above the whole 4 MiB body, so the arrival bound is what refuses and the sentence
+    // under test is this gateway's own word and not the framework's answer to a body past the bound. A declared
+    // length past the bound would be stopped by the bound ahead of the budget, which is the pairing the
+    // operator documentation states and this cell keeps out of its own way.
+    const s = await serving(MEBIBYTE, { limit: 16 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const port = await connect(s);
+      const answer = await upload(s, socket, port, (4 * MEBIBYTE) / DATUM, false);
+      expect(answer.status, 'the caller that declared its length was answered').toBe(429);
+      expect(answer.code, 'by the budget').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      const message = sentenceOf(answer);
+      const named =
+        /it declared (\d+) bytes, and this process had read (\d+) bytes of it when the answer was decided/u.exec(message);
+      expect(
+        named,
+        'the sentence carries both figures, each with the words that say which of them it is: ' + message,
+      ).not.toBeNull();
+      // The declared figure is the promise the head made, which this gateway charges itself nothing against and
+      // which no number of arriving datums would ever turn into 4194304. It is printed exactly, and nothing else
+      // in the message could be it: the budget is 1048576 and the default this run reads is a third figure.
+      expect(named?.[1], 'the declared figure is the one this request wrote into its head').toBe(
+        String(4 * MEBIBYTE),
+      );
+      const read = Number(named?.[2]);
+      expect(read, 'and the read figure is past the budget, because the datum that crossed it is counted').toBeGreaterThan(
+        MEBIBYTE,
+      );
+      expect(read, 'and short of the promise, because it is the read and not the promise repeated back').toBeLessThan(
+        4 * MEBIBYTE,
+      );
+      expect(message, 'and a body that declared a length is not called a body that declared none').not.toContain(
+        'it declared no length',
+      );
+      await s.waitForResident(0, 'the drain of the rest of the body gives the accounting back with the answer');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  it('says no length was declared, and names the bytes read beside that, for an upload that declared none', async () => {
+    const s = await serving(MEBIBYTE, { limit: 2 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const port = await connect(s);
+      const answer = await upload(s, socket, port, UPLOAD / DATUM, true);
+      expect(answer.status, 'the caller that wrote a chunked body was answered').toBe(429);
+      expect(answer.code, 'by the budget, and not by the size bound under it').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      const message = sentenceOf(answer);
+      const named = /it declared no length, and this process had read (\d+) bytes of it when the answer was decided/u.exec(
+        message,
+      );
+      expect(named, 'the sentence says the length was never stated, and does not leave that to be inferred: ' + message).not.toBeNull();
+      const read = Number(named?.[1]);
+      // One datum of 64 KiB is the figure a message written off the crossing charge alone could print, and it is
+      // not this figure: the claim is what this process had read for this request, which is the whole of the
+      // arrival up to the crossing, the crossing datum counted because reading it is what decided the crossing.
+      // The crossing condition itself makes the first claim exact: the budget is 1 MiB, so the read that crossed
+      // it ended past 1 MiB by construction. The second claim is the one a build that reported the upload at the
+      // answer rather than at the decision would break, and it rests on what the other arrival cells in this file
+      // already rest on: a socket read here is at most one datum, so the crossing lands within a datum of the
+      // bound. Measured on this host: 1,113,997 bytes, which is 115 short of seventeen datums because the head
+      // shared a read with the body, and that odd figure is the sentence reporting the reader counts.
+      expect(read, 'the figure is past the whole budget, because the read that crossed it is counted').toBeGreaterThan(
+        MEBIBYTE,
+      );
+      expect(
+        read,
+        'and it is the crossing instant and not the end of the upload, which is seven megabytes further on',
+      ).toBeLessThanOrEqual(MEBIBYTE + DATUM);
+      expect(message, 'and no figure is printed as a declared length, because none was ever declared').not.toMatch(
+        /it declared \d+ bytes/u,
+      );
+      const wait = /wait of (\d+) seconds/u.exec(message);
+      expect(wait, 'the arm that clears on a wait is the arm this crossing is in').not.toBeNull();
+      expect(answer.wait, 'and the header carries the same figure the sentence does').toBe(wait?.[1]);
+      await s.waitForResident(0, 'and the accounting is back at its pre-request figure once the answer is written');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  it('names the datum as past the whole budget, when the first read of an upload crossed it', async () => {
+    // A budget under one datum's worth is the case where no wait can help: the request is refused on the bytes
+    // it had no choice but to send, and the sentence has to say so, because a caller that read a wait here would
+    // retry a body this process could never hold. The width is 32 KiB against a 64 KiB datum, and the size bound
+    // is above the whole upload, so the only bound this request meets is the budget.
+    const narrow = 32 * 1024;
+    const s = await serving(narrow, { limit: 2 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const port = await connect(s);
+      const answer = await upload(s, socket, port, 8, true);
+      expect(answer.status, 'the caller was answered').toBe(429);
+      expect(answer.code, 'by the budget').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      expect(answer.wait, 'and with no `retry-after`, because none would clear it').toBeUndefined();
+      const message = sentenceOf(answer);
+      const arm = /(\d+) bytes of it arrived in one datum, which is past the whole budget on its own/u.exec(message);
+      expect(arm, 'the sentence names the datum and says it was past the whole budget on its own: ' + message).not.toBeNull();
+      const crossed = Number(arm?.[1]);
+      expect(crossed, 'and the datum it names is past the whole budget, which is the condition for this arm').toBeGreaterThan(
+        narrow,
+      );
+      expect(
+        crossed,
+        'and no wider than one datum, because one socket read is no wider than the buffer the reader hands it',
+      ).toBeLessThanOrEqual(DATUM);
+      const named = /it declared no length, and this process had read (\d+) bytes of it when the answer was decided/u.exec(
+        message,
+      );
+      expect(named, 'and the length was never declared, which the sentence says rather than leaves out: ' + message).not.toBeNull();
+      expect(
+        Number(named?.[1]),
+        'and the read figure is that same datum, because nothing had been admitted ahead of the crossing',
+      ).toBe(crossed);
+      expect(message, 'and it does not borrow the other arm of the answer, which speaks of a wait').not.toMatch(
+        /wait of \d+ seconds/u,
+      );
+      expect(
+        s.resident(),
+        'and the refusal charged nothing to itself, so the accounting never left zero',
+      ).toBe(0);
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  /**
+   * Write one already-built head and `datums` raw datums after it, then read the caller's whole answer.
+   *
+   * `upload` above derives the head from what it is about to write, which is the right thing for a cell about
+   * the sentence and the wrong thing for a cell about the head itself: the requests the last cell sends are
+   * malformed at the protocol level, so their declared width and their actual width are deliberately not the
+   * same pair.
+   */
+  async function sendHead(
+    s: Serving,
+    socket: net.Socket,
+    port: number,
+    head: string,
+    datums: number,
+  ): Promise<WireAnswer> {
+    await new Promise<void>((resolve, reject) => {
+      socket.once('connect', resolve);
+      socket.once('error', reject);
+      socket.connect(port, '127.0.0.1');
+    });
+    const reading = collectAnswer(socket);
+    socket.write(head);
+    // The head is refused on its own, and the refusal is already on its way back before anything else is
+    // written; the datums follow it rather than running into it, so a build that let a refused spelling through
+    // is caught by a budget answer arriving and not by the socket dying first.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    for (let index = 0; index < datums; index += 1) {
+      socket.write('x'.repeat(DATUM));
+    }
+    socket.end();
+    return await reading;
+  }
+
+  it('names a padded declaration as the width it is rather than as the padding', async () => {
+    // `content-length: 004194304` declares the same 4 MiB the unpadded spelling does, which is what the parser
+    // reads and what the answer has to print: the zeros are how the caller wrote the figure, not a figure of
+    // their own. The size bound stays above the whole upload, so it is the arrival bound that refuses here.
+    const s = await serving(MEBIBYTE, { limit: 16 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const port = await connect(s);
+      const answer = await upload(s, socket, port, (4 * MEBIBYTE) / DATUM, false, '004194304');
+      expect(answer.status, 'the caller that padded its declaration was answered').toBe(429);
+      expect(answer.code, 'by the budget').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      const message = sentenceOf(answer);
+      expect(message, 'the declared figure is the padded declaration read as a width: ' + message).toContain(
+        `it declared ${String(4 * MEBIBYTE)} bytes`,
+      );
+      expect(message, 'and the padding is not printed as though it were a separate figure').not.toContain(
+        'it declared 004194304 bytes',
+      );
+      await s.waitForResident(0, 'and the drain of the rest of the body gives the accounting back with the answer');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  it('names a declaration past what a number can count as the digits the caller sent', async () => {
+    // 9007199254740992 is 2^53, the largest integer a JavaScript number reaches one at a time, and the caller
+    // here declares one past it. The size bound is set to 2^53 so that the declaration is *not* past it, which
+    // is the only way an upload this wide reaches the budget question at all: a length above the bound is
+    // answered by the bound ahead of any charge. Because the declaration outruns the bytes anyone could send,
+    // the upload never reaches its declared end, so the drain bound is what writes this answer and the cell
+    // states one rather than waiting on the shipped 60 seconds.
+    //
+    // This is the cell that judges how the header is read rather than whether it is read: a build that turns
+    // the digits into a floating-point number before printing them holds 9007199254740992 for both of these
+    // figures, and would then be naming a length nobody declared.
+    const declared = '9007199254740993';
+    const s = await serving(MEBIBYTE, { limit: 2 ** 53, drain: DRAIN_MS });
+    const socket = new net.Socket();
+    try {
+      const port = await connect(s);
+      const answer = await upload(s, socket, port, 20, false, declared);
+      expect(answer.status, 'the caller that declared more bytes than a number can count was answered').toBe(429);
+      expect(answer.code, 'by the budget, and not by the size bound above it').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      const message = sentenceOf(answer);
+      expect(message, 'the declaration is printed exactly as it was sent: ' + message).toContain(
+        `it declared ${declared} bytes`,
+      );
+      expect(
+        message,
+        'and not as the nearest number a double can hold, which would name a length nobody declared',
+      ).not.toContain('it declared 9007199254740992 bytes');
+      await s.waitForResident(0, 'and the bound that wrote the answer leaves nothing charged behind it');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  /**
+   * The spellings of `Content-Length` that never reach this sentence, and so never force it to speak of a third
+   * case.
+   *
+   * The arms the message takes are two because the parser admits two and refuses everything else outright, and
+   * that is the claim these cells hold: a duplicated declaration, a declaration beside a `Transfer-Encoding`,
+   * and a declaration that is not a run of digits are each answered at the head, before a datum arrives and
+   * before the budget is asked anything. Were the parser ever to let one of them through, the sentence would be
+   * printing either a promise it had not read or an absence that was not one, and this is the cell that would
+   * say so.
+   */
+  it('refuses a malformed declaration at the head, before the budget is asked anything', async () => {
+    const s = await serving(MEBIBYTE, { limit: 16 * MEBIBYTE });
+    const socket = new net.Socket();
+    const spellings = [
+      ['a second content-length that agrees with the first', String(8 * DATUM), 'content-length: 131072'],
+      ['a second content-length that disagrees with the first', String(8 * DATUM), 'content-length: 65536'],
+      ['a transfer-encoding beside the content-length', String(8 * DATUM), 'transfer-encoding: chunked'],
+      ['a content-length that is not a run of digits', '12abc', undefined],
+      ['a content-length that is empty', '', undefined],
+    ] as const;
+    try {
+      const port = await connect(s);
+      for (const [what, figure, extra] of spellings) {
+        const signed = s.h.signFor(CREDENTIAL, 'POST', TARGET, 'x'.repeat(DATUM));
+        const head =
+          extra === undefined
+            ? declaredHeadSpelled(signed, figure)
+            : declaredHeadWithExtra(signed, figure, extra);
+        const answer = await sendHead(s, socket, port, head, 8);
+        expect(answer.status, `${what}: the caller was answered at the head`).toBe(400);
+        expect(
+          answer.raw,
+          `${what}: and the answer is not the budget's, because no datum was ever read: ` + answer.raw,
+        ).not.toContain('RESIDENT_BODY_BUDGET_EXCEEDED');
+        await s.waitForResident(0, `${what}: and nothing was charged for a request that never arrived`);
+      }
+    } finally {
+      socket.destroy();
+      await s.close();
     }
   });
 });
