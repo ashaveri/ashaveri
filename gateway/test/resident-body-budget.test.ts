@@ -361,6 +361,28 @@ function collectAnswer(socket: net.Socket): Promise<WireAnswer> {
   });
 }
 
+/**
+ * What the socket read until a whole *served* answer had arrived, as opposed to `collectAnswer`, which is the
+ * reader for refusals and waits for an `error.code` that a completion never carries. A completion kept on a
+ * keep-alive connection does not close the socket either, so the cell that asks what the answer gave back has
+ * to resolve on the bytes and not on the connection ending.
+ */
+function collectCompletion(socket: net.Socket): Promise<{ status: number; bytes: number }> {
+  return new Promise((resolve, reject) => {
+    let got = '';
+    socket.on('data', (chunk: Buffer): void => {
+      got += chunk.toString('utf8');
+      const head = got.split('\r\n\r\n')[0] ?? '';
+      const status = Number(/^HTTP\/1\.[01] (\d{3})/u.exec(head)?.[1]);
+      const declared = Number(/content-length: (\d+)/iu.exec(head)?.[1]);
+      if (Number.isFinite(status) && Number.isFinite(declared) && Buffer.byteLength(got.slice(head.length + 4), 'utf8') >= declared) {
+        resolve({ status, bytes: got.length });
+      }
+    });
+    socket.on('error', reject);
+    socket.on('close', () => reject(new Error(`the connection ended before the completion was whole: ${got.slice(0, 60)}`)));
+  });
+}
 
 /** The request head of a chunked upload: no `content-length`, because the body is arriving as it is read. */
 function uploadHead(headers: Record<string, string>): string {
@@ -978,7 +1000,7 @@ describe('the budget a deployment states, three ways', () => {
   });
 
   it('refuses to build on a budget the environment states badly, rather than serving the shipped one', async () => {
-    for (const stated of ['not-a-budget', '0', '-1', '1024.5']) {
+    for (const stated of ['not-a-budget', '0', '-1', '1024.5', '9007199254740992']) {
       process.env['ASHAVERI_REQUEST_BODY_BUDGET_BYTES'] = stated;
       try {
         await expect(
@@ -1261,7 +1283,7 @@ describe('the drain of an upload the budget refused', () => {
       socket.write(chunkFrame(datum));
       await s.waitFor(() => s.resident() === MEBIBYTE, 'the budget is filled exactly at the crossing datum');
 
-      // Read after every batch rather than on a timer: the drain of seven and a half megabytes over loopback
+      // Read after every batch rather than on a timer: the drain of seven megabytes over loopback
       // is over in tens of milliseconds, and a sampler on an interval measured here to fire at a quarter of
       // the figure it was watching. The waits below are what give the reads a window inside the drain, and
       // the claim stays an equality for the same reason it always was: a ceiling test that had read nothing
@@ -1285,7 +1307,7 @@ describe('the drain of an upload the budget refused', () => {
         'RESIDENT_BODY_BUDGET_EXCEEDED',
       );
       expect(answer.reset, 'and it was answered').toBe(false);
-      expect(highest, 'and the seven and a half megabytes of discarded datum behind the crossing joined no sum').toBe(
+      expect(highest, 'and the seven megabytes of discarded datum behind the crossing joined no sum').toBe(
         MEBIBYTE,
       );
       expect(lowest, 'and none of them was handed back early either, which is the same figure held whole').toBe(
@@ -1572,33 +1594,28 @@ describe('the size the refusal names of the request it refused', () => {
     }
   });
 
-  it('names a declaration past what a number can count as the digits the caller sent', async () => {
-    // 9007199254740992 is 2^53, the largest integer a JavaScript number reaches one at a time, and the caller
-    // here declares one past it. The size bound is set two past the declaration, which is the narrowest width
-    // at which an upload this wide still reaches the budget question: a declaration past the bound is answered
-    // by the bound before any datum is charged, and this cell is about what the budget prints. Because the
-    // declaration outruns the bytes anyone could send, the upload never reaches its declared end, so the drain
-    // bound is what writes this answer and the cell states one rather than waiting on the shipped 60 seconds.
-    //
-    // This is the cell that judges how the header is read rather than whether it is read: a build that turns
-    // the digits into a floating-point number before printing them holds 9007199254740992 for both of these
-    // figures, and would then be naming a length nobody declared.
+  it('refuses a declaration past the widest bound a number can state, and prints the bound as digits', async () => {
+    // 9007199254740991 is 2^53 - 1, the largest integer a JavaScript number reaches one at a time, and it is
+    // the widest bound this process will build with: past it the bound itself would reach a caller as an
+    // exponent rather than as the figure the caller is told to stay under. The declaration here is two past
+    // that, so both figures are ones a float cannot tell apart, and the only honest reading of the pair is the
+    // digits. A build that compared them through Number() would see 9007199254740992 on both sides, would not
+    // refuse at the head, would let 20 datums of a body this budget can hold reach the upstream, and this cell
+    // would be reporting a served completion instead of the bound's own answer.
     const declared = '9007199254740993';
-    const s = await serving(MEBIBYTE, { limit: 2 ** 53 + 2, drain: DRAIN_MS });
+    const s = await serving(MEBIBYTE, { limit: Number.MAX_SAFE_INTEGER, drain: DRAIN_MS });
     const socket = new net.Socket();
     try {
       const port = await connect(s);
       const answer = await upload(s, socket, port, 20, false, declared);
-      expect(answer.status, 'the caller that declared more bytes than a number can count was answered').toBe(429);
-      expect(answer.code, 'by the budget, and not by the size bound above it').toBe('RESIDENT_BODY_BUDGET_EXCEEDED');
+      expect(answer.status, 'the caller that declared more bytes than a number can count was refused').toBe(413);
+      expect(answer.code, 'by the size bound, and not by a budget it never reached').toBe('BODY_TOO_LARGE');
       const message = sentenceOf(answer);
-      expect(message, 'the declaration is printed exactly as it was sent: ' + message).toContain(
-        `it declared ${declared} bytes`,
-      );
       expect(
         message,
-        'and not as the nearest number a double can hold, which would name a length nobody declared',
-      ).not.toContain('it declared 9007199254740992 bytes');
+        `the bound is printed as the digits a caller can compare against, and not as an exponent: ${message}`,
+      ).toContain('9007199254740991 bytes');
+      expect(message, 'and no exponent reached the sentence').not.toMatch(/e\+1[0-9]/u);
       await s.waitForResident(0, 'and the bound that wrote the answer leaves nothing charged behind it');
     } finally {
       socket.destroy();
@@ -1606,17 +1623,6 @@ describe('the size the refusal names of the request it refused', () => {
     }
   });
 
-  /**
-   * The spellings of `Content-Length` that never reach this sentence, and so never force it to speak of a third
-   * case.
-   *
-   * The arms the message takes are two because the parser admits two and refuses everything else outright, and
-   * that is the claim these cells hold: a duplicated declaration, a declaration beside a `Transfer-Encoding`,
-   * and a declaration that is not a run of digits are each answered at the head, before a datum arrives and
-   * before the budget is asked anything. Were the parser ever to let one of them through, the sentence would be
-   * printing either a promise it had not read or an absence that was not one, and this is the cell that would
-   * say so.
-   */
   it('refuses a malformed declaration at the head, before the budget is asked anything', async () => {
     const s = await serving(MEBIBYTE, { limit: 16 * MEBIBYTE });
     const socket = new net.Socket();
@@ -1650,7 +1656,6 @@ describe('the size the refusal names of the request it refused', () => {
   });
 });
 
-
 describe('which bound answers a crossing datum, and whether the caller is told', () => {
   /**
    * The port a real upload is written to. Each cell here connects, writes and reads the way a client does,
@@ -1669,29 +1674,38 @@ describe('which bound answers a crossing datum, and whether the caller is told',
   }
 
   it('tells a chunked caller whose datum crosses the size bound, over the socket that asked', async () => {
-    // The budget is the one a run that states none reads, far above anything this cell sends, so the only
-    // bound this upload meets is the size bound. It is met at a datum, mid-write, which is the arm the
-    // framework's own refusal answers today.
+    // The budget is the one a run that states none reads, far above anything this cell refuses, so the only
+    // bound this upload meets is the size bound, met at a datum 33 writes in. The upload is `REFUSED_UPLOAD`
+    // rather than a body a few times the bound because two loopback sockets here absorb about 7 MiB between
+    // them: an over-run that small is delivered without this process reading any of it, so a build that
+    // answered at the crossing datum and dropped the connection would satisfy the assertions below. Widening
+    // it is what makes `fullest` mean the drain did the work.
     const s = await serving(undefined, { limit: 2 * MEBIBYTE });
     const socket = new net.Socket();
     try {
       const port = await listen(s);
-      const body = bodyOf((4 * MEBIBYTE) / DATUM, DATUM);
+      const datum = 'x'.repeat(DATUM);
       await new Promise<void>((resolve, reject) => {
         socket.once('connect', resolve);
         socket.once('error', reject);
         socket.connect(port, '127.0.0.1');
       });
-      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body)));
+      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, datum.repeat(REFUSED_UPLOAD / DATUM))));
       const reading = collectAnswer(socket);
-      for (let index = 0; index < (4 * MEBIBYTE) / DATUM; index += 1) {
-        socket.write(chunkFrame(body.slice(index * DATUM, (index + 1) * DATUM)));
+      let fullest = 0;
+      for (let index = 0; index < REFUSED_UPLOAD / DATUM; index += 1) {
+        if (!socket.write(chunkFrame(datum))) fullest += 1;
       }
       socket.write(FINAL_CHUNK);
       const answer = await reading;
       expect(answer.status, 'a body past the bound this process reads is told its bound').toBe(413);
       expect(answer.code, 'by name').toBe('BODY_TOO_LARGE');
       expect(answer.reset, 'the caller was given the answer over the socket that asked').toBe(false);
+      expect(
+        fullest,
+        'the socket filled while the caller was writing, so this upload reached its answer only because this process went on reading it',
+      ).toBeGreaterThan(0);
+      expect(s.upstream.calls(), 'and nothing of the refused upload was forwarded').toBe(0);
       await s.waitForResident(0, 'and the refused upload leaves nothing held on the budget');
     } finally {
       socket.destroy();
@@ -1699,27 +1713,41 @@ describe('which bound answers a crossing datum, and whether the caller is told',
     }
   });
 
-  it('tells a caller whose declared length is past the bound, over the socket that asked', async () => {
-    // The other shape the same bound is met in: the caller states a length this process will not read, and
-    // then sends the body anyway. What the cell holds this gateway to is the answer, not only the decision.
+  it('tells a caller whose declared length is past the bound, before a byte of it is charged', async () => {
+    // The other shape the same bound is met in: the caller states a length this process will not read and then
+    // sends it anyway. The head is what decides here, and the proof that it was the head and not the arrival is
+    // that the sum never rose: a build that left the declaration to answer at the crossing datum would charge
+    // every datum up to the bound first, and the peak below would catch it. The width is the same one the
+    // budget arm uses, so the over-run cannot sit between the two sockets.
     const s = await serving(undefined, { limit: 2 * MEBIBYTE });
     const socket = new net.Socket();
     try {
       const port = await listen(s);
-      const body = bodyOf((4 * MEBIBYTE) / DATUM, DATUM);
+      const datum = 'x'.repeat(DATUM);
+      const declared = REFUSED_UPLOAD;
       await new Promise<void>((resolve, reject) => {
         socket.once('connect', resolve);
         socket.once('error', reject);
         socket.connect(port, '127.0.0.1');
       });
-      socket.write(declaredHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body), Buffer.byteLength(body, 'utf8')));
+      socket.write(declaredHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, datum.repeat(declared / DATUM)), declared));
       const reading = collectAnswer(socket);
-      socket.write(body);
+      let fullest = 0;
+      let peak = 0;
+      for (let index = 0; index < declared / DATUM; index += 1) {
+        if (!socket.write(datum)) fullest += 1;
+        peak = Math.max(peak, s.resident());
+      }
       const answer = await reading;
       expect(answer.status, 'a declared length past the bound is told its bound').toBe(413);
       expect(answer.code, 'by name').toBe('BODY_TOO_LARGE');
       expect(answer.reset, 'and the answer arrives rather than the socket dying').toBe(false);
-      await s.waitForResident(0, 'and no byte of a refused length was ever charged');
+      expect(peak, 'the declaration is refused before any datum is charged').toBe(0);
+      expect(
+        fullest,
+        'the socket filled while the caller was writing, so this upload reached its answer only because this process went on reading it',
+      ).toBeGreaterThan(0);
+      await s.waitForResident(0, 'and no byte of a refused length is left on the budget');
     } finally {
       socket.destroy();
       await s.close();
@@ -1758,6 +1786,47 @@ describe('which bound answers a crossing datum, and whether the caller is told',
     }
   });
 
+  it('gives a served completion its bytes back at the answer, not at the end of the connection', async () => {
+    // The answer is written, the connection is deliberately left open, and the budget is asked what it holds in
+    // between: a completion whose bytes stayed reserved until its connection ended would spend the budget on a
+    // request that has already been answered, for as long as the keep-alive timeout lasts. What this cell cannot
+    // say is which of the two release events freed the bytes, because on this runtime a completed response emits
+    // `finish` and then `close` on the same object, so the pair is witnessed as one and the comment beside them
+    // states that rather than claiming a distinction no assertion reaches.
+    // The bound has to be above the body this cell wants served, and the helper's default is 64 KiB, so the
+    // width is stated rather than inherited: a cell about a release after an answer cannot be answered by a
+    // refusal for size.
+    const s = await serving(4 * MEBIBYTE, { limit: 16 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const port = await listen(s);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      // A real completion body, because this cell is about the bytes coming back after the answer: a body the
+      // route would refuse for shape never reaches the upstream and never holds a byte of the budget.
+      const body = requestBody(2 * DATUM);
+      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body)));
+      const reading = collectCompletion(socket);
+      const width = Buffer.byteLength(body, 'utf8');
+      socket.write(chunkFrame(body.slice(0, Math.floor(width / 2))));
+      socket.write(chunkFrame(body.slice(Math.floor(width / 2))));
+      socket.write(FINAL_CHUNK);
+      await s.waitFor(() => s.upstream.calls() === 1, 'the completion reached the upstream');
+      expect(s.resident(), 'its bytes are held while the answer is owed').toBeGreaterThan(0);
+      s.upstream.release();
+      const answer = await reading;
+      expect(answer.status, 'the completion is served').toBe(200);
+      await s.waitForResident(0, 'the answer gives its bytes back on the connection that is still open');
+      expect(socket.destroyed, 'and no part of the wait for that was the connection ending').toBe(false);
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
   it('answers a declared length whose caller stops writing, when the bound on that wait expires', async () => {
     // A declaration is a promise and not a body: this caller names 4 MiB against a 2 MiB bound, sends eight
     // kilobytes of it and goes quiet, so there is no end of body left to wait for and the bound is what
@@ -1774,12 +1843,18 @@ describe('which bound answers a crossing datum, and whether the caller is told',
         socket.connect(port, '127.0.0.1');
       });
       socket.write(declaredHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body), Buffer.byteLength(body, 'utf8')));
+      const started = Date.now();
       const reading = collectAnswer(socket);
       socket.write(body.slice(0, 8 * 1024));
       const answer = await reading;
+      const told = Date.now();
       expect(answer.status, 'the bound, and not the upload, decides when this caller is told').toBe(413);
       expect(answer.code, 'by name').toBe('BODY_TOO_LARGE');
       expect(answer.reset, 'and the answer arrives over the socket that asked').toBe(false);
+      expect(
+        told - started,
+        'and it was the bound that wrote it, not a refusal handed out at the head while the caller was mid-write',
+      ).toBeGreaterThanOrEqual(125);
       await s.waitForResident(0, 'and a length never sent was never charged either');
     } finally {
       socket.destroy();

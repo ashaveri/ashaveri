@@ -57,7 +57,8 @@ export class ResidentBodyBudget {
    *
    * A budget below one body's worth is a legal statement about a deployment ("we will not hold that much"),
    * so nothing here refuses it, and the refusal it produces is the arm that carries no wait. A budget that is
-   * not a positive whole number of bytes is refused, because a bound this process cannot state is not a bound
+   * not a positive whole number of bytes a number can count exactly is refused, because a bound this process
+   * cannot state is not a bound
    * it may serve on: that is the rule the request body bound already applies to its own setting, and the same
    * reasoning about what a caller would believe it had configured applies harder here, where the consequence
    * of a wrong number is an out-of-memory kill rather than a length nobody asked for.
@@ -66,9 +67,10 @@ export class ResidentBodyBudget {
   private held = 0;
 
   constructor(limitBytes: number) {
-    if (!Number.isInteger(limitBytes) || limitBytes < 1) {
+    if (!Number.isInteger(limitBytes) || limitBytes < 1 || limitBytes > Number.MAX_SAFE_INTEGER) {
       throw new RangeError(
-        `requestBodyBudgetBytes is ${String(limitBytes)}, and a resident request-body budget is a positive whole number of bytes`,
+        `requestBodyBudgetBytes is ${String(limitBytes)}, and a resident request-body budget is a positive whole ` +
+        'number of bytes a number can count exactly, at most 9007199254740991.',
       );
     }
     this.limitBytes = limitBytes;

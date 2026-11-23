@@ -15,9 +15,9 @@ plainly where the choice is ours rather than the law's. Two neighbours hold what
 
 `CredentialStore.admit` runs five checks in a fixed order, one bound on the connection and the two bounds on
 bytes that `gateway/src/server.ts` reads at the reader ahead of all five, and two held on the deployment behind
-them. The order is the contract rather than an
-optimization. It sorts by what an answer discloses, not by what a check costs, and it keeps the
-property that makes the difference knowable: a request that fails two of them reports the earlier one.
+them. The order is the contract rather than an optimization. It sorts by what an answer discloses, not by what
+a check costs, and it keeps the property that makes the difference knowable: a request that fails two of them
+reports the earlier one.
 Each check is listed below with what it proves and, in parentheses, the refusal it raises when it
 fails; the bound is described with them, because it answers with one of their codes, the guard is
 described after them, because it is the check that reads the store rather than the credential, and the

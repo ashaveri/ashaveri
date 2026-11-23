@@ -162,14 +162,21 @@ describe('an oversize request body', () => {
     }
   });
 
-  it('refuses to build on a bound the environment states badly, rather than serving the shipped one', async () => {    process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'] = 'not-a-bound';
-    try {
-      await expect(
-        harness({ credentials: [generated(CREDENTIAL, ['complete', 'read'])] }),
-        'a deployment that believes it set a number is not run on another',
-      ).rejects.toThrow(/positive whole number of bytes/u);
-    } finally {
-      delete process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'];
+  it('refuses to build on a bound the environment states badly, rather than serving the shipped one', async () => {
+    // 9007199254740992 is 2^53, one past the widest integer a number counts exactly. It is a legal spelling and
+    // an illegal bound, because past that count the figure reaches a caller printed as an exponent, which is not
+    // the number the caller is being asked to send fewer bytes than.
+    for (const stated of ['not-a-bound', '9007199254740992']) {
+      process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'] = stated;
+      try {
+        await expect(
+          harness({ credentials: [generated(CREDENTIAL, ['complete', 'read'])] }),
+          `a deployment that believes it set ${stated} is not run on another bound, and the refusal names the ` +
+            'variable it set rather than the number the setting was read into',
+        ).rejects.toThrow(new RegExp(`ASHAVERI_REQUEST_BODY_LIMIT_BYTES states '${stated}'`, 'u'));
+      } finally {
+        delete process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'];
+      }
     }
   });
 

@@ -107,9 +107,10 @@ function requestBodyLimitFromEnvironment(): number | undefined {
   const stated = process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'];
   if (stated === undefined || stated.length === 0) return undefined;
   const parsed = Number(stated);
-  if (!Number.isInteger(parsed) || parsed < 1) {
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > Number.MAX_SAFE_INTEGER) {
     throw new RangeError(
-      `ASHAVERI_REQUEST_BODY_LIMIT_BYTES states '${stated}', and a request body bound is a positive whole number of bytes`,
+      `ASHAVERI_REQUEST_BODY_LIMIT_BYTES states '${stated}', and a request body bound is a positive whole number ` +
+      'of bytes a number can count exactly, at most 9007199254740991.',
     );
   }
   return parsed;
@@ -137,7 +138,8 @@ function requestBodyLimitFromEnvironment(): number | undefined {
  * baseline of every one of those cells, 97.3 to 99.1 MiB. It is a property of how a body is read rather than of
  * who is asking: the bytes exist twice while they arrive, once in the chunk-shaped copy the reader accumulates
  * and once in the buffer those chunks are concatenated into, and the ceiling that puts on the process is the same
- * at every body width and every concurrency the sweep ran, in two independent runs. The load it is read from is
+ * at every body width and every concurrency of the 512 MiB grid, which was run twice independently; the 1 GiB
+ * grid was run once and reads 2.03. The load it is read from is
  * 128 MiB bodies and sixteen callers in flight, which arrives at 1035.3 MiB over that baseline where the same
  * load on a build that bounds nothing at the reader reached 4094.8 MiB, and where the same load charged only
  * after each body had all arrived reached 3028.0 MiB.
@@ -163,9 +165,10 @@ function requestBodyBudgetFromEnvironment(): number | undefined {
   const stated = process.env['ASHAVERI_REQUEST_BODY_BUDGET_BYTES'];
   if (stated === undefined || stated.length === 0) return undefined;
   const parsed = Number(stated);
-  if (!Number.isInteger(parsed) || parsed < 1) {
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > Number.MAX_SAFE_INTEGER) {
     throw new RangeError(
-      `ASHAVERI_REQUEST_BODY_BUDGET_BYTES states '${stated}', and a resident request-body budget is a positive whole number of bytes`,
+      `ASHAVERI_REQUEST_BODY_BUDGET_BYTES states '${stated}', and a resident request-body budget is a positive ` +
+      'whole number of bytes a number can count exactly, at most 9007199254740991.',
     );
   }
   return parsed;
@@ -203,9 +206,11 @@ function requestBodyBudgetFromEnvironment(): number | undefined {
  * the answer moved back to the crossing datum that caller is read nothing at all, not a status and not an
  * envelope, and with the drain it is read the `429` in full.
  *
- * What the figure can afford to be generous is what it costs: one socket and no budget bytes, because the
- * drain charges nothing, so a caller that stalls holds a connection for at most this long and holds no part
- * of the resident sum while it does. When the bound expires the answer is still written before the socket
+ * What the figure can afford to be generous is what it costs: one file descriptor and no budget bytes,
+ * because the drain charges nothing, so a caller that stalls holds a connection for at most this long and
+ * holds no part of the resident sum while it does. The refusal is decided ahead of every bucket, so no rate
+ * this process holds bounds how many waiting callers are open at once, and the quantity it does bound is the
+ * process's own limit on descriptors. When the bound expires the answer is still written before the socket
  * goes, which is the whole of the point of writing it at all. `ASHAVERI_REQUEST_BODY_DRAIN_TIMEOUT_MS` or the
  * `requestBodyDrainTimeoutMs` option of `buildGateway` states another for a deployment whose callers arrive
  * more slowly or whose operator wants the sockets gone sooner, and a bound low enough to cut a progressing
@@ -1075,9 +1080,12 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // instance is built because it is the first thing the process does with a caller's bytes.
   const requestBodyLimitBytes =
     options.requestBodyLimitBytes ?? requestBodyLimitFromEnvironment() ?? DEFAULT_REQUEST_BODY_LIMIT_BYTES;
-  if (!Number.isInteger(requestBodyLimitBytes) || requestBodyLimitBytes < 1) {
+  if (!Number.isInteger(requestBodyLimitBytes) || requestBodyLimitBytes < 1 ||
+      requestBodyLimitBytes > Number.MAX_SAFE_INTEGER) {
     throw new RangeError(
-      `requestBodyLimitBytes is ${String(requestBodyLimitBytes)}, and a request body bound is a positive whole number of bytes`,
+      `requestBodyLimitBytes is ${String(requestBodyLimitBytes)}, and a request body bound is a positive whole ` +
+      'number of bytes a number can count exactly, at most 9007199254740991: past that the bound reaches a ' +
+      'caller printed as an exponent, which is not the figure the caller is being asked to stay under.',
     );
   }
 
@@ -1141,7 +1149,8 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   //   the memory was still paid for by the callers that were turned away, because their bytes had all
   //   arrived before any of them was refused. The same load with the charge taken chunk by chunk peaked
   //   at 1,035.3 MiB, and that ceiling sat at 2.05 times the budget at every body width and every
-  //   concurrency in two independent runs. Runtime for all three figures: `v26.13.1` inside
+  //   concurrency of the 512 MiB grid, which was run twice independently. Runtime for all three figures:
+  //   `v26.13.1` inside
   //   `node:26-slim`, which is the deployment platform and not this host's `v26.13.0`.
   //
   // So the question is asked at the chunk that carries the sum past the budget, which is the earliest
@@ -1151,10 +1160,10 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // `requestBodyLimitBytes` beside it.
   app.addHook('preParsing', (request, _reply, payload, done) => {
     // A bodyless method has no arrival to bound, and wrapping its payload would put a reader between a
-    // stream nothing downstream consumes and the socket: `handleRequest` goes straight to the route for
-    // these two methods, so the wrapper's readable side would never be drained and the request would
-    // stall on that backpressure rather than on any decision this process made.
-    if (request.method === 'GET' || request.method === 'HEAD') {
+    // stream nothing downstream consumes and the socket: `fastify` treats GET, HEAD and TRACE as the bodyless
+    // set and goes straight to the route for each of them, so the wrapper's readable side would never be
+    // drained and the request would stall on that backpressure rather than on any decision this process made.
+    if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'TRACE') {
       done(null, payload);
       return;
     }
@@ -1236,9 +1245,9 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         if (!reservation.admitted) {
           // The bytes of this request that did get through are this request's to give back, and the release
           // site already reads the figure off the request's own state, so a refusal partway through an upload
-          // unwinds exactly the part it charged. This line is the whole of the undo, and it is the arm of a
-          // refusal that charges nothing turned into a number: the crossing datum itself was refused, so it
-          // joins no sum, and every datum behind it is dropped above rather than held here.
+          // unwinds exactly the part it charged: the last admitted datum wrote that figure, and the crossing
+          // datum is refused before it joins a sum. Writing it here states that the two numbers are one
+          // quantity; the release would give back the same bytes had this line never been written.
           if (state !== undefined) state.residentBytes = charged;
           refusal = new AccessError('RESIDENT_BODY_BUDGET_EXCEEDED', {
             detail: requestBodyBudgetDetail(residentBodies, reservation, {
@@ -1390,10 +1399,14 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
    * with, the same pair the access line is flushed on for the same reason, and the request's own charge is
    * cleared as it is handed back, which makes the second call give nothing.
    *
-   * Both events are needed and neither covers the other. `finish` says this process wrote a whole answer, which
-   * is every completion, every refusal after the charge, and every upstream failure; `close` says the connection
-   * is done with, which is a client that went away mid-request, a stream that ended early, and a reply that was
-   * hijacked past `onSend`. A request that was never charged reaches this and gives back zero.
+   * `close` is the event that has to be there, and `finish` is the one that runs first: on the runtime these
+   * cells were written against, a response that completes emits `finish` and then `close` on the same object
+   * within the same tick, so `close` covers every case `finish` announces and more, and no assertion this suite
+   * can write tells the two moments apart for a completed answer. `finish` is kept because it frees the bytes as
+   * soon as the answer is flushed rather than after the response object is released, and because a runtime that
+   * ordered them differently, or that ended a response without one of them, is a runtime where the earlier site
+   * is the only thing between a served completion and a budget that stayed spent. A request that was never
+   * charged reaches either site and gives back zero.
    */
   function releaseResidentBytes(request: FastifyRequest): void {
     const state = stateOf(request);
