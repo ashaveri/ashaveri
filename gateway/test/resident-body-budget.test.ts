@@ -1574,17 +1574,17 @@ describe('the size the refusal names of the request it refused', () => {
 
   it('names a declaration past what a number can count as the digits the caller sent', async () => {
     // 9007199254740992 is 2^53, the largest integer a JavaScript number reaches one at a time, and the caller
-    // here declares one past it. The size bound is set to 2^53 so that the declaration is *not* past it, which
-    // is the only way an upload this wide reaches the budget question at all: a length above the bound is
-    // answered by the bound ahead of any charge. Because the declaration outruns the bytes anyone could send,
-    // the upload never reaches its declared end, so the drain bound is what writes this answer and the cell
-    // states one rather than waiting on the shipped 60 seconds.
+    // here declares one past it. The size bound is set two past the declaration, which is the narrowest width
+    // at which an upload this wide still reaches the budget question: a declaration past the bound is answered
+    // by the bound before any datum is charged, and this cell is about what the budget prints. Because the
+    // declaration outruns the bytes anyone could send, the upload never reaches its declared end, so the drain
+    // bound is what writes this answer and the cell states one rather than waiting on the shipped 60 seconds.
     //
     // This is the cell that judges how the header is read rather than whether it is read: a build that turns
     // the digits into a floating-point number before printing them holds 9007199254740992 for both of these
     // figures, and would then be naming a length nobody declared.
     const declared = '9007199254740993';
-    const s = await serving(MEBIBYTE, { limit: 2 ** 53, drain: DRAIN_MS });
+    const s = await serving(MEBIBYTE, { limit: 2 ** 53 + 2, drain: DRAIN_MS });
     const socket = new net.Socket();
     try {
       const port = await connect(s);
@@ -1650,3 +1650,140 @@ describe('the size the refusal names of the request it refused', () => {
   });
 });
 
+
+describe('which bound answers a crossing datum, and whether the caller is told', () => {
+  /**
+   * The port a real upload is written to. Each cell here connects, writes and reads the way a client does,
+   * because the injector hands back the reply object whatever happens to the socket underneath it, and the
+   * defect these cells are written against is invisible exactly there: a refusal this gateway computed and
+   * never delivered is a refusal the caller cannot branch on.
+   */
+  async function listen(s: Serving): Promise<number> {
+    const address = await s.h.app.listen({ port: 0, host: '127.0.0.1' });
+    return Number(new URL(address).port);
+  }
+
+  /** The whole body of an upload of `datums` datums of `width` bytes, and the head that declares it. */
+  function bodyOf(datums: number, width: number): string {
+    return 'x'.repeat(width).repeat(datums);
+  }
+
+  it('tells a chunked caller whose datum crosses the size bound, over the socket that asked', async () => {
+    // The budget is the one a run that states none reads, far above anything this cell sends, so the only
+    // bound this upload meets is the size bound. It is met at a datum, mid-write, which is the arm the
+    // framework's own refusal answers today.
+    const s = await serving(undefined, { limit: 2 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const port = await listen(s);
+      const body = bodyOf((4 * MEBIBYTE) / DATUM, DATUM);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body)));
+      const reading = collectAnswer(socket);
+      for (let index = 0; index < (4 * MEBIBYTE) / DATUM; index += 1) {
+        socket.write(chunkFrame(body.slice(index * DATUM, (index + 1) * DATUM)));
+      }
+      socket.write(FINAL_CHUNK);
+      const answer = await reading;
+      expect(answer.status, 'a body past the bound this process reads is told its bound').toBe(413);
+      expect(answer.code, 'by name').toBe('BODY_TOO_LARGE');
+      expect(answer.reset, 'the caller was given the answer over the socket that asked').toBe(false);
+      await s.waitForResident(0, 'and the refused upload leaves nothing held on the budget');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  it('tells a caller whose declared length is past the bound, over the socket that asked', async () => {
+    // The other shape the same bound is met in: the caller states a length this process will not read, and
+    // then sends the body anyway. What the cell holds this gateway to is the answer, not only the decision.
+    const s = await serving(undefined, { limit: 2 * MEBIBYTE });
+    const socket = new net.Socket();
+    try {
+      const port = await listen(s);
+      const body = bodyOf((4 * MEBIBYTE) / DATUM, DATUM);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      socket.write(declaredHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body), Buffer.byteLength(body, 'utf8')));
+      const reading = collectAnswer(socket);
+      socket.write(body);
+      const answer = await reading;
+      expect(answer.status, 'a declared length past the bound is told its bound').toBe(413);
+      expect(answer.code, 'by name').toBe('BODY_TOO_LARGE');
+      expect(answer.reset, 'and the answer arrives rather than the socket dying').toBe(false);
+      await s.waitForResident(0, 'and no byte of a refused length was ever charged');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  it('answers a datum that crosses both bounds with the bound the caller can act on', async () => {
+    // Budget and size bound set to the same 2,000 bytes and datums of 1,000, so the third datum crosses both
+    // at the instant it arrives. Which of the two answers decides what the caller does next: one is a wait,
+    // and the other is fewer bytes, and a wait for a body no configuration of this process will ever read is
+    // an instruction that cannot be followed.
+    const s = await serving(2_000, { limit: 2_000 });
+    const socket = new net.Socket();
+    try {
+      const port = await listen(s);
+      const body = bodyOf(4, CHUNK);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      socket.write(uploadHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body)));
+      const reading = collectAnswer(socket);
+      for (let index = 0; index < 4; index += 1) {
+        socket.write(chunkFrame(body.slice(index * CHUNK, (index + 1) * CHUNK)));
+      }
+      socket.write(FINAL_CHUNK);
+      const answer = await reading;
+      expect(answer.status, 'the size bound is the answer a both-crossing datum gets').toBe(413);
+      expect(answer.code, 'by name').toBe('BODY_TOO_LARGE');
+      expect(answer.reset, 'and it is delivered').toBe(false);
+      await s.waitForResident(0, 'and the bytes behind the refusal joined no sum');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+
+  it('answers a declared length whose caller stops writing, when the bound on that wait expires', async () => {
+    // A declaration is a promise and not a body: this caller names 4 MiB against a 2 MiB bound, sends eight
+    // kilobytes of it and goes quiet, so there is no end of body left to wait for and the bound is what
+    // answers. A refusal taken at the head is the case the bound exists for, because without it the wait
+    // would belong to a caller that has already stopped talking.
+    const s = await serving(undefined, { limit: 2 * MEBIBYTE, drain: 250 });
+    const socket = new net.Socket();
+    try {
+      const port = await listen(s);
+      const body = bodyOf((4 * MEBIBYTE) / DATUM, DATUM);
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve);
+        socket.once('error', reject);
+        socket.connect(port, '127.0.0.1');
+      });
+      socket.write(declaredHead(s.h.signFor(CREDENTIAL, 'POST', TARGET, body), Buffer.byteLength(body, 'utf8')));
+      const reading = collectAnswer(socket);
+      socket.write(body.slice(0, 8 * 1024));
+      const answer = await reading;
+      expect(answer.status, 'the bound, and not the upload, decides when this caller is told').toBe(413);
+      expect(answer.code, 'by name').toBe('BODY_TOO_LARGE');
+      expect(answer.reset, 'and the answer arrives over the socket that asked').toBe(false);
+      await s.waitForResident(0, 'and a length never sent was never charged either');
+    } finally {
+      socket.destroy();
+      await s.close();
+    }
+  });
+});

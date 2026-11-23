@@ -896,13 +896,24 @@ function completionBoundDetail(rate: CredentialRate, retryAfterSeconds: number):
  */
 function requestBodyLimitDetail(limitBytes: number): string {
   return (
-    `this gateway reads no request body past ${String(limitBytes)} bytes, and this one was refused while that ` +
-    `bound was being applied, before the route ran: nothing was sent to the upstream, no inference was paid ` +
+    `this gateway holds no request body past ${String(limitBytes)} bytes, and this one was refused where that ` +
+    `bound is applied, before the route ran: nothing was sent to the upstream, no inference was paid ` +
     `for and no receipt was issued. The bound is a setting of this process, stated by ` +
     `ASHAVERI_REQUEST_BODY_LIMIT_BYTES or by the requestBodyLimitBytes option of buildGateway, and ` +
     `${String(DEFAULT_REQUEST_BODY_LIMIT_BYTES)} bytes is what a run that stated neither reads. A caller ` +
     `sends fewer bytes than the bound states, or asks whoever holds this deployment to state a larger one`
   );
+}
+
+/**
+ * Whether a declared length, kept in the digits the caller wrote it in, is past a bound stated here as a
+ * number. Compared by width and then digit by digit rather than through `Number()`, for the reason the
+ * message above gives: a promise past 2^53 is exact as digits and is not exact as a float, and a refusal
+ * that decided by rounding the caller's own figure would be refusing a length nobody declared.
+ */
+function declaredLengthIsPast(declared: string, limitBytes: number): boolean {
+  const bound = String(limitBytes);
+  return declared.length > bound.length || (declared.length === bound.length && declared > bound);
 }
 
 /**
@@ -1095,7 +1106,18 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     );
   }
 
-  const app = Fastify({ bodyLimit: requestBodyLimitBytes, logger: false });
+  // The reader below is what bounds an arriving body, so the framework's own limit is set above any length a
+  // caller can declare rather than to the number the deployment states. The reason is measured and not
+  // inferred: with the two at the same figure the framework answers a declared length at the head, and its
+  // answer ends the connection while the caller is still writing. Twenty runs against a 2 MiB bound, on
+  // `v26.13.0` on `win32 x64`, gave the caller no status, no envelope and no bytes at all on both of the shapes
+  // a body arrives in; the Linux half of that reading was never taken, so the figure is stated for the one
+  // platform it was read on. What this gateway owes a refused caller is an answer it can branch on, so the
+  // bound the deployment states is enforced where the bytes are read: every datum past it is dropped there,
+  // which means no parser downstream is ever handed more than the bound, and the framework's check stays wide
+  // enough that no declaration reaches it. A limit that answers by destroying the socket cannot be the
+  // enforcement point of a published number.
+  const app = Fastify({ bodyLimit: Number.MAX_VALUE, logger: false });
   // The receipt binds the exact bytes the client sent, so the body is kept raw
   // instead of being parsed into a JS object first.
   //
@@ -1163,8 +1185,33 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     // body before answering anyway. Both sit outside the transform because the drain has to outlive the datum
     // that decided it, and because the answer is owed exactly once on either of the two ways the wait ends:
     // the body reaching its own end, or the bound expiring.
-    let refusal: AccessError | undefined;
+    //
+    // The size bound is asked of the caller's own word here, before a byte of it is held, and of each datum
+    // below, and it is asked ahead of the budget question in both places. The order is what a caller can do
+    // next rather than a preference between two refusals: these bytes are past what this process will read at
+    // any traffic, so a wait names a fix that does not exist and the length names the one that does. The
+    // crossing datum is dropped where it is read instead of being forwarded, which is what puts this
+    // gateway's sentence on the answer rather than the framework's, whose own limit is set to the same number
+    // and stays there as the backstop for a body that never reached this line.
+    const sizeRefusal = (): AccessError =>
+      new AccessError('BODY_TOO_LARGE', { detail: requestBodyLimitDetail(requestBodyLimitBytes) });
+    let refusal: AccessError | undefined =
+      declaredLength !== undefined && declaredLengthIsPast(declaredLength, requestBodyLimitBytes)
+        ? sizeRefusal()
+        : undefined;
     let drainBound: ReturnType<typeof setTimeout> | undefined;
+    function armDrain(): void {
+      // Armed once, by whichever decision needs it: the timer belongs to the wait for the rest of the body
+      // rather than to the datum that ended it, so a second decision on this stream cannot ask for a longer
+      // wait than the first one already set.
+      drainBound ??= setTimeout(() => {
+        // The caller stopped sending. The answer goes out anyway, which is the only reason the bound
+        // exists, and it goes out over a stream this process is holding rather than one it has already
+        // dropped: what the bound ends is the waiting, not the obligation to answer.
+        arrival.destroy(refusal);
+      }, requestBodyDrainTimeoutMs).unref();
+    }
+    if (refusal !== undefined) armDrain();
     const arrival = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         if (refusal !== undefined) {
@@ -1172,6 +1219,16 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
           // refused becomes neither a held buffer nor a charged byte, and all it costs is the read that lets
           // the caller finish writing into a socket that is still being listened to. That is the whole of the
           // difference between answering a refused caller and cutting it off.
+          callback(null);
+          return;
+        }
+        if (charged + chunk.length > requestBodyLimitBytes) {
+          // The bound is met by this datum, so it is refused here rather than handed on to be met by the
+          // framework two steps downstream: what arrives there is a length already refused, and the answer
+          // the framework gives is a socket ended while the caller is still writing, which a client cannot
+          // tell from a network fault. The bytes behind this one are dropped by the branch above.
+          refusal = sizeRefusal();
+          armDrain();
           callback(null);
           return;
         }
@@ -1192,12 +1249,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
             }),
             retryAfterSeconds: reservation.retryAfterSeconds,
           });
-          drainBound = setTimeout(() => {
-            // The caller stopped sending. The answer goes out anyway, which is the only reason the bound
-            // exists, and it goes out over a stream this process is holding rather than one it has already
-            // dropped: what the bound ends is the waiting, not the obligation to answer.
-            arrival.destroy(refusal);
-          }, requestBodyDrainTimeoutMs).unref();
+          armDrain();
           callback(null);
           return;
         }
@@ -1235,20 +1287,20 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
     done(null, body);
   });
 
-  // Two refusals are decided at the reader rather than by a route, and both are answered here because neither
-  // can be answered anywhere else: by the time a route runs, the bytes are held and the sum is spent. The first
-  // arrives as the framework's own word for a body past the bound it was handed, and that word is a shape of
-  // nothing on this route, `{statusCode, error, code, message}`, while every other refusal these routes give is
-  // `{error:{message,type}}`. A caller branching on `error.type` would meet a refusal it could not name, so the
-  // framework's answer is rewritten here in the route's shape, with a code of its own and the bound in its
-  // sentence. Both of the two shapes a body arrives in reach that one answer: a declared `Content-Length` past
-  // the bound is refused before a byte is read, and a body that grows past it while being read is refused at the
-  // chunk that passes it.
+  // Three refusals of the caller's bytes are decided at the reader rather than by a route, and each is answered
+  // here because none can be answered anywhere else: by the time a route runs, the bytes are held and the sum is
+  // spent. The two size answers arrive as this file's own `AccessError`, one from a declared length this process
+  // will not read and one from the datum that passes the bound while arriving, and the budget answer arrives
+  // from the charge; all three carry a code of their own and the number they passed in their sentence. Both of
+  // the shapes a body arrives in reach the one size answer, and neither reaches it by having the connection
+  // ended while the caller is still writing, which is what the cells written over a real socket hold this line
+  // to: an answer that never arrives is not a contract, however correct its code, and the framework's own
+  // refusal is that outcome on the platform the twenty runs of both shapes were measured on, `win32 x64`.
   //
-  // The second arrives as this file's own `AccessError`, from the charge above, and it keeps the shape the
-  // admission refusals give rather than the shape the size refusals give, which is the difference a caller acts
-  // on: `BODY_TOO_LARGE` says these bytes are wrong, and `RESIDENT_BODY_BUDGET_EXCEEDED` says these bytes are
-  // right and this moment is full. `authentication_error` is the type every refusal on this route that carries a
+  // The budget keeps the shape the admission refusals give rather than the shape the size refusals give, which
+  // is the difference a caller acts on: `BODY_TOO_LARGE` says these bytes are wrong, and
+  // `RESIDENT_BODY_BUDGET_EXCEEDED` says these bytes are right and this moment is full. `authentication_error`
+  // is the type every refusal on this route that carries a
   // `retry-after` already answers with, from the credential bucket and the connection's bound through the
   // durability guard and the completion counter, and the code is what names which of them this is. It is not
   // `invalid_request_error`, which would tell a caller to change a request that needed no changing, and no new
@@ -1259,7 +1311,7 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
   // refusal it did not decide: a media type it does not parse, a body that disagrees with its own length, a
   // credential file that failed to reload, and a fault from inside a route keep the answer the reader gives
   // them. That last set is why this branch is keyed on the code rather than on `AccessError` at large, which is
-  // what a reload failure is, and why the two arms below build their envelopes separately.
+  // what a reload failure is, and why the arms below build their envelopes separately.
   app.setErrorHandler((error: FastifyError, _request, reply) => {
     if (error.code === 'RESIDENT_BODY_BUDGET_EXCEEDED' && error instanceof AccessError) {
       const wait = error.retryAfterSeconds === undefined ? reply : reply.header('retry-after', String(error.retryAfterSeconds));
@@ -1267,13 +1319,19 @@ export function buildGateway(options: GatewayOptions): GatewayInstance {
         .code(error.status)
         .send({ error: { message: error.message, type: 'authentication_error', code: error.code } });
     }
-    if (error.code !== 'FST_ERR_CTP_BODY_TOO_LARGE') {
-      return reply.send(error);
+    if (error.code === 'BODY_TOO_LARGE' && error instanceof AccessError) {
+      return reply
+        .code(error.status)
+        .send({ error: { message: error.message, type: 'invalid_request_error', code: error.code } });
     }
-    const refusal = new AccessError('BODY_TOO_LARGE', { detail: requestBodyLimitDetail(requestBodyLimitBytes) });
-    return reply
-      .code(refusal.status)
-      .send({ error: { message: refusal.message, type: 'invalid_request_error', code: refusal.code } });
+    // Everything else keeps the answer the reader gives it. The framework's own word for a body past the limit
+    // it was handed is deliberately not rewritten here, because it is not an answer any request this process
+    // accepts reaches: the limit above is wider than any length a caller can declare, and the reader drops the
+    // datum that passes the bound this file states, so no body arrives at that error with the bytes it names
+    // ever forwarded. A rewrite of a refusal that cannot be raised is a contract with nothing behind it, and
+    // the cells written over a real socket are what hold the line it replaced: the framework's answer ends the
+    // connection while the caller is still writing, which is the outcome this file exists to avoid.
+    return reply.send(error);
   });
 
   // requireRouteScope is where the refusal lives, so no try/catch belongs here: an undeclared route

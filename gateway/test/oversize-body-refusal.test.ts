@@ -60,11 +60,11 @@ async function send(h: Harness, body: string): Promise<Answer> {
 }
 
 describe('an oversize request body', () => {
-  it('refuses a declared content-length past the bound, before reading it, in the shape the route refuses in', async () => {
+  it('refuses a declared content-length past the bound, before any of it is held, in the shape the route refuses in', async () => {
     const h = await gatewayReading(LIMIT_BYTES);
     const body = requestBody(LIMIT_BYTES + 512);
     const answer = await send(h, body);
-    expect(answer.statusCode, 'bytes past the bound this process reads are refused').toBe(413);
+    expect(answer.statusCode, 'bytes past the bound this process holds are refused').toBe(413);
     expect(refusalOf(answer)).toMatchObject({
       type: 'invalid_request_error',
       code: 'BODY_TOO_LARGE',
@@ -110,8 +110,9 @@ describe('an oversize request body', () => {
       url: '/v1/chat/completions',
       headers: {
         'content-type': 'application/json',
-        // The header is the whole of the request this cell needs: a declared length past the bound is
-        // refused before a byte is read, so the shipped figure is proved without sending it.
+        // The header is the whole of the request this cell needs: a declared length past the bound is refused
+        // where that header is read, before any of the body it promises is held, so the shipped figure is
+        // proved without sending a body at all.
         'content-length': String(SHIPPED_LIMIT_BYTES + 1),
         ...h.signFor(CREDENTIAL, 'POST', '/v1/chat/completions', null),
       },
