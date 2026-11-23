@@ -115,24 +115,43 @@ function requestBodyLimitFromEnvironment(): number | undefined {
   return parsed;
 }
 /**
- * What a run that named no resident request-body budget reads: 512 MiB of request bodies held at once, which is
- * four of the largest bodies this gateway will read.
+ * What a run that named no resident request-body budget reads: 384 MiB of request bodies held at once, which is
+ * three of the largest bodies this gateway will read.
  *
- * The figure is arithmetic on the two numbers beside it and not a measurement. It says that one process will
- * hold up to four bodies of `DEFAULT_REQUEST_BODY_LIMIT_BYTES` at once, and it keeps nothing outside that sum
- * for the copies the serving path makes while it digests and forwards the bytes, nor for the answer coming back
- * from the upstream, which `MAX_BUFFERED_BODY` bounds rather than this constant. What a held body really costs
- * this process beyond its own bytes, and how many of them a process can hold before holding stops being what
- * limits it, are a concurrency question, and no run of it is recorded in this repository: the memory one
- * deployment is given is another, and the deployment text this repository publishes states neither.
+ * The figure is arithmetic on a measured multiple and on the memory a deployment is given, and both of those are
+ * stated here so that anyone who wants a different number can re-derive it. The rule is that a process holding
+ * this budget peaks at the factor times the budget plus the cost of the process before a byte arrives, so a
+ * container limit that reads the resident set clears the budget exactly when the product and the sum fit inside
+ * it: the budget is at most `(L - 98) / 2.05` for a container of `L` MiB. At the 1 GiB this default is derived
+ * for that is 451.7 MiB, and three whole bodies of `DEFAULT_REQUEST_BODY_LIMIT_BYTES` is 384 MiB, which is the
+ * figure shipped. Rounding down to whole bodies is deliberate: a budget is only worth holding if the widest body
+ * this gateway admits fits inside it on its own, and the same arithmetic against the worst factor measured, 2.12
+ * rather than 2.05, gives 436.8 MiB and still lands on three bodies, so the shipped number does not turn on which
+ * reading of the factor is taken. A deployment given 1.5 GiB is 701.5 MiB and five bodies, 640 MiB; at 2 GiB it is
+ * 951.2 MiB and seven bodies, 896 MiB.
  *
- * So an operator reads this as a ceiling on request bodies held, chosen so that a deployment knows what it has
- * agreed to and can raise or lower it against the memory it actually has, and not as a capacity figure this
- * build measured. A deployment with less memory than four such bodies and the copies they cost states a smaller
- * budget, and the refusals move from the caller's wait to the operator's number, which is the point of the
- * number existing at all.
+ * The factor is the resident bytes a budget byte costs at the plateau of an arrival-bounded reader, measured
+ * inside `node:26-slim` at `v26.13.1`, which is the platform deployments run on and not the host this file is
+ * written on. It is 2.05 as the centre of the cells that decide it, 2.07 at a 512 MiB budget and 2.03 at a 1 GiB
+ * one, from a spread of 2.02 to 2.12 across the measurements it was taken from; the 98 MiB beside it is the
+ * baseline of every one of those cells, 97.3 to 99.1 MiB. It is a property of how a body is read rather than of
+ * who is asking: the bytes exist twice while they arrive, once in the chunk-shaped copy the reader accumulates
+ * and once in the buffer those chunks are concatenated into, and the ceiling that puts on the process is the same
+ * at every body width and every concurrency the sweep ran, in two independent runs. The load it is read from is
+ * 128 MiB bodies and sixteen callers in flight, which arrives at 1035.3 MiB over that baseline where the same
+ * load on a build that bounds nothing at the reader reached 4094.8 MiB, and where the same load charged only
+ * after each body had all arrived reached 3028.0 MiB.
+ *
+ * What the number is not has to be read with it, because the two are easy to confuse. It is not a measurement of
+ * the traffic a deployment will see and it does not say how many requests this process can serve: it bounds the
+ * bytes one process holds, derived from the memory a deployment is given, and no run recorded in this repository
+ * measured the load that would fill it. Nor does it reach the copies the serving path makes while it digests and
+ * forwards the bytes or the answer coming back from the upstream, which `MAX_BUFFERED_BODY` bounds rather than
+ * this constant. A deployment given less memory than this one states a smaller budget from the same arithmetic,
+ * and the refusals move from the caller's wait to the operator's number, which is the point of the number
+ * existing at all.
  */
-export const DEFAULT_REQUEST_BODY_BUDGET_BYTES = 512 * 1024 * 1024;
+export const DEFAULT_REQUEST_BODY_BUDGET_BYTES = 384 * 1024 * 1024;
 /**
  * The budget this deployment's own environment states, or nothing where it states none. Read the same three
  * ways as the bound above it, for the same reasons: the option belongs to a library caller who knows what it
