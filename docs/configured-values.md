@@ -199,6 +199,35 @@ the bytes coming back. A streamed completion is bounded on the ask side instead,
 for one body and by `DEFAULT_REQUEST_BODY_BUDGET_BYTES` for how many of them are resident at once, and those two
 refusals are answered 413 and 429 before a byte of an answer exists rather than 413 after one has been paid for.
 
+What this process gives back and what the allocator gives back are two different figures, and a container limit
+reads the second. The readings below were taken inside `node:26-slim`, the same family of Debian slim base the
+published image is built on, from a run of sixteen callers each uploading a 128 MiB body. Such a body is made of
+two allocation classes: the concatenated copy is above the C library's mmap threshold, so it is its own mapping
+and `munmap` returns it the moment the request dies, while the 64 KiB datums it arrived in come from the heap,
+and a freed block there moves into the allocator's bins rather than back to the kernel. A reader that decides the
+budget only after a whole body has arrived was left holding 2,113.7 MiB after a forced collect against 0.3 MiB of
+bytes still reachable, the kernel listing 2,024.6 MiB of that as one `[heap]` mapping. A reader that charges as
+the bytes arrive, which is what this gateway does, bounds how many datums exist at once and settled at 529.2 MiB
+of heap on the same load. The retained figure therefore tracks the budget rather than the traffic, which is why
+the derivation above sizes a deployment from the peak and not from what one request can be shown to hold.
+
+Three settings were tried against that retention and one moved it. `MALLOC_MMAP_THRESHOLD_=65536` puts every
+64 KiB datum above the threshold at which an allocation is its own mapping, so it is returned when it dies: the
+same load settled at 133.2 MiB instead of 2,113.7 MiB, with the heap at 45.7 MiB. `MALLOC_ARENA_MAX=1`, the usual
+container advice, changed nothing beyond 3 MiB, because Node's JavaScript runs on one thread and every datum was
+already in the main arena; `MALLOC_TRIM_THRESHOLD_=0` beside `MALLOC_TOP_PAD_=0` changed nothing beyond 10 MiB,
+because the heap shrinks only from its top and the freed blocks sit in bins below it. Two things about the setting
+that did move it are unmeasured and are stated rather than smoothed over. It was read against the reader that
+charges after arrival, so what it adds to a gateway that already bounds arrival is not known; and it turns every
+datum into an `mmap` and a `munmap`, 2,048 pairs for a 128 MiB body, which was not timed. It is a knob for the
+floor a settled process sits at, and the multiple the budget is derived from is the default allocator's peak, so
+setting it moves no figure in the arithmetic above.
+
+This variable is not a row in the tables, and the reason is a rule rather than an omission: a test holds those
+tables to naming exactly the settings a shipped file reads or substitutes, and no shipped file reads or
+substitutes `MALLOC_MMAP_THRESHOLD_`. The allocator reads it, and an operator states it in the container's
+environment beside the variables section 3 names.
+
 ## 3. Environment settings the operator declares
 
 Class: the operator's to declare. These are read from the process environment rather than from a

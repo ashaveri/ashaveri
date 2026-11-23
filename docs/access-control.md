@@ -111,10 +111,11 @@ rate and the completion counter are rate limits with a refill an arithmetic can 
 token appears. This is a capacity bound: what frees it is other requests finishing, which is an event on a
 duration nothing in this process observes. Its `retry-after` is therefore a floor rather than a measurement, and
 where one body is past the whole budget on its own the answer states no wait at all, because no traffic would make
-room for it. What is charged is what the reader actually holds once the body is complete, not what the caller
-declared, so a request that lies about its `Content-Length` reserves the bytes that arrived; the bytes were read
-before the charge was decided, so the peak of one request can stand a body above the budget, and that overshoot is
-bounded by the size bound beside it. The charge is given back once on the two events a response's death is
+room for it. What is charged is what the reader has taken in, datum by datum as it arrives, and not what the
+caller declared, so a request that lies about its `Content-Length` is bounded by the bytes that came. The charge
+is taken before the datum is handed on, so the one that crosses is refused without joining the sum and the rest
+of that upload is read and dropped: what a refused upload can put beyond the budget is the width of the datum
+being read, and no more. The charge is given back once on the two events a response's death is
 announced with, `finish` and `close`, which covers a completion, a refusal after the charge, an upstream failure,
 a client that went away mid-request and a stream that ended early; what holds the integer is process memory and
 nothing else, so it is no one's record and survives no restart.
