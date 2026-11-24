@@ -320,6 +320,10 @@ describe('the status a refusal answers with', () => {
     // server's answer. `test/oversize-response-refusal.test.ts` holds that shape, and the reason it is not a
     // 5xx is on the map in `src/access.ts` that this table is written against.
     RESPONSE_TOO_LARGE: 413,
+    // A fourth 429, and the one whose `retry-after` is a floor rather than a refill time: this refusal is a
+    // capacity bound on bytes held at once, and what frees them is other requests finishing. The two arms, the
+    // wait and its absence, are held by `test/resident-body-budget.test.ts`.
+    RESIDENT_BODY_BUDGET_EXCEEDED: 429,
   } satisfies Record<AccessErrorCode, number>;
 
   type StatusRow = readonly [code: AccessErrorCode, status: number];

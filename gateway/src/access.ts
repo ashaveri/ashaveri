@@ -60,13 +60,15 @@ export type AccessErrorCode =
   // said it cannot write a receipt this fast. The quantity is completions a minute for this process, in the
   // unit the per-address bound is stated in, so the two read against each other.
   | 'DEPLOYMENT_RATE_LIMITED'
-  // The answer for a body this process will not read, and the one on this union that a request is given
-  // before the pipeline runs: the bound decides what the reader takes in, so no credential was named, no
-  // route body was reached, nothing was forwarded and no receipt was issued. It joins this union rather than
-  // staying the framework's own word because the caller-facing contract is one shape and one vocabulary for
-  // every refusal this gateway gives a request, and a deployer reading a code needs one name for the size
-  // bound rather than a second for whichever component enforces it. `gateway/src/server.ts` holds the bound,
-  // reads the setting that states it, and writes the answer.
+  // The answer for a body this process will not hold, and the first of the two answers a request is given
+  // before the pipeline runs: the bound is asked of the caller's declared length and then of every datum as it
+  // arrives, and the datum that passes it is dropped where it is read instead of being forwarded, so the answer
+  // is this gateway's own word and not one the framework gives by ending the connection mid-write. No credential
+  // was named, no route body was reached, nothing was forwarded and no receipt was issued. It joins this union
+  // rather than staying the framework's own word because the caller-facing contract is one shape and one
+  // vocabulary for every refusal this gateway gives a request, and a deployer reading a code needs one name for
+  // the size bound rather than a second for whichever component enforces it. `gateway/src/server.ts` holds the
+  // bound, reads the setting that states it, enforces it at the arrival and writes the answer.
   | 'BODY_TOO_LARGE'
   // The other size bound, on the other side of the exchange: what this process will hold of an inference
   // server's answer. It joins this union because a caller branching on `error.code` needs one vocabulary for
@@ -76,7 +78,21 @@ export type AccessErrorCode =
   // be a 5xx: the tables in both documents, and the reader that holds them to `ERROR_STATUS`, take every 5xx
   // on this union to be a credential-file refusal no request is answered with, and this one is. What is short
   // is a bound this build ships, not a broken installation, and the caller holds half of the fix.
-  | 'RESPONSE_TOO_LARGE';
+  | 'RESPONSE_TOO_LARGE'
+  // The bound on what this process holds of several request bodies at once, rather than on the size of one of
+  // them, and the other of the two answers a caller is given at the reader before any credential is named. It is
+  // asked of a datum only once that datum has passed the size bound above it, which is what earns the sentence a
+  // refusal here states: these bytes are of a width this process would read, and what is full is the room it
+  // keeps for them. It joins this union because the caller's action differs from `BODY_TOO_LARGE`'s in kind:
+  // waiting is the whole of what a caller holds here, while `BODY_TOO_LARGE` is a length no wait moves. It is
+  // not folded into `RATE_LIMITED` or
+  // `DEPLOYMENT_RATE_LIMITED` for the reason those two are not folded into each other either: those are buckets
+  // with a refill the operator set and a wait computed from it, and this is a capacity bound whose wait is a
+  // floor rather than a measurement, which is a fact a caller branching on `error.code` has to read off the
+  // answer rather than infer from a status three different mechanisms share. `gateway/src/server.ts` holds the
+  // budget, reads the setting that states it, charges it and writes the answer; `gateway/src/resident-body.ts`
+  // holds the arithmetic on the one integer.
+  | 'RESIDENT_BODY_BUDGET_EXCEEDED';
 
 /**
  * What the access log records: every code a caller can be told, plus the reasons that never leave this
@@ -132,6 +148,14 @@ const ERROR_STATUS: Record<AccessErrorCode, number> = {
   // map is read against, and this code is answered to a request. What is short is a bound this build ships
   // rather than a broken installation, and the caller holds half of the fix.
   RESPONSE_TOO_LARGE: 413,
+  // 429, and not 413: these bytes are inside the bound this process reads, they were taken in by a reader that
+  // was right to take them, and what is full is the room this process keeps for bodies in flight. A caller told
+  // its own request is oversize would go and cut it up, which is not the fix here; a caller told to wait is told
+  // the truth. Nor a 5xx: this union's 500s are the credential-file refusals no request is answered with, and
+  // `503` would report an installation that is down on a process that is serving, refusing one question and
+  // answering every other. This is the fourth answer with a `retry-after` and the first whose figure is a floor
+  // rather than a refill time, which is what the row above the union declaration is about.
+  RESIDENT_BODY_BUDGET_EXCEEDED: 429,
 };
 
 const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
@@ -159,15 +183,20 @@ const ERROR_MESSAGE: Record<AccessErrorCode, string> = {
   // in `server.ts` appends the two configured numbers and the wait, because a refusal that named none of
   // them would read as a wall rather than as a number an operator can move.
   DEPLOYMENT_RATE_LIMITED: 'this deployment admits no completion past the rate it sets for itself',
-  // The fixed half says what this gateway will not read; the raise site in `server.ts` appends the bound this
+  // The fixed half says what this gateway will not hold; the raise site in `server.ts` appends the bound this
   // process holds, where it comes from and what the refusal left undone, because a 413 that named no number
   // would send a caller back with slightly fewer bytes and no idea which number moved.
-  BODY_TOO_LARGE: 'this gateway reads no request body past the bound it is configured with',
+  BODY_TOO_LARGE: 'this gateway holds no request body past the bound it is configured with',
   // The same discipline as the row above, on the answer rather than the ask: the fixed half says what this
   // gateway will not hand back, and the raise site in `collect` appends the bound, the size this one reached,
   // and the one thing a caller can do about it, because a refusal that named no figure would leave a caller
   // asking the same deployment for the same oversized answer.
   RESPONSE_TOO_LARGE: 'this gateway returns no completion whose body is past the bound it will hold',
+  // The same discipline as the two rows above it, on a third quantity: this half says what this gateway will not
+  // hold at once, and the raise site in `server.ts` appends the budget, what is resident now, what this request
+  // asked for and which of the two waits a caller can act on, because a 429 that named none of those would read
+  // as the traffic this process could not serve rather than as a number an operator moves.
+  RESIDENT_BODY_BUDGET_EXCEEDED: 'this gateway holds no more request-body bytes at once than the budget it is configured with',
 };
 
 /**

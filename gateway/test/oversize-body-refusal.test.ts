@@ -1,13 +1,19 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_REQUEST_BODY_LIMIT_BYTES } from '../src/server.js';
 import { generated, harness, type Harness } from './helpers.js';
 
 const CREDENTIAL = 'oversize';
 const MODEL = 'mock-model-1';
 /** The bound these two cells state, held small so a case about the bound costs kilobytes and not megabytes. */
 const LIMIT_BYTES = 4096;
-/** What a run that states no bound reads, repeated here as the number the refusal has to print. */
-const SHIPPED_LIMIT_BYTES = 16 * 1024 * 1024;
+/**
+ * What a run that states no bound reads. Read off the constant rather than repeated as a figure: the cell
+ * below asks what number this process holds when nobody named one, and a literal here would answer its own
+ * question. A rename or a raise of the shipped bound has to move the expectation with it, and this is the
+ * only way that shows up rather than passing quietly.
+ */
+const SHIPPED_LIMIT_BYTES = DEFAULT_REQUEST_BODY_LIMIT_BYTES;
 
 /** A body of whole bytes, long enough to be a request rather than a header: only its length is read. */
 function requestBody(bytes: number): string {
@@ -54,11 +60,11 @@ async function send(h: Harness, body: string): Promise<Answer> {
 }
 
 describe('an oversize request body', () => {
-  it('refuses a declared content-length past the bound, before reading it, in the shape the route refuses in', async () => {
+  it('refuses a declared content-length past the bound, before any of it is held, in the shape the route refuses in', async () => {
     const h = await gatewayReading(LIMIT_BYTES);
     const body = requestBody(LIMIT_BYTES + 512);
     const answer = await send(h, body);
-    expect(answer.statusCode, 'bytes past the bound this process reads are refused').toBe(413);
+    expect(answer.statusCode, 'bytes past the bound this process holds are refused').toBe(413);
     expect(refusalOf(answer)).toMatchObject({
       type: 'invalid_request_error',
       code: 'BODY_TOO_LARGE',
@@ -104,8 +110,9 @@ describe('an oversize request body', () => {
       url: '/v1/chat/completions',
       headers: {
         'content-type': 'application/json',
-        // The header is the whole of the request this cell needs: a declared length past the bound is
-        // refused before a byte is read, so the shipped figure is proved without sending sixteen megabytes.
+        // The header is the whole of the request this cell needs: a declared length past the bound is refused
+        // where that header is read, before any of the body it promises is held, so the shipped figure is
+        // proved without sending a body at all.
         'content-length': String(SHIPPED_LIMIT_BYTES + 1),
         ...h.signFor(CREDENTIAL, 'POST', '/v1/chat/completions', null),
       },
@@ -155,14 +162,21 @@ describe('an oversize request body', () => {
     }
   });
 
-  it('refuses to build on a bound the environment states badly, rather than serving the shipped one', async () => {    process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'] = 'not-a-bound';
-    try {
-      await expect(
-        harness({ credentials: [generated(CREDENTIAL, ['complete', 'read'])] }),
-        'a deployment that believes it set a number is not run on another',
-      ).rejects.toThrow(/positive whole number of bytes/u);
-    } finally {
-      delete process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'];
+  it('refuses to build on a bound the environment states badly, rather than serving the shipped one', async () => {
+    // 9007199254740992 is 2^53, one past the widest integer a number counts exactly. It is a legal spelling and
+    // an illegal bound, because past that count the figure reaches a caller printed as an exponent, which is not
+    // the number the caller is being asked to send fewer bytes than.
+    for (const stated of ['not-a-bound', '9007199254740992']) {
+      process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'] = stated;
+      try {
+        await expect(
+          harness({ credentials: [generated(CREDENTIAL, ['complete', 'read'])] }),
+          `a deployment that believes it set ${stated} is not run on another bound, and the refusal names the ` +
+            'variable it set rather than the number the setting was read into',
+        ).rejects.toThrow(new RegExp(`ASHAVERI_REQUEST_BODY_LIMIT_BYTES states '${stated}'`, 'u'));
+      } finally {
+        delete process.env['ASHAVERI_REQUEST_BODY_LIMIT_BYTES'];
+      }
     }
   });
 
